@@ -1,0 +1,25 @@
+# License
+
+Copyright (c) 2026 AgingGliders
+
+The AgingGliders recorder firmware application code and project-owned
+documentation are licensed for non-commercial use under the PolyForm
+Noncommercial License 1.0.0.
+
+SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
+Commercial use is not permitted without prior written permission from
+AgingGliders. Commercial use includes, but is not limited to, selling devices,
+firmware, source code, derived recorder products, or services based on this
+software.
+
+The full PolyForm Noncommercial License 1.0.0 text is available from the
+PolyForm Project and is identified by the SPDX license identifier above.
+
+Third-party libraries and tools used by this project remain under their own
+licenses. This license applies only to AgingGliders project-owned application
+code and documentation unless a file states otherwise.
+
+See THIRD_PARTY_NOTICES.md and THIRD_PARTY_VERSIONS.md for the current list of
+identified third-party components, license information, versions, and source
+locations used by this release.
