@@ -145,7 +145,15 @@ SD LOW
 
 This means SD free space is below the configured threshold. Archiving does not solve this, because moving files to `/processed` does not free SD memory.
 
-## 9. Licensing
+## 9. Artificial Intelligence Assistance
+
+This project was developed with significant assistance from artificial intelligence tools.
+
+AI contributed substantially to the architecture and coding of some software areas, including the graphical user interface and Web services. For core recorder functions, including the state machines, helper layers, abstraction layers, and overall system architecture, the design decisions and implementation remained under developer control. In those areas, AI was still used to review, clean, reorganize, homogenize naming and comments, identify issues, and propose corrections.
+
+Overall, AI was instrumental in producing an operational demonstrator in approximately two weeks and in helping mature the firmware into a first-release candidate in less than four months.
+
+## 10. Licensing
 
 Project-owned AgingGliders recorder firmware code is licensed for non-commercial use under:
 
@@ -166,7 +174,7 @@ THIRD_PARTY_VERSIONS.md
 
 Third-party libraries remain under their own licenses and are not relicensed by AgingGliders.
 
-## 10. Commercial Licensing Contact
+## 11. Commercial Licensing Contact
 
 For commercial licensing, contact:
 
