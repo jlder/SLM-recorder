@@ -15,6 +15,7 @@
 #include <stdio.h>
 
 #include <WiFi.h>
+#include <new>
 #include <ESPAsyncWebServer.h>
 
 #include "src/tasks/html_interface.h"
@@ -89,27 +90,50 @@ static bool web_single_client_allow(AsyncWebServerRequest* req) {
 }
 
 // SD busy guard: prevents concurrent SD endpoints (e.g., download + list/delete).
+// The stale timeout is a last-resort recovery if an async download cleanup hook
+// is lost because of a library/client abort edge case.
+#ifndef WEB_SD_BUSY_STALE_MS
+#define WEB_SD_BUSY_STALE_MS 30000u
+#endif
+
 static volatile bool s_web_sd_busy = false;
+static uint32_t s_web_sd_busy_since_ms = 0u;
+
 /**
- * Performs web sd try begin for SD storage, recording files, or SD-backed web
- * file management while preserving SD ownership rules.
+ * Attempts to enter the Web SD critical section.
  *
  * Inputs: None.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
+ * Returns: `true` when SD access is reserved for the caller; otherwise `false`.
  */
 static bool web_sd_try_begin(void) {
-  if (s_web_sd_busy) return false;
+  const uint32_t now = (uint32_t)millis();
+
+  if (s_web_sd_busy) {
+    if ((now - s_web_sd_busy_since_ms) > (uint32_t)WEB_SD_BUSY_STALE_MS) {
+      // Last-resort recovery.  Normal cleanup is owned by endpoint scope
+      // destructors or by the download onDisconnect hook.
+      s_web_sd_busy = false;
+      s_web_sd_busy_since_ms = 0u;
+    } else {
+      return false;
+    }
+  }
+
   s_web_sd_busy = true;
+  s_web_sd_busy_since_ms = now;
   return true;
 }
+
 /**
- * Performs web sd end for SD storage, recording files, or SD-backed web file
- * management while preserving SD ownership rules.
+ * Leaves the Web SD critical section.
  *
  * Inputs: None.
  * Returns: None.
  */
-static void web_sd_end(void) { s_web_sd_busy = false; }
+static void web_sd_end(void) {
+  s_web_sd_busy = false;
+  s_web_sd_busy_since_ms = 0u;
+}
 
 struct WebSdBusyScope {
   bool engaged;
@@ -443,18 +467,20 @@ static void register_routes_once(){
 
   // Raw view for debugging: returns the SD task JSON array directly
 struct WebDownloadCtx {
-  String path;
+  String   path;
   uint32_t size;
-  bool released;
+  bool     released;
+
   WebDownloadCtx(const String& p, uint32_t s)
       : path(p), size(s), released(false) {}
+
   /**
-   * @brief Release busy once.
+   * Releases the Web SD busy flag once for this download context.
    *
    * Inputs: None.
    * Returns: None.
    */
-  void release_busy_once() {
+  void release_busy_once(void) {
     if (!released) {
       released = true;
       web_sd_end();
@@ -463,15 +489,24 @@ struct WebDownloadCtx {
 };
 
 s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
-    if (!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
-    if (!web_sd_try_begin()) { request->send(409, "text/plain", "BUSY"); return; }
+    if (!web_single_client_allow(request)) {
+      request->send(409, "text/plain", "BUSY");
+      return;
+    }
 
-    if(!sd_files_is_authorized()){
+    if (!web_sd_try_begin()) {
+      request->send(409, "text/plain", "BUSY");
+      return;
+    }
+
+    // From this point onward, every early return must release the SD busy lock.
+    if (!sd_files_is_authorized()) {
       web_sd_end();
       request->send(403, "text/plain", "not authorized");
       return;
     }
-    if(!request->hasParam("file")){
+
+    if (!request->hasParam("file")) {
       web_sd_end();
       request->send(400, "text/plain", "missing file");
       return;
@@ -479,10 +514,12 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
 
     String file = request->getParam("file")->value();
     String path = file;
-    if(!path.startsWith("/")) path = String("/") + path;
+    if (!path.startsWith("/")) {
+      path = String("/") + path;
+    }
 
     uint32_t file_size = 0u;
-    if(!sd_files_get_file_size(path.c_str(), &file_size)){
+    if (!sd_files_get_file_size(path.c_str(), &file_size)) {
       web_sd_end();
       request->send(404, "text/plain", "not found");
       return;
@@ -493,8 +530,8 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
       file = file.substring(slash + 1);
     }
 
-    WebDownloadCtx *ctx = new WebDownloadCtx(path, file_size);
-    if(ctx == nullptr){
+    WebDownloadCtx *ctx = new (std::nothrow) WebDownloadCtx(path, file_size);
+    if (ctx == nullptr) {
       web_sd_end();
       request->send(500, "text/plain", "oom");
       return;
@@ -503,25 +540,51 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     AsyncWebServerResponse *response = request->beginChunkedResponse(
       content_type_from_name(file),
       [ctx](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-        if(index >= ctx->size){
-          ctx->release_busy_once();
-          delete ctx;
+        // End of stream.  Cleanup is centralized in request->onDisconnect()
+        // so aborted transfers and completed transfers use the same path.
+        if (index >= ctx->size) {
           return 0;
         }
 
-        const uint32_t remain = ctx->size - (uint32_t)index;
-        const uint32_t to_read = (remain < (uint32_t)maxLen) ? remain : (uint32_t)maxLen;
-        uint32_t got = 0;
-        const bool ok = sd_files_read(ctx->path.c_str(), (uint32_t)index, to_read, buffer, &got);
-        if((!ok) || (got == 0u)){
-          ctx->release_busy_once();
-          delete ctx;
+        const uint32_t remain  = ctx->size - (uint32_t)index;
+        const uint32_t to_read = (remain < (uint32_t)maxLen)
+                                   ? remain
+                                   : (uint32_t)maxLen;
+
+        uint32_t got = 0u;
+        const bool ok = sd_files_read(ctx->path.c_str(),
+                                      (uint32_t)index,
+                                      to_read,
+                                      buffer,
+                                      &got);
+
+        if ((!ok) || (got == 0u)) {
+          // Signal end-of-stream/read failure.  The disconnect hook owns
+          // cleanup to avoid double delete paths.
           return 0;
         }
+
         return (size_t)got;
       });
 
-    response->addHeader("Content-Disposition", (String("attachment; filename=\"") + file + String("\"")).c_str());
+    if (response == nullptr) {
+      delete ctx;
+      web_sd_end();
+      request->send(500, "text/plain", "response_alloc");
+      return;
+    }
+
+    // Critical cleanup path: this is expected to run for normal completion and
+    // for aborted client transfers.  web_sd_try_begin() also has a stale-lock
+    // timeout as a final recovery guard.
+    request->onDisconnect([ctx]() {
+      ctx->release_busy_once();
+      delete ctx;
+    });
+
+    response->addHeader("Content-Disposition",
+        (String("attachment; filename=\"") + file + String("\"")).c_str());
+
     request->send(response);
   });
 

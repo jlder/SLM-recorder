@@ -40,22 +40,48 @@ static bool rtc_sanity_check(const rtc_datetime_t& t) {
 }
 
 /**
- * RTC equal allowing 1s performs the rtc driver operation represented by this
- * function and keeps the module state consistent with recorder ownership
- * rules.
+ * Convert date/time fields to a deterministic second count.
  *
- * Inputs: `a`, `b`.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
+ * This helper does not validate calendar correctness. Its only purpose is to compare an RTC value written by this driver
+ * with the value read back immediately after the write.
+ *
+ * The month transform is March-based:
+ * - March becomes month 1;
+ * - January/February become months 11/12 of the previous year.
+ * This lets the day offset from March 1st be calculated with one compact equation while leap-year effects remain in the year term.
+ *
+ * Inputs: `dt`.
+ * Returns: Deterministic second count from the formula epoch.
  */
-static bool rtc_equal_allowing_1s(const rtc_datetime_t& a, const rtc_datetime_t& b) {
-  if(a.year != b.year) return false;
-  if(a.month != b.month) return false;
-  if(a.day != b.day) return false;
-  if(a.hour != b.hour) return false;
-  if(a.min != b.min) return false;
-  // Allow 1 second drift due to readback latency.
-  const int ds = (int)a.sec - (int)b.sec;
-  return (ds == 0) || (ds == 1) || (ds == -1);
+static int64_t rtc_datetime_to_seconds_(const rtc_datetime_t& dt) {
+  int64_t y = (int64_t)dt.year;
+  int64_t m = (int64_t)dt.month;
+
+  if(m >= 3){
+    m -= 2;       // March = 1
+  } else {
+    m += 10;      // January/February become months 11/12 of previous year
+    y -= 1;
+  }
+
+  const int64_t d_months = ((153 * (m - 1)) + 2) / 5;
+  const int64_t d_years = (365 * y) + (y / 4) - (y / 100) + (y / 400);
+
+  return ((d_years + d_months + ((int64_t)dt.day - 1) + 60) * 86400) +
+         ((int64_t)dt.hour * 3600) + ((int64_t)dt.min * 60) + (int64_t)dt.sec;
+}
+
+/**
+ * Compare RTC set/readback values allowing one second of elapsed time.
+ *
+ * Inputs: `set_time`, `readback`.
+ * Returns: `true` if readback equals set_time or set_time + 1 second.
+ */
+static bool rtc_equal_allowing_1s(const rtc_datetime_t& set_time, const rtc_datetime_t& readback) {
+  const int64_t s_set = rtc_datetime_to_seconds_(set_time);
+  const int64_t s_read = rtc_datetime_to_seconds_(readback);
+
+  return (s_read == s_set) || (s_read == (s_set + 1));
 }
 
 /**

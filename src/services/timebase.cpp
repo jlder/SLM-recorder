@@ -17,6 +17,7 @@
 
 static uint32_t s_recording_time_start_ms = 0;
 static uint32_t s_esp_start_ms = 0;
+static bool     s_record_marked = false;
 static char     s_token[24];
 
 /**
@@ -29,8 +30,8 @@ static char     s_token[24];
 void timebase_init(void) {
   s_recording_time_start_ms = 0;
   s_esp_start_ms = 0;
-  strncpy(s_token, "UNINIT", sizeof(s_token)-1);
-  s_token[sizeof(s_token)-1] = '\\0';
+  s_record_marked = false;
+  s_token[0] = '\0';
 }
 
 /**
@@ -56,12 +57,25 @@ static uint32_t rtc_time_of_day_ms(const rtc_datetime_t *dt) {
 bool timebase_mark_record_start(const rtc_datetime_t *dt) {
   if (!dt) return false;
 
-  s_recording_time_start_ms = rtc_time_of_day_ms(dt);
-  s_esp_start_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
-  snprintf(s_token, sizeof(s_token),
-           "%04u%02u%02u_%02u%02u%02u",
-           (unsigned)dt->year, (unsigned)dt->month, (unsigned)dt->day,
-           (unsigned)dt->hour, (unsigned)dt->min, (unsigned)dt->sec);
+  const uint32_t start_ms = rtc_time_of_day_ms(dt);
+  const uint32_t esp_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+
+  const int n = snprintf(s_token, sizeof(s_token),
+                         "%04u%02u%02u_%02u%02u%02u",
+                         (unsigned)dt->year, (unsigned)dt->month, (unsigned)dt->day,
+                         (unsigned)dt->hour, (unsigned)dt->min, (unsigned)dt->sec);
+
+  if ((n < 0) || ((size_t)n >= sizeof(s_token))) {
+    s_recording_time_start_ms = 0;
+    s_esp_start_ms = 0;
+    s_record_marked = false;
+    s_token[0] = '\0';
+    return false;
+  }
+
+  s_recording_time_start_ms = start_ms;
+  s_esp_start_ms = esp_ms;
+  s_record_marked = true;
   return true;
 }
 
@@ -73,6 +87,10 @@ bool timebase_mark_record_start(const rtc_datetime_t *dt) {
  * Returns: Requested numeric value.
  */
 uint32_t timebase_get_ms_since_midnight(void) {
+  if (!s_record_marked) {
+    return 0u;
+  }
+
   if (s_token[0] == '\0') {
     // Timestamp is only meaningful after record start (mapping captured).
     return 0u;
