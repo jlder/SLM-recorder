@@ -25,6 +25,7 @@
 #define ACCEL_READ_MAX_TRIES    3
 
 // PMU / touch / RTC retries
+#define PMU_BATT_LOW_THRESHOLD_PCT 5u
 #define PMU_BATT_PCT_MAX_RETRIES 3
 #define PMU_USB_MAX_RETRIES      3
 #define TOUCH_READ_MAX_RETRIES   3
@@ -43,6 +44,7 @@
 #define AP_GATEWAY                   IPAddress(192, 168, 4, 1)
 #define AP_SUBNET                    IPAddress(255, 255, 255, 0)
 #define WEB_SINGLE_CLIENT_TIMEOUT_MS 60000
+#define WEB_SD_BUSY_STALE_MS         30000u
 
 // User-visible button timing
 #define POWER_CLEAR_HOLD_MS     150

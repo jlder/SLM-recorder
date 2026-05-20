@@ -92,9 +92,6 @@ static bool web_single_client_allow(AsyncWebServerRequest* req) {
 // SD busy guard: prevents concurrent SD endpoints (e.g., download + list/delete).
 // The stale timeout is a last-resort recovery if an async download cleanup hook
 // is lost because of a library/client abort edge case.
-#ifndef WEB_SD_BUSY_STALE_MS
-#define WEB_SD_BUSY_STALE_MS 30000u
-#endif
 
 static volatile bool s_web_sd_busy = false;
 static uint32_t s_web_sd_busy_since_ms = 0u;

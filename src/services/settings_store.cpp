@@ -230,5 +230,9 @@ bool settings_clear(void){
     return false;
   }
 
-  return prefs.clear();
+  const bool ok = prefs.clear();
+  if(ok){
+    memset(&s_cache, 0, sizeof(s_cache));
+  }
+  return ok;
 }

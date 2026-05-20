@@ -132,9 +132,6 @@ bool pmu_is_usb_connected(void) {
   return s_pmu.isVbusIn();
 }
 
-#ifndef PMU_BATT_LOW_THRESHOLD_PCT
-#define PMU_BATT_LOW_THRESHOLD_PCT 5
-#endif
 
 /**
  * PMU battery low performs the pmu driver operation represented by this

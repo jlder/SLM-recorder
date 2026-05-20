@@ -456,6 +456,18 @@ static bool setup_action_required_(msg_id_t msg){
            sd_maintenance_action_required_(msg);
 }
 
+/**
+ * Reports whether all local settings required before WiFi/calibration are
+ * complete.
+ *
+ * Inputs: None.
+ * Returns: `true` when settings are complete; otherwise `false`.
+ */
+static bool local_settings_complete_(void){
+    settings_t s = {};
+    return settings_get(&s) && settings_is_complete(&s);
+}
+
 
 /**
  * Refreshes SETTINGS and setting-specific button colors so missing setup items
@@ -966,12 +978,18 @@ void syncUIToSystemState() {
         lv_label_set_text(btn_wifi_label, wifi_active ? "STOP WIFI" : "START WIFI");
     }
 
-    // START WIFI is the path to Web calibration when calibration is required.
+    // START WIFI is disabled while settings are incomplete. The WiFi password
+    // is part of the required settings, so calibration/Web access is only
+    // offered after the settings path has been completed.
     if (btn_wifi) {
-        enable_button(btn_wifi,
-                      (calibration_action_required || sd_maintenance_action_required)
-                          ? amber
-                          : blue);
+        if (settings_action_required) {
+            disable_button(btn_wifi);
+        } else {
+            enable_button(btn_wifi,
+                          (calibration_action_required || sd_maintenance_action_required)
+                              ? amber
+                              : blue);
+        }
     }
 
     // SETTINGS button (on menu screen): disabled while WiFi/Webserver is active.
@@ -1060,7 +1078,13 @@ void updateUI() {
  */
 void wifi_btn_cb(lv_event_t * e) {
     (void)e;
-    web_task_set_enabled(!web_task_is_enabled());
+
+    if(web_task_is_enabled()){
+        web_task_set_enabled(false);
+    }else if(local_settings_complete_()){
+        web_task_set_enabled(true);
+    }
+
     syncUIToSystemState();
 }
 

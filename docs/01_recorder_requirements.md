@@ -320,6 +320,8 @@ When the recorder is READY and not recording, the MENU button shall be active an
 
 The MENU button shall be:
 
+START WIFI shall be disabled while required settings are incomplete because the WiFi password is one of the required settings. Calibration over the Web interface shall therefore only be offered after SETTINGS is complete.
+
 - blue when READY and no setup/calibration action is required;
 - orange when READY and a setup/calibration action is required;
 - gray when inactive.
@@ -961,3 +963,14 @@ Items to continue monitoring:
 |---|---|
 | Final acceptance tolerance for 20 Hz timing/jitter | validation method exists; acceptance tolerance can still be formalized |
 | Continued recorded-file validation after binary format changes | required after each block-format change |
+
+
+#### OP-SET-006 — Settings before calibration/Web access
+
+When settings are incomplete, the recorder shall display `NEED SETTINGS` in preference to calibration-required messages.
+
+The START WIFI action shall be disabled while required settings are incomplete because the WiFi password is one of the required settings. The operator shall complete SETTINGS before Web calibration can be started.
+
+Status:
+
+- **Implemented.**
