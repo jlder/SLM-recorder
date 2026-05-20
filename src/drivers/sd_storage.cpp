@@ -643,7 +643,8 @@ bool sd_storage_archive_to_processed(const char *path) {
   }
 
   char dst[SD_STORAGE_PATH_MAX];
-  if(snprintf(dst, sizeof(dst), "/processed/%s%s", base, ext) >= (int)sizeof(dst)){
+  const int n_initial = snprintf(dst, sizeof(dst), "/processed/%s%s", base, ext);
+  if((n_initial < 0) || ((size_t)n_initial >= sizeof(dst))){
     return false;
   }
 
@@ -652,10 +653,11 @@ bool sd_storage_archive_to_processed(const char *path) {
   }
 
   for(uint32_t i = 1u; i <= 999u; ++i){
-    if(snprintf(dst, sizeof(dst), "/processed/%s_%lu%s",
-                base,
-                (unsigned long)i,
-                ext) >= (int)sizeof(dst)){
+    const int n_suffix = snprintf(dst, sizeof(dst), "/processed/%s_%lu%s",
+                                  base,
+                                  (unsigned long)i,
+                                  ext);
+    if((n_suffix < 0) || ((size_t)n_suffix >= sizeof(dst))){
       return false;
     }
 

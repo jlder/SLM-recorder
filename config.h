@@ -27,8 +27,8 @@
 // PMU / touch / RTC retries
 #define PMU_BATT_PCT_MAX_RETRIES 3
 #define PMU_USB_MAX_RETRIES      3
-#define TOUCH_READ_MAX_RETRIES   3
 #define PMU_BATT_LOW_THRESHOLD_PCT 5u
+#define TOUCH_READ_MAX_RETRIES   3
 #define RTC_READ_MAX_RETRIES     3
 
 // Packet format
@@ -44,6 +44,7 @@
 #define AP_GATEWAY                   IPAddress(192, 168, 4, 1)
 #define AP_SUBNET                    IPAddress(255, 255, 255, 0)
 #define WEB_SINGLE_CLIENT_TIMEOUT_MS 60000
+#define WEB_SD_BUSY_STALE_MS         30000u
 
 // User-visible button timing
 #define POWER_CLEAR_HOLD_MS     150
@@ -63,6 +64,8 @@
 #define CALIBRATION_VALIDITY_MONTHS        12u
 #define CALIBRATION_FACE_GRAVITY_TOL_PCT   10.0f
 #define CALIBRATION_SAMPLE_PERIOD_MS       50u
+// Number of samples in the calibration stability window.
+// Requirement: must be greater than 0 because mean/stddev computation divides by this value.
 #define CALIBRATION_WINDOW_SAMPLE_COUNT    40u
 #define CALIBRATION_STABILITY_STDDEV_MAX_MG 1.5f
 #define CALIBRATION_GAIN_MIN               0.8f
@@ -75,7 +78,7 @@
 // Software version is incremented during prototype development and before release.
 #define RECORDER_HARDWARE_VERSION      "1.00"
 #define RECORDER_SOFTWARE_VERSION      "1.00"
-#define RECORDER_VERSION_TEXT          "ver " RECORDER_HARDWARE_VERSION "/" RECORDER_SOFTWARE_VERSION
+#define RECORDER_VERSION_TEXT          "sw ver " RECORDER_SOFTWARE_VERSION "\nhw ver " RECORDER_HARDWARE_VERSION
 
 // Storage / SD
 #define PREFS_NAMESPACE              "slm-data"
@@ -101,5 +104,3 @@
 // Hardware addresses
 #define AXP2101_ADDRESS         AXP2101_SLAVE_ADDRESS
 #define FT3168_ADDRESS          0x38u
-
-#define WEB_SD_BUSY_STALE_MS 30000u

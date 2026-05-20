@@ -89,10 +89,6 @@ static bool web_single_client_allow(AsyncWebServerRequest* req) {
   return false;
 }
 
-// SD busy guard: prevents concurrent SD endpoints (e.g., download + list/delete).
-// The stale timeout is a last-resort recovery if an async download cleanup hook
-// is lost because of a library/client abort edge case.
-
 static volatile bool s_web_sd_busy = false;
 static uint32_t s_web_sd_busy_since_ms = 0u;
 
@@ -202,6 +198,16 @@ static const char* content_type_from_name(const String& filename){
   return "application/octet-stream";
 }
 
+/**
+ * Checks fixed-buffer formatting result.
+ *
+ * Inputs: `n`, `cap`.
+ * Returns: `true` when snprintf succeeded without truncation.
+ */
+static bool web_snprintf_ok_(int n, size_t cap){
+  return (n >= 0) && ((size_t)n < cap);
+}
+
 
 static const char *cal_status_name_(calibration_status_t status){
   switch(status){
@@ -252,10 +258,10 @@ static String cal_face_valid_json_(const bool face_valid[CAL_FACE_COUNT]){
  */
 static String cal_vec_json_(const calibration_vec_t& v){
   char buf[96];
-  snprintf(buf, sizeof(buf),
-           "{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}",
-           v.x_mg, v.y_mg, v.z_mg);
-  return String(buf);
+  const int n = snprintf(buf, sizeof(buf),
+                         "{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}",
+                         v.x_mg, v.y_mg, v.z_mg);
+  return web_snprintf_ok_(n, sizeof(buf)) ? String(buf) : String("{}");
 }
 
 /**
@@ -363,13 +369,13 @@ static String cal_record_axis_result_json_(const calibration_record_t& rec){
   for(uint32_t i = 0u; i < 3u; ++i){
     if(i > 0u) s += ",";
     char buf[192];
-    snprintf(buf, sizeof(buf),
-             "{\"value_pos\":%.1f,\"value_neg\":%.1f,\"gain\":%.6f,\"offset\":%.1f}",
-             cal_record_axis_pos_(rec, i),
-             cal_record_axis_neg_(rec, i),
-             cal_record_axis_gain_(rec, i),
-             cal_record_axis_offset_(rec, i));
-    s += String(buf);
+    const int n = snprintf(buf, sizeof(buf),
+                           "{\"value_pos\":%.1f,\"value_neg\":%.1f,\"gain\":%.6f,\"offset\":%.1f}",
+                           cal_record_axis_pos_(rec, i),
+                           cal_record_axis_neg_(rec, i),
+                           cal_record_axis_gain_(rec, i),
+                           cal_record_axis_offset_(rec, i));
+    s += web_snprintf_ok_(n, sizeof(buf)) ? String(buf) : String("{}");
   }
   s += "]";
   return s;
@@ -385,15 +391,15 @@ static String cal_record_axis_result_json_(const calibration_record_t& rec){
  */
 static String cal_record_date_json_(const calibration_record_t& rec){
   char buf[96];
-  snprintf(buf, sizeof(buf),
-           "{\"year\":%u,\"month\":%u,\"day\":%u,\"hour\":%u,\"min\":%u,\"sec\":%u}",
-           (unsigned)rec.timestamp.year,
-           (unsigned)rec.timestamp.month,
-           (unsigned)rec.timestamp.day,
-           (unsigned)rec.timestamp.hour,
-           (unsigned)rec.timestamp.min,
-           (unsigned)rec.timestamp.sec);
-  return String(buf);
+  const int n = snprintf(buf, sizeof(buf),
+                         "{\"year\":%u,\"month\":%u,\"day\":%u,\"hour\":%u,\"min\":%u,\"sec\":%u}",
+                         (unsigned)rec.timestamp.year,
+                         (unsigned)rec.timestamp.month,
+                         (unsigned)rec.timestamp.day,
+                         (unsigned)rec.timestamp.hour,
+                         (unsigned)rec.timestamp.min,
+                         (unsigned)rec.timestamp.sec);
+  return web_snprintf_ok_(n, sizeof(buf)) ? String(buf) : String("{}");
 }
 
 /**
@@ -417,10 +423,14 @@ static void register_routes_once(){
     const system_status_t st = state_task_get_status();
     const bool recording = (st.state == ST_RECORDING) || (st.state == ST_STARTING) || (st.state == ST_STOPPING);
     char buf[128];
-    snprintf(buf, sizeof(buf),
-             "{\"battery\":%u,\"recording\":%s}",
-             (unsigned)(st.battery_percent_valid ? st.battery_percent : 0u),
-             recording ? "true" : "false");
+    const int n = snprintf(buf, sizeof(buf),
+                           "{\"battery\":%u,\"recording\":%s}",
+                           (unsigned)(st.battery_percent_valid ? st.battery_percent : 0u),
+                           recording ? "true" : "false");
+    if(!web_snprintf_ok_(n, sizeof(buf))){
+      request->send(500, "application/json", "{\"error\":\"format_failed\"}");
+      return;
+    }
     request->send(200, "application/json", buf);
   });
 
@@ -432,11 +442,15 @@ static void register_routes_once(){
     const uint32_t sd_size_mb = (uint32_t)(sd_total_bytes / (1024ULL * 1024ULL));
     const uint32_t sd_free_mb = (uint32_t)(sd_free_bytes / (1024ULL * 1024ULL));
     char buf[160];
-    snprintf(buf, sizeof(buf),
-             "{\"present\":%s,\"size_mb\":%lu,\"free_mb\":%lu}",
-             (present && space_ok) ? "true" : "false",
-             (unsigned long)sd_size_mb,
-             (unsigned long)sd_free_mb);
+    const int n = snprintf(buf, sizeof(buf),
+                           "{\"present\":%s,\"size_mb\":%lu,\"free_mb\":%lu}",
+                           (present && space_ok) ? "true" : "false",
+                           (unsigned long)sd_size_mb,
+                           (unsigned long)sd_free_mb);
+    if(!web_snprintf_ok_(n, sizeof(buf))){
+      request->send(500, "application/json", "{\"error\":\"format_failed\"}");
+      return;
+    }
     request->send(200, "application/json", buf);
   });
 
@@ -619,11 +633,15 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     const bool recording_allowed = calibration_service_is_recording_allowed();
 
     char buf[192];
-    snprintf(buf, sizeof(buf),
-             "{\"status\":\"%s\",\"recording_allowed\":%s,\"session_active\":%s}",
-             cal_status_name_(status),
-             recording_allowed ? "true" : "false",
-             calibration_session_active() ? "true" : "false");
+    const int n = snprintf(buf, sizeof(buf),
+                           "{\"status\":\"%s\",\"recording_allowed\":%s,\"session_active\":%s}",
+                           cal_status_name_(status),
+                           recording_allowed ? "true" : "false",
+                           calibration_session_active() ? "true" : "false");
+    if(!web_snprintf_ok_(n, sizeof(buf))){
+      request->send(500, "application/json", "{\"error\":\"format_failed\"}");
+      return;
+    }
     request->send(200, "application/json", buf);
   });
 
@@ -712,12 +730,16 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     }
 
     char buf[384];
-    snprintf(buf, sizeof(buf),
-             "{\"ok\":true,\"saved\":true,\"message\":\"calibration_saved\","
-             "\"gain\":{\"x\":%.6f,\"y\":%.6f,\"z\":%.6f},"
-             "\"offset_mg\":{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}}",
-             rec.gain_x, rec.gain_y, rec.gain_z,
-             rec.offset_x_mg, rec.offset_y_mg, rec.offset_z_mg);
+    const int n = snprintf(buf, sizeof(buf),
+                           "{\"ok\":true,\"saved\":true,\"message\":\"calibration_saved\","
+                           "\"gain\":{\"x\":%.6f,\"y\":%.6f,\"z\":%.6f},"
+                           "\"offset_mg\":{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}}",
+                           rec.gain_x, rec.gain_y, rec.gain_z,
+                           rec.offset_x_mg, rec.offset_y_mg, rec.offset_z_mg);
+    if(!web_snprintf_ok_(n, sizeof(buf))){
+      request->send(500, "application/json", "{\"ok\":false,\"reason\":\"format_failed\"}");
+      return;
+    }
     request->send(200, "application/json", buf);
   });
 
@@ -729,12 +751,16 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     }
 
     char buf[384];
-    snprintf(buf, sizeof(buf),
-             "{\"ok\":true,\"saved\":true,\"message\":\"calibration_saved\","
-             "\"gain\":{\"x\":%.6f,\"y\":%.6f,\"z\":%.6f},"
-             "\"offset_mg\":{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}}",
-             rec.gain_x, rec.gain_y, rec.gain_z,
-             rec.offset_x_mg, rec.offset_y_mg, rec.offset_z_mg);
+    const int n = snprintf(buf, sizeof(buf),
+                           "{\"ok\":true,\"saved\":true,\"message\":\"calibration_saved\","
+                           "\"gain\":{\"x\":%.6f,\"y\":%.6f,\"z\":%.6f},"
+                           "\"offset_mg\":{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}}",
+                           rec.gain_x, rec.gain_y, rec.gain_z,
+                           rec.offset_x_mg, rec.offset_y_mg, rec.offset_z_mg);
+    if(!web_snprintf_ok_(n, sizeof(buf))){
+      request->send(500, "application/json", "{\"ok\":false,\"reason\":\"format_failed\"}");
+      return;
+    }
     request->send(200, "application/json", buf);
   });
 

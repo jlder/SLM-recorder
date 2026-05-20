@@ -7,7 +7,7 @@ Copyright (c) 2026 AgingGliders
 
 Firmware for the AgingGliders recorder prototype based on the Waveshare ESP32-S3 AMOLED 2.06 board.
 
-The recorder samples acceleration at 20 Hz, stores recordings on SD card, provides a local LVGL user interface, and exposes a WiFi/Web interface for file management and calibration.
+The recorder samples acceleration at 20 Hz, stores recordings on SD card, provides a local lvgl user interface, and exposes a WiFi/Web interface for file management and calibration.
 
 ## 1. Hardware
 
@@ -47,7 +47,7 @@ The FT3168 touch controller is handled directly by the project firmware and does
 | GFX Library for Arduino | Moon On Our Nation | 1.6.0 |
 | SensorLib | Lewis He | 0.3.1 |
 | XPowersLib / XPowerLib | Lewis He | 0.3.3 |
-| LVGL | Kisvegabor / LVGL project | 9.3.0 |
+| lvgl | Kisvegabor / lvgl project | 9.3.0 |
 
 ## 4. Project-local configuration files
 
@@ -58,7 +58,7 @@ lv_conf.h
 src/board/pin_config.h
 ```
 
-`lv_conf.h` is the LVGL configuration file for LVGL 9.3.0. It is intentionally stored at the project root so LVGL can find it without requiring a copy in the global Arduino libraries folder.
+`lv_conf.h` is the lvgl configuration file for lvgl 9.3.0. It is intentionally stored at the project root so lvgl can find it without requiring a copy in the global Arduino libraries folder.
 
 `src/board/pin_config.h` contains the Waveshare ESP32-S3 AMOLED 2.06 board pin mapping used by the firmware.
 
