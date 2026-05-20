@@ -3,148 +3,191 @@
 
 /**
  * @file src/drivers/touch_driver.cpp
- * @brief Touch-controller driver wrapper for initialization and raw coordinate reads.
+ * @brief Direct FT3168 touch-controller driver.
  *
- * @details Documentation is intentionally concise and interface-oriented so
- * the source can support future DO-178C planning artifacts.
+ * @details The FT3168 controller is accessed directly through Wire/I2C so the
+ * firmware does not depend on Arduino_DriveBus.
  */
 
 #include "src/drivers/touch_driver.h"
+
 #include <Arduino.h>
 #include <Wire.h>
-#include <memory>
+
 #include "src/board/pin_config.h"
+#include "src/global.h"
 #include "config.h"
-#include "Arduino_DriveBus_Library.h"
-#include <Arduino_DriveBus.h>
 
+// FT3168 / FT3x68 register subset used by this firmware.
+#define FT3168_REG_XH            0x03u
+#define FT3168_REG_XL            0x04u
+#define FT3168_REG_YH            0x05u
+#define FT3168_REG_YL            0x06u
+#define FT3168_REG_POWER_MODE    0xA5u
 
-// NOTE: Do NOT construct I2C / touch objects at static init time.
-// ESP32 boot and library init ordering can make early construction unsafe.
-static std::shared_ptr<Arduino_IIC_DriveBus> s_iic_bus;
+// DriveBus initializes FT3x68 by writing 0xA5 = 0x01, then delaying 20 ms.
+// The retry delay is kept longer to tolerate Arduino IDE upload/reset startup.
+#define TOUCH_INIT_POST_WRITE_DELAY_MS 20u
+#define TOUCH_INIT_RETRY_DELAY_MS      150u
+#define TOUCH_INIT_ATTEMPTS            3u
 
-static void TouchInterruptThunk(void);
-
-// Touch controller instance (created during touch_drv_init()).
-static std::unique_ptr<Arduino_IIC> s_ft3168;
-
-// Touch controller is considered usable only after a successful begin().
-// This prevents other tasks (e.g. UI polling) from accessing the device while
-// BOOT is still running or while begin() is in progress.
 static volatile bool s_touch_ready = false;
+static volatile bool s_touch_irq_pending = false;
 
 /**
- * Touch Interrupt Thunk performs the touch driver operation represented by
- * this function and keeps the module state consistent with recorder ownership
- * rules.
+ * Touch interrupt thunk records that the FT3168 interrupt line has indicated
+ * new touch data.
  *
  * Inputs: None.
  * Returns: None.
  */
-static void TouchInterruptThunk(void) {
-  // Mirror prototype behavior
-  if (s_touch_ready && s_ft3168) {
-    s_ft3168->IIC_Interrupt_Flag = true;
+static void IRAM_ATTR TouchInterruptThunk(void) {
+  if(s_touch_ready){
+    s_touch_irq_pending = true;
   }
 }
 
 /**
- * Initializes touch drv init state or hardware resources and prepares the
- * module for later recorder operation.
+ * Writes one byte to an FT3168 register.
  *
- * Inputs: None.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
+ * Inputs: `reg`, `value`.
+ * Returns: `true` when the I2C transaction is acknowledged.
  */
-bool touch_drv_init(void) {
-  // Create bus + device on-demand to avoid static initialization issues.
-  if (!s_iic_bus) {
-    s_iic_bus = std::make_shared<Arduino_HWIIC>(IIC_SDA, IIC_SCL, &Wire);
-  }
-  if (!s_ft3168) {
-    s_ft3168.reset(new Arduino_FT3x68(
-        s_iic_bus, FT3168_ADDRESS, DRIVEBUS_DEFAULT_VALUE,
-        TP_INT, TouchInterruptThunk));
-  }
-
-  if (!s_ft3168) return false;
-  s_touch_ready = false;
-
-  // Ensure the touch INT pin is in a defined state before
-  // calling into the third-party library. After flashing, the bootloader can
-  // leave GPIO configuration in a transient state; defining the pin mode here
-  // makes BOOT behavior deterministic.
-  pinMode(TP_INT, INPUT_PULLUP);
-  delay(5);
-
-  // Defensive: clear any pending flag before begin().
-  s_ft3168->IIC_Interrupt_Flag = false;
-  // On this board the touch controller can come up slightly after power rails.
-  // A single short retry avoids a misleading FAIL while keeping init bounded.
-  bool ok = s_ft3168->begin();
-  if(!ok){
-    delay(120);
-    ok = s_ft3168->begin();
-  }
-
-
-  // Attach IRQ after successful init (avoid Arduino_IIC::begin() attaching it during construction)
-  pinMode(TP_INT, INPUT_PULLUP);
-  attachInterrupt(TP_INT, TouchInterruptThunk, FALLING);
-  if(ok) {
-    s_touch_ready = true;
-  } else {
-    // Touch may still work later if the controller becomes ready; keep as WARN.
-  }
-  return ok;
+static bool ft3168_write_u8_(uint8_t reg, uint8_t value) {
+  Wire.beginTransmission((uint8_t)FT3168_ADDRESS);
+  Wire.write(reg);
+  Wire.write(value);
+  return (Wire.endTransmission() == 0);
 }
 
-
 /**
- * Reads touch hw get raw from the underlying hardware or cached source and
- * reports whether the value is valid.
+ * Reads one byte from an FT3168 register.
  *
- * Inputs: `x`, `y`, `pressed`.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
+ * This intentionally matches the Arduino_DriveBus read sequence: write the
+ * register address, issue a STOP, then request one byte. Some touch controllers
+ * are less reliable with repeated-start reads during startup.
+ *
+ * Inputs: `reg`, `out`.
+ * Returns: `true` when the byte is read successfully.
  */
-bool touch_hw_get_raw(uint16_t *x, uint16_t *y, bool *pressed) {
-  if (!s_ft3168 || !x || !y || !pressed) return false;
-
-  // Contract: if touch HW is not initialized/usable, report failure.
-  // Caller (touch_service/state_task) decides how to handle invalid samples.
-  if (!s_touch_ready) {
-    *pressed = false;
+static bool ft3168_read_u8_(uint8_t reg, uint8_t *out) {
+  if(out == nullptr){
     return false;
   }
 
-  // Match prototype behavior: only treat as touch when the interrupt flag is set.
-  if (!s_ft3168->IIC_Interrupt_Flag) {
-    *pressed = false;
+  Wire.beginTransmission((uint8_t)FT3168_ADDRESS);
+  Wire.write(reg);
+  if(Wire.endTransmission() != 0){
+    return false;
+  }
+
+  if(Wire.requestFrom((uint8_t)FT3168_ADDRESS, (uint8_t)1u) != 1u){
+    while(Wire.available()){
+      (void)Wire.read();
+    }
+    return false;
+  }
+
+  if(!Wire.available()){
+    return false;
+  }
+
+  *out = (uint8_t)Wire.read();
+  return true;
+}
+
+/**
+ * Performs one FT3168 initialization attempt.
+ *
+ * Inputs: None.
+ * Returns: `true` when the controller acknowledges the DriveBus-equivalent
+ *          initialization write.
+ */
+static bool ft3168_init_attempt_(void) {
+  // Match the DriveBus FT3x68 initialization behavior used by the previous
+  // implementation.  The previous code passed DRIVEBUS_DEFAULT_VALUE as reset
+  // pin, so DriveBus did not toggle TP_RESET.
+  if(!ft3168_write_u8_(FT3168_REG_POWER_MODE, 0x01u)){
+    return false;
+  }
+
+  delay((uint32_t)TOUCH_INIT_POST_WRITE_DELAY_MS);
+  return true;
+}
+
+/**
+ * Initializes the FT3168 touch controller.
+ *
+ * Inputs: None.
+ * Returns: `true` when the controller is ready for touch reads.
+ */
+bool touch_drv_init(void) {
+  s_touch_ready = false;
+  s_touch_irq_pending = false;
+
+  Wire.begin(IIC_SDA, IIC_SCL);
+  Wire.setClock(CFG_I2C_CLOCK_HZ);
+
+  pinMode(TP_INT, INPUT_PULLUP);
+  detachInterrupt(digitalPinToInterrupt(TP_INT));
+
+  bool ok = false;
+  for(uint8_t attempt = 0u; attempt < (uint8_t)TOUCH_INIT_ATTEMPTS; ++attempt){
+    ok = ft3168_init_attempt_();
+    if(ok){
+      break;
+    }
+    delay((uint32_t)TOUCH_INIT_RETRY_DELAY_MS);
+  }
+
+  if(ok){
+    s_touch_ready = true;
+    attachInterrupt(digitalPinToInterrupt(TP_INT), TouchInterruptThunk, FALLING);
+  }
+
+  return ok;
+}
+
+/**
+ * Reads the latest raw touch coordinate from the FT3168.
+ *
+ * Inputs: `x`, `y`, `pressed`.
+ * Returns: `true` when the touch controller was read successfully or no touch
+ *          is pending; `false` on invalid arguments or I2C read failure.
+ */
+bool touch_hw_get_raw(uint16_t *x, uint16_t *y, bool *pressed) {
+  if((x == nullptr) || (y == nullptr) || (pressed == nullptr)){
+    return false;
+  }
+
+  *pressed = false;
+
+  if(!s_touch_ready){
+    return false;
+  }
+
+  if(!s_touch_irq_pending){
     return true;
   }
 
-  // IRQ flag indicates activity; X/Y are fetched over I2C when requested.
-  // Perform a bounded number of immediate attempts (mirrors accel/battery).
-  // IMPORTANT: only clear the IRQ flag after a successful coordinate read so
-  // a transient I2C failure does not "consume" the event.
+  for(uint8_t i = 0u; i < (uint8_t)TOUCH_READ_MAX_RETRIES; ++i){
+    uint8_t xh = 0u;
+    uint8_t xl = 0u;
+    uint8_t yh = 0u;
+    uint8_t yl = 0u;
 
-  for(uint8_t i=0; i<TOUCH_READ_MAX_RETRIES; i++){
-    const uint16_t rx = (uint16_t)s_ft3168->IIC_Read_Device_Value(
-        s_ft3168->Arduino_IIC_Touch::Value_Information::TOUCH_COORDINATE_X);
-    const uint16_t ry = (uint16_t)s_ft3168->IIC_Read_Device_Value(
-        s_ft3168->Arduino_IIC_Touch::Value_Information::TOUCH_COORDINATE_Y);
-
-    // DriveBus FT3x68 returns -1 on failure, which appears here as 0xFFFF.
-    if (rx != 0xFFFFu && ry != 0xFFFFu) {
-      // Success: consume the pending IRQ indication.
-      s_ft3168->IIC_Interrupt_Flag = false;
-      *x = rx;
-      *y = ry;
+    if(ft3168_read_u8_(FT3168_REG_XH, &xh) &&
+       ft3168_read_u8_(FT3168_REG_XL, &xl) &&
+       ft3168_read_u8_(FT3168_REG_YH, &yh) &&
+       ft3168_read_u8_(FT3168_REG_YL, &yl)){
+      *x = (uint16_t)(((uint16_t)(xh & 0x0Fu) << 8) | xl);
+      *y = (uint16_t)(((uint16_t)(yh & 0x0Fu) << 8) | yl);
       *pressed = true;
+      s_touch_irq_pending = false;
       return true;
     }
   }
 
-  // All attempts failed. Leave IRQ flag set so the next poll can try again.
-  *pressed = false;
+  // Leave the pending flag set so the next polling cycle can try again.
   return false;
 }

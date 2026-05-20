@@ -26,3 +26,5 @@ Known third-party components used by this recorder firmware release are:
 - The LGPL libraries used by this firmware were not modified for this project.
 - Exact dependency versions and source locations are recorded in
   `THIRD_PARTY_VERSIONS.md`.
+- Arduino_DriveBus is not used by this firmware release; FT3168 touch
+  access is implemented directly in project-owned code.

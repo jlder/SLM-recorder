@@ -19,3 +19,5 @@ firmware release.
 - The LGPL libraries listed above were not modified for this project.
 - Keep this file with the firmware source release so the build can be traced to
   the dependency set used.
+
+Arduino_DriveBus is not a dependency of this release. FT3168 touch access is implemented directly using Wire/I2C in the project source.

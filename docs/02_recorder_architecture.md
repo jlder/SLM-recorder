@@ -400,7 +400,9 @@ lv_conf.h
 
 `src/board/pin_config.h` owns the Waveshare ESP32-S3 AMOLED 2.06 pin mapping. `lv_conf.h` owns the LVGL 9.3.0 build configuration for this firmware.
 
+## Direct FT3168 Touch Driver
 
-## Settings-before-Web ordering
-
-Settings are the first setup dependency. When settings and calibration are both missing, state_task publishes the settings-lock message first. The local UI disables START WIFI until settings are complete because the WiFi password is itself a required setting. After settings are complete, missing/expired calibration guides the operator to START WIFI for Web calibration.
+The firmware accesses the FT3168 touch controller directly using the shared
+Wire/I2C bus. Arduino_DriveBus is not required. The driver performs a bounded
+reset/init retry sequence at BOOT, then uses the FT3168 interrupt line and
+coordinate registers to report raw touch coordinates.

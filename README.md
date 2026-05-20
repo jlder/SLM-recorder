@@ -38,6 +38,8 @@ Install the following Arduino libraries and keep them at the listed versions.
 
 Later versions may not be compatible with this firmware without code changes.
 
+The FT3168 touch controller is handled directly by the project firmware and does not require Arduino_DriveBus.
+
 | Library | Author / Publisher | Version |
 |---|---|---:|
 | Async TCP | ESP32Async | 3.4.10 |
@@ -49,19 +51,16 @@ Later versions may not be compatible with this firmware without code changes.
 
 ## 4. Project-local configuration files
 
-The project includes configuration headers that must stay with the source tree:
+The project includes two configuration headers that must stay with the source tree:
 
 ```text
 lv_conf.h
 src/board/pin_config.h
-src/ui/ui_definitions.h
 ```
 
 `lv_conf.h` is the LVGL configuration file for LVGL 9.3.0. It is intentionally stored at the project root so LVGL can find it without requiring a copy in the global Arduino libraries folder.
 
 `src/board/pin_config.h` contains the Waveshare ESP32-S3 AMOLED 2.06 board pin mapping used by the firmware.
-
-`src/ui/ui_definitions.h` contains UI-only layout, font-alias, button-size, and LVGL draw-buffer definitions. Operational recorder constants remain in `config.h` or `src/global.h`.
 
 Do not rely on copies of these files in `Documents/Arduino/libraries`.
 
