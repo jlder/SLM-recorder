@@ -9,6 +9,7 @@
 #include <Arduino.h>
 #include "freertos/task.h"
 #include "freertos/FreeRTOS.h"
+#include "config.h"
 #include "src/tasks/sd_task.h"
 #include "src/tasks/state_task.h"
 #include "src/tasks/web_task.h"
@@ -16,6 +17,7 @@
 #include "src/services/device_service.h"
 #include "src/services/touch_service.h"
 #include "src/services/settings_store.h"
+#include "src/services/watchdog_service.h"
 
 bool i2c_ok = false;
 bool pmu_ok = false;
@@ -67,6 +69,9 @@ void setup() {
   // Open the settings storage backend before entering the state loop.
   settings_storage_ok = settings_init();
 
+  // Initialize watchdog service before monitored tasks start.
+  watchdog_service_init();
+
   // Start the state task after the first deterministic init pass.
   state_task_init();
 
@@ -84,5 +89,6 @@ void setup() {
  * Returns: None.
  */
 void loop() {
-  vTaskDelay(pdMS_TO_TICKS(1000));
+  watchdog_service_check();
+  vTaskDelay(pdMS_TO_TICKS(WATCHDOG_CHECK_PERIOD_MS));
 }

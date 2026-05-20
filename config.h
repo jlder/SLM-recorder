@@ -46,6 +46,12 @@
 #define WEB_SINGLE_CLIENT_TIMEOUT_MS 60000
 #define WEB_SD_BUSY_STALE_MS         30000u
 
+// Software watchdog
+#define WATCHDOG_TIMEOUT_MS             3000u
+#define WATCHDOG_CHECK_PERIOD_MS        1000u
+#define WATCHDOG_PREFS_NAMESPACE        "slm-fault"
+#define WATCHDOG_PREFS_KEY              "wdg"
+
 // User-visible button timing
 #define POWER_CLEAR_HOLD_MS     150
 #define POWER_SHUTDOWN_HOLD_MS  2000
@@ -77,7 +83,7 @@
 // Hardware version identifies the recorder hardware/prototype revision.
 // Software version is incremented during prototype development and before release.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.00"
+#define RECORDER_SOFTWARE_VERSION      "1.01"
 #define RECORDER_VERSION_TEXT          "sw ver " RECORDER_SOFTWARE_VERSION "\nhw ver " RECORDER_HARDWARE_VERSION
 
 // Storage / SD

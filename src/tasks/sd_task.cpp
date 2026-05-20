@@ -24,6 +24,7 @@
 #include "src/services/record_format.h"
 #include "src/services/calibration_service.h"
 #include "src/services/task_helpers.h"
+#include "src/services/watchdog_service.h"
 #include "config.h"
 
 // SD error state exported to state_task through semantic getters.
@@ -292,6 +293,8 @@ static void sd_task_loop(void *arg){
   s_sd_error_clearable = false;
 
   for(;;){
+    watchdog_kick(WD_SD);
+
     s_sd_tick++;
     s_state_tick++;
 

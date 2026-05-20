@@ -406,3 +406,19 @@ The firmware accesses the FT3168 touch controller directly using the shared
 Wire/I2C bus. Arduino_DriveBus is not required. The driver performs a bounded
 reset/init retry sequence at BOOT, then uses the FT3168 interrupt line and
 coordinate registers to report raw touch coordinates.
+
+
+## Software Watchdog
+
+A lightweight software watchdog service records heartbeats from critical
+recorder tasks. The Arduino `.ino` loop acts as an independent checker so the
+state and SD state machines do not supervise only themselves.
+
+The watchdog uses one timeout value, `WATCHDOG_TIMEOUT_MS`, for all required
+sources. `state_task` and `sd_task` are required continuously. The recording
+heartbeat is required only while the recorder is in `ST_RECORDING`.
+
+A timeout stores a persistent NVS flag before shutdown. On the next startup,
+after UI and state-task local services are initialized, the startup path shows
+`FATAL WDG/CLR` before normal BOOT checks continue so the operator knows that
+the previous stop was caused by a watchdog fault.

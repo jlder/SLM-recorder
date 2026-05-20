@@ -40,6 +40,7 @@
 #include "src/services/settings_store.h" // settings cache (registration/wifi)
 #include "src/services/datetime_service.h"
 #include "src/services/calibration_service.h"
+#include "src/services/watchdog_service.h"
 
 #include "src/services/touch_service.h"
 #include "src/tasks/sd_task.h"
@@ -63,6 +64,9 @@ static uint32_t s_state_tick = 0u;
 // Set when power-long is requested during recording.  The recorder first
 // closes the SD file through ST_STOPPING, then continues to ST_OFF.
 static bool s_shutdown_after_stop_requested = false;
+// Persistent watchdog fault acknowledgement gate.  When set, startup
+// waits for Power/Clear before normal BOOT checks continue.
+static bool s_watchdog_ack_pending = false;
 // Settings persistence is owned by settings_store. The State task only reads.
 
 // UI request latches (simple, no queues).
@@ -342,6 +346,8 @@ static void recording_service(void){
     error_manager_raise(ERR_RINGBUFFER_OVERFLOW);
     return;
   }
+
+  watchdog_kick(WD_RECORD);
 }
 
 // =============================================================================
@@ -474,14 +480,22 @@ static void state_task_main(void *arg){
   datetime_service_init();
   (void)calibration_service_init();
 
+  s_watchdog_ack_pending = watchdog_persistent_fault_present();
+  if(s_watchdog_ack_pending){
+    init_power_button();
+    set_msg(MSG_FATAL_WDG_CLR);
+  }
+
   // Select the initial operator message.  Incomplete settings do not block
   // BOOT forever and are not treated as a fatal hardware error.
-  if(!settings_storage_ok){
-    set_msg(MSG_SETTINGS_LOCKED);
-  } else {
-    settings_t settings = {};
-    if(!settings_get(&settings) || !settings_is_complete(&settings)){
+  if(!s_watchdog_ack_pending){
+    if(!settings_storage_ok){
       set_msg(MSG_SETTINGS_LOCKED);
+    } else {
+      settings_t settings = {};
+      if(!settings_get(&settings) || !settings_is_complete(&settings)){
+        set_msg(MSG_SETTINGS_LOCKED);
+      }
     }
   }
 
@@ -493,6 +507,19 @@ static void state_task_main(void *arg){
     vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(CFG_STATE_TASK_PERIOD_MS));
 
     const uint32_t now = now_ms();
+
+    watchdog_kick(WD_STATE);
+    watchdog_set_required(WD_RECORD, s_st.state == ST_RECORDING);
+
+    if(s_watchdog_ack_pending){
+      set_msg(MSG_FATAL_WDG_CLR);
+      if(test_power_button(POWER_CLEAR_HOLD_MS) == true){
+        watchdog_persistent_fault_clear();
+        s_watchdog_ack_pending = false;
+        state_set(ST_BOOT);
+      }
+      continue;
+    }
 
     calibration_session_service(now);
 

@@ -67,6 +67,7 @@ static const row_t kTable[] = {
 
   // Fatal
   { MSG_FATAL, "GENERIC ERROR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
+  { MSG_FATAL_WDG_CLR, "FATAL WDG/CLR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
 };
 
 static ui_message_info_t s_info; // returned pointer refers to this stable object

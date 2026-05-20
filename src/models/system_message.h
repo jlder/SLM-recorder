@@ -64,6 +64,7 @@ typedef enum {
 
   // Generic fatal
   MSG_FATAL,
+  MSG_FATAL_WDG_CLR,
 
   MSG__COUNT
 } msg_id_t;

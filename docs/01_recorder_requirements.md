@@ -974,3 +974,34 @@ The START WIFI action shall be disabled while required settings are incomplete b
 Status:
 
 - **Implemented.**
+
+
+## OP-WDG-001 — Software watchdog supervision
+
+The recorder shall monitor critical task progress using software watchdog
+heartbeats.
+
+Monitored sources:
+
+```text
+state_task: required continuously
+sd_task:    required continuously
+recording:  required only while RECORDING
+```
+
+Each required source shall refresh its heartbeat before `WATCHDOG_TIMEOUT_MS`
+expires. The watchdog check is performed from the Arduino `.ino` loop every
+`WATCHDOG_CHECK_PERIOD_MS`.
+
+If a watchdog timeout occurs, the recorder shall:
+
+1. store a persistent watchdog fault flag in NVS;
+2. if recording is active, request a controlled SD close;
+3. wait up to `WATCHDOG_TIMEOUT_MS` for the close to complete;
+4. request PMU shutdown.
+
+On startup, after the UI and state-task local services are initialized, the
+recorder shall display `FATAL WDG/CLR` in red before normal BOOT checks
+continue. Pressing the power/clear button shall clear the persistent watchdog
+flag and allow normal BOOT checks to continue. The watchdog fault is an operator acknowledgement latch, not
+a permanent recording block.
