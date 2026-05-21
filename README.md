@@ -26,14 +26,16 @@ After Arduino installation,
 From the Arduino IDE menu Files / Preferences,  add url for Espressif boards:
 https://espressif.github.io/arduino-esp32/package_esp32_index.json
 
-In the Arduino IDE board manager install esp32 from Espressif at version 3.3.5
+In the Arduino IDE Board Manager, install `esp32` from Espressif at version 3.3.5.
+
+Keep the ESP32 board package at version 3.3.5. Later ESP32 board package versions may not be compatible with the listed Arduino_GFX version.
 
 Then in the Arduino IDE menu  Tools, select:
 
 ```text
 Board:             ESP32S3 Dev Module
 Port:              COM port connected to the recorder board
-USB CDC :		   Enabeled
+USB CDC:           Enabled
 Flash Size:        16 MB (128 Mb)
 Partition Scheme:  16M Flash (3MB APP/9.9MB FATFS)
 PSRAM:             OPI PSRAM
