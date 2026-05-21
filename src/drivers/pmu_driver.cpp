@@ -22,26 +22,6 @@
 static XPowersPMU s_pmu;
 
 /**
- * Disable AXP2101 Power Key Shutdown performs the pmu driver operation
- * represented by this function and keeps the module state consistent with
- * recorder ownership rules.
- *
- * Inputs: None.
- * Returns: None.
- */
-static void disableAXP2101PowerKeyShutdown(void) {
-  // Copied from prototype: attempt to disable long-press hardware shutdown.
-  // The register write and messaging are kept as in the working code.
-  uint8_t value = s_pmu.readRegister(0x22);
-  value &= ~(1 << 2);
-  if (s_pmu.writeRegister(0x22, value)) {
-  } else {
-    // Observed on some boards: write may report failure, while the setting can
-    // still take effect. Keep this as DEBUG to avoid confusing operators.
-  }
-}
-
-/**
  * Initializes pmu drv init state or hardware resources and prepares the module
  * for later recorder operation.
  *
@@ -54,7 +34,8 @@ bool pmu_drv_init(void) {
     return false;
   }
   delay(50);
-  disableAXP2101PowerKeyShutdown();
+  // Enable PMU measurement/gauge paths used by the recorder status display.
+  s_pmu.enableGauge();
   s_pmu.enableVbusVoltageMeasure();
   return true;
 }
@@ -161,7 +142,7 @@ bool pmu_battery_low(void) {
 void pmu_shutdown(void){
   // Try to shut down through PMU. If it fails, reboot as fallback.
   s_pmu.shutdown();
-vTaskDelay(pdMS_TO_TICKS(200));
+  vTaskDelay(pdMS_TO_TICKS(200));
   esp_restart();
 }
 
