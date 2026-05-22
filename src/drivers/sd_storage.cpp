@@ -33,6 +33,12 @@ static sdmmc_card_t *s_card = nullptr;
 // Current open recording file, if any.
 static File s_file;
 
+// Current open Web/UI download file, if any.  This handle is owned by the
+// SD layer and is serviced only from sd_task through sd_files requests.
+static File s_download_file;
+static uint32_t s_download_size = 0u;
+static uint32_t s_download_offset = 0u;
+
 // Cached free-space value used only while a record file is open.
 // This avoids querying the SD stack for free space during active writes.
 static uint64_t s_cached_free_bytes = 0u;
@@ -179,6 +185,13 @@ error_code_t sd_begin(void) {
  * Returns: None.
  */
 void sd_end(void) {
+  if (s_download_file) {
+    s_download_file.close();
+    s_download_file = File();
+    s_download_size = 0u;
+    s_download_offset = 0u;
+  }
+
   if (s_file) {
     s_file.flush();
     s_file.close();
@@ -501,6 +514,98 @@ bool sd_storage_read(const char *path, uint32_t offset, uint32_t len, uint8_t *o
   f.close();
   *out_len = (uint32_t)r;
   return true;
+}
+
+/**
+ * Begin an SD-owned sequential download session.  The file is opened once and
+ * later consumed by sd_storage_download_read().
+ *
+ * Inputs: `path`, `out_size`.
+ * Returns: `true` when the file was opened successfully.
+ */
+bool sd_storage_download_begin(const char *path, uint32_t *out_size) {
+  if(sd_check_present() != ERR_NONE) return false;
+  if((path == nullptr) || (out_size == nullptr)) return false;
+  if(s_file) return false;  // recording file must not be open
+
+  sd_storage_download_end();
+
+  char tmp[SD_STORAGE_PATH_MAX];
+  const char *p = sd_norm_sdmmc_path_(path, tmp, sizeof(tmp));
+  if(!p) return false;
+
+  s_download_file = SD_MMC.open(p, FILE_READ);
+  if((!s_download_file) || s_download_file.isDirectory()){
+    sd_storage_download_end();
+    return false;
+  }
+
+  const size_t sz = s_download_file.size();
+  if(sz > 0xFFFFFFFFu){
+    sd_storage_download_end();
+    return false;
+  }
+
+  s_download_size = (uint32_t)sz;
+  s_download_offset = 0u;
+  *out_size = s_download_size;
+  return true;
+}
+
+/**
+ * Read the next sequential chunk from the active SD-owned download session.
+ *
+ * Inputs: `out`, `len`, `out_len`.
+ * Returns: `true` when the read operation completed.
+ */
+bool sd_storage_download_read(uint8_t *out, uint32_t len, uint32_t *out_len) {
+  if((out == nullptr) || (out_len == nullptr)){
+    return false;
+  }
+
+  *out_len = 0u;
+
+  if(!s_download_file){
+    return false;
+  }
+
+  if(s_download_offset >= s_download_size){
+    return true;
+  }
+
+  const uint32_t remain = s_download_size - s_download_offset;
+  const uint32_t to_read = (remain < len) ? remain : len;
+
+  const size_t r = s_download_file.read(out, (size_t)to_read);
+  *out_len = (uint32_t)r;
+  s_download_offset += (uint32_t)r;
+
+  return (r > 0u) || (to_read == 0u);
+}
+
+/**
+ * End the active SD-owned download session.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+void sd_storage_download_end(void) {
+  if(s_download_file){
+    s_download_file.close();
+  }
+  s_download_file = File();
+  s_download_size = 0u;
+  s_download_offset = 0u;
+}
+
+/**
+ * Return whether an SD-owned download file handle is currently open.
+ *
+ * Inputs: None.
+ * Returns: `true` when a download session is active.
+ */
+bool sd_storage_download_active(void) {
+  return (bool)s_download_file;
 }
 
 

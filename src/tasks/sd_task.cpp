@@ -331,7 +331,7 @@ static void sd_task_loop(void *arg){
 
         // Periodically re-probe while idle so card insertion/removal or a full
         // root directory is detected before a recording start request.
-        if(sd_time_due(SD_IDLE_REPROBE_PERIOD_MS)){
+        if((!sd_files_download_active()) && sd_time_due(SD_IDLE_REPROBE_PERIOD_MS)){
           (void)sd_reinit();
 
           const error_code_t idle_status_rc = sd_status_check(SD_STATUS_ALL);
@@ -549,7 +549,13 @@ static void sd_task_loop(void *arg){
         break;
     }
 
-    vTaskDelay(pdMS_TO_TICKS(SD_TASK_PERIOD_MS));
+    // Reduce SD state machine period during file operations required by web task
+	//
+	const bool fast_file_op_poll = (s_sd_state == SD_IDLE) && sd_files_is_authorized();
+
+    const uint32_t delay_ms = fast_file_op_poll ? SD_TASK_FILE_OP_PERIOD_MS : SD_TASK_PERIOD_MS;
+
+    vTaskDelay(pdMS_TO_TICKS(delay_ms));
   }
 }
 

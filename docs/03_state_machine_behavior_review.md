@@ -414,3 +414,26 @@ file-count maintenance requires MENU/START WIFI access, state_task exits
 `ST_ERROR`, clears the active error latch, enters `ST_READY`, and publishes
 `MSG_SD_FULL_FILES`. Recording remains blocked until the root file count is
 reduced, but Web file archive is available.
+
+## SD File-Management Timing and Download Behavior
+
+When the recorder is in READY and Web file-management is authorized, SD support operations are serviced from `SD_IDLE`. Recording states do not service Web/UI file-management operations.
+
+To improve Web download responsiveness, `sd_task` uses a shorter file-operation polling period only when both conditions are true:
+
+```text
+s_sd_state == SD_IDLE
+sd_files_is_authorized() == true
+```
+
+In all other SD states, the normal `SD_TASK_PERIOD_MS` period is used.
+
+Web downloads use a sequential SD-owned session. The Web task does not open SD files directly. Instead:
+
+1. `web_task` starts the session through `sd_files_download_begin()`;
+2. `sd_task` opens the file through `sd_storage_download_begin()`;
+3. each HTTP chunk is serviced through `sd_files_download_read()`;
+4. `sd_storage_download_read()` reads the next sequential bytes from the open file;
+5. transfer cleanup calls `sd_files_download_end()`, which closes the SD-owned file handle.
+
+While a download session is active, the SD idle reprobe is skipped so the open download file handle is not invalidated by an SD reinitialization.
