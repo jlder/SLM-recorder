@@ -27,7 +27,6 @@ From the Arduino IDE menu Files / Preferences,  add url for Espressif boards:
 https://espressif.github.io/arduino-esp32/package_esp32_index.json
 
 In the Arduino IDE Board Manager, install `esp32` from Espressif at version 3.3.5.
-
 Keep the ESP32 board package at version 3.3.5. Later ESP32 board package versions may not be compatible with the listed Arduino_GFX version.
 
 Then in the Arduino IDE menu  Tools, select:
@@ -37,11 +36,12 @@ Board:             ESP32S3 Dev Module
 Port:              COM port connected to the recorder board
 USB CDC:           Enabled
 Flash Size:        16 MB (128 Mb)
-Partition Scheme:  16M Flash (3MB APP/9.9MB FATFS)
+Partition Scheme:  Custom
 PSRAM:             OPI PSRAM
 ```
 
 The exact COM port depends on your PC and connected board.
+The custom partition scheme is described in the file partitions.csv located at the root of the project. It allows for 2 x 3.5 MB OTA partitions.
 
 ## 3. Required Libraries
 
@@ -57,7 +57,7 @@ The FT3168 touch controller is handled directly by the project firmware and does
 | ESPAsync WebServer | ESP32Async | 3.11.0 |
 | GFX Library for Arduino | Moon On Our Nation | 1.6.0 |
 | SensorLib | Lewis He | 0.3.1 |
-| XPowersLib / XPowerLib | Lewis He | 0.3.3 |
+| XPowersLib / XPowerLib | Lewis He | 0.3.0 |
 | lvgl | Kisvegabor / lvgl project | 9.3.0 |
 
 ## 4. Project-local configuration files
