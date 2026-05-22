@@ -36,8 +36,13 @@ static volatile bool s_file_list_json_requested = false;
 static volatile bool s_file_size_requested = false;
 static volatile bool s_file_space_requested = false;
 static volatile bool s_file_read_requested = false;
+static volatile bool s_file_download_begin_requested = false;
+static volatile bool s_file_download_read_requested = false;
+static volatile bool s_file_download_end_requested = false;
 static volatile bool s_file_delete_requested = false;
 static volatile bool s_file_move_requested = false;
+
+static volatile bool s_file_download_active = false;
 
 static char s_file_path[SD_STORAGE_PATH_MAX];
 static char s_file_path2[SD_STORAGE_PATH_MAX];
@@ -99,6 +104,9 @@ static void sd_file_request_clear_args_(void){
   s_file_size_requested = false;
   s_file_space_requested = false;
   s_file_read_requested = false;
+  s_file_download_begin_requested = false;
+  s_file_download_read_requested = false;
+  s_file_download_end_requested = false;
   s_file_delete_requested = false;
   s_file_move_requested = false;
 
@@ -382,6 +390,72 @@ static bool sd_request_file_move_(const char *src, const char *dst){
  * Inputs: `dir_path`, `out_json`, `out_json_cap`, `out_len`.
  * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
  */
+
+/**
+ * Requests that sd_task open a sequential download session.
+ *
+ * Inputs: `path`, `out_size`.
+ * Returns: `true` when the request was queued.
+ */
+static bool sd_request_download_begin_(const char *path, uint32_t *out_size){
+  if((path == nullptr) || (out_size == nullptr)){
+    return false;
+  }
+
+  if(!sd_file_request_begin_()){
+    return false;
+  }
+
+  if(!sd_file_copy_path_(s_file_path, sizeof(s_file_path), path)){
+    sd_file_request_cancel_begin_();
+    return false;
+  }
+
+  s_file_out_size = out_size;
+  s_file_download_begin_requested = true;
+  s_file_request_pending = true;
+  return true;
+}
+
+/**
+ * Requests that sd_task read the next sequential download chunk.
+ *
+ * Inputs: `out`, `len`, `out_len`.
+ * Returns: `true` when the request was queued.
+ */
+static bool sd_request_download_read_(uint8_t *out, uint32_t len, uint32_t *out_len){
+  if((out == nullptr) || (out_len == nullptr) || (len == 0u)){
+    return false;
+  }
+
+  if(!sd_file_request_begin_()){
+    return false;
+  }
+
+  s_file_out_buf = out;
+  s_file_len = len;
+  s_file_out_len = out_len;
+  s_file_download_read_requested = true;
+  s_file_request_pending = true;
+  return true;
+}
+
+/**
+ * Requests that sd_task close the active sequential download session.
+ *
+ * Inputs: None.
+ * Returns: `true` when the request was queued.
+ */
+static bool sd_request_download_end_(void){
+  if(!sd_file_request_begin_()){
+    return false;
+  }
+
+  s_file_download_end_requested = true;
+  s_file_request_pending = true;
+  return true;
+}
+
 bool sd_files_list_json(const char *dir_path,
                         char *out_json,
                         uint32_t out_json_cap,
@@ -456,6 +530,75 @@ bool sd_files_read(const char *path,
   }
 
   return sd_file_request_wait_(SD_FILE_WAIT_TICKS);
+}
+
+
+/**
+ * Begin an SD-task-owned sequential download session.
+ *
+ * Inputs: `path`, `out_size`.
+ * Returns: `true` when the session is open and size is known.
+ */
+bool sd_files_download_begin(const char *path, uint32_t *out_size){
+  if(!sd_files_authorized_()){
+    return false;
+  }
+
+  if(!sd_request_download_begin_(path, out_size)){
+    return false;
+  }
+
+  const bool ok = sd_file_request_wait_(SD_FILE_WAIT_TICKS);
+  s_file_download_active = ok;
+  return ok;
+}
+
+/**
+ * Read the next chunk from the active SD-task-owned download session.
+ *
+ * Inputs: `out`, `len`, `out_len`.
+ * Returns: `true` when the read completed.
+ */
+bool sd_files_download_read(uint8_t *out, uint32_t len, uint32_t *out_len){
+  if(!sd_files_authorized_() || !s_file_download_active){
+    return false;
+  }
+
+  if(!sd_request_download_read_(out, len, out_len)){
+    return false;
+  }
+
+  return sd_file_request_wait_(SD_FILE_WAIT_TICKS);
+}
+
+/**
+ * End the active SD-task-owned download session.
+ *
+ * Inputs: None.
+ * Returns: `true` when the close request completed or no session was active.
+ */
+bool sd_files_download_end(void){
+  if(!s_file_download_active){
+    return true;
+  }
+
+  if(!sd_request_download_end_()){
+    return false;
+  }
+
+  const bool ok = sd_file_request_wait_(SD_FILE_WAIT_TICKS);
+  s_file_download_active = false;
+  return ok;
+}
+
+/**
+ * Return whether a download session is active or being opened/closed.
+ *
+ * Inputs: None.
+ * Returns: `true` when a download session is active.
+ */
+bool sd_files_download_active(void){
+  return s_file_download_active;
 }
 
 /**
@@ -541,6 +684,22 @@ void sd_file_ops_service(void){
         s_file_len,
         s_file_out_buf,
         s_file_out_len);
+
+  } else if(s_file_download_begin_requested){
+    s_file_download_begin_requested = false;
+    s_file_request_ok = sd_storage_download_begin(s_file_path, s_file_out_size);
+
+  } else if(s_file_download_read_requested){
+    s_file_download_read_requested = false;
+    s_file_request_ok = sd_storage_download_read(
+        s_file_out_buf,
+        s_file_len,
+        s_file_out_len);
+
+  } else if(s_file_download_end_requested){
+    s_file_download_end_requested = false;
+    sd_storage_download_end();
+    s_file_request_ok = true;
 
   } else if(s_file_list_json_requested){
     s_file_list_json_requested = false;

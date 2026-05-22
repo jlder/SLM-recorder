@@ -52,6 +52,29 @@ bool sd_files_get_space(uint64_t *out_total_bytes, uint64_t *out_free_bytes);
 bool sd_files_read(const char *path, uint32_t offset, uint32_t len,
                    uint8_t *out, uint32_t *out_len);
 
+/**
+ * Begin an SD-task-owned sequential download session.
+ * Returns false if not authorized, busy, timed out, or on SD/filesystem error.
+ */
+bool sd_files_download_begin(const char *path, uint32_t *out_size);
+
+/**
+ * Read the next chunk from the active SD-task-owned download session.
+ * Returns false if not authorized, busy, timed out, or on SD/filesystem error.
+ */
+bool sd_files_download_read(uint8_t *out, uint32_t len, uint32_t *out_len);
+
+/**
+ * End the active SD-task-owned download session.
+ * Safe to call even when no session is active.
+ */
+bool sd_files_download_end(void);
+
+/**
+ * Return whether a download session is active or being opened/closed.
+ */
+bool sd_files_download_active(void);
+
 /** Archive a file to /processed. Returns false if not authorized or on error. */
 bool sd_files_delete(const char *path);
 

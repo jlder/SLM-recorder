@@ -422,3 +422,18 @@ A timeout stores a persistent NVS flag before shutdown. On the next startup,
 after UI and state-task local services are initialized, the startup path shows
 `FATAL WDG/CLR` before normal BOOT checks continue so the operator knows that
 the previous stop was caused by a watchdog fault.
+
+## SD-Owned Web Download Session
+
+Web file-management operations are authorized only when the recorder is in READY and Web support is enabled. Active recording, SD open, SD write, and SD close states retain priority over support file-management operations.
+
+Web downloads are implemented as an SD-owned sequential download session:
+
+- `web_task` requests download begin/read/end operations through `sd_files`;
+- `sd_files` serializes those requests and executes them from `sd_task`;
+- `sd_storage` owns the open download file handle;
+- the file is opened once at download start, read sequentially by chunk, and closed when the transfer ends or is aborted.
+
+This avoids repeated open/seek/close cycles for each HTTP chunk while preserving the rule that SD filesystem access remains owned by the SD layer.
+
+While the SD state machine is in `SD_IDLE` and SD file-management is authorized, the SD task may use `SD_TASK_FILE_OP_PERIOD_MS` instead of `SD_TASK_PERIOD_MS` to improve Web file-management responsiveness. This shorter period is not used during SD boot, recording open, recording write, recording close, or SD error handling.

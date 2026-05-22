@@ -126,6 +126,38 @@ bool sd_storage_get_file_size(const char *path, uint32_t *out_size);
  */
 bool sd_storage_read(const char *path, uint32_t offset, uint32_t len, uint8_t *out, uint32_t *out_len);
 /**
+ * Begin an SD-owned sequential download session.  The file remains open until
+ * sd_storage_download_end() is called.
+ *
+ * Inputs: `path`, `out_size`.
+ * Returns: `true` when the file was opened and its size returned.
+ */
+bool sd_storage_download_begin(const char *path, uint32_t *out_size);
+
+/**
+ * Read the next sequential chunk from the active download session.
+ *
+ * Inputs: `out`, `len`, `out_len`.
+ * Returns: `true` when the read operation completed.
+ */
+bool sd_storage_download_read(uint8_t *out, uint32_t len, uint32_t *out_len);
+
+/**
+ * End the active SD-owned download session and close the file handle.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+void sd_storage_download_end(void);
+
+/**
+ * Return whether an SD-owned download file handle is currently open.
+ *
+ * Inputs: None.
+ * Returns: `true` when a download session is active.
+ */
+bool sd_storage_download_active(void);
+/**
  * @brief SD storage delete.
  *
  * Inputs: `path`.

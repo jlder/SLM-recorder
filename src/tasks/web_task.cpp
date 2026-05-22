@@ -494,6 +494,7 @@ struct WebDownloadCtx {
   void release_busy_once(void) {
     if (!released) {
       released = true;
+      (void)sd_files_download_end();
       web_sd_end();
     }
   }
@@ -530,7 +531,7 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     }
 
     uint32_t file_size = 0u;
-    if (!sd_files_get_file_size(path.c_str(), &file_size)) {
+    if (!sd_files_download_begin(path.c_str(), &file_size)) {
       web_sd_end();
       request->send(404, "text/plain", "not found");
       return;
@@ -543,6 +544,7 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
 
     WebDownloadCtx *ctx = new (std::nothrow) WebDownloadCtx(path, file_size);
     if (ctx == nullptr) {
+      (void)sd_files_download_end();
       web_sd_end();
       request->send(500, "text/plain", "oom");
       return;
@@ -563,11 +565,7 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
                                    : (uint32_t)maxLen;
 
         uint32_t got = 0u;
-        const bool ok = sd_files_read(ctx->path.c_str(),
-                                      (uint32_t)index,
-                                      to_read,
-                                      buffer,
-                                      &got);
+        const bool ok = sd_files_download_read(buffer, to_read, &got);
 
         if ((!ok) || (got == 0u)) {
           // Signal end-of-stream/read failure.  The disconnect hook owns
@@ -579,8 +577,8 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
       });
 
     if (response == nullptr) {
+      ctx->release_busy_once();
       delete ctx;
-      web_sd_end();
       request->send(500, "text/plain", "response_alloc");
       return;
     }
