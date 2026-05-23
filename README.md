@@ -57,7 +57,7 @@ The FT3168 touch controller is handled directly by the project firmware and does
 | ESPAsync WebServer | ESP32Async | 3.11.0 |
 | GFX Library for Arduino | Moon On Our Nation | 1.6.0 |
 | SensorLib | Lewis He | 0.3.1 |
-| XPowersLib / XPowerLib | Lewis He | 0.3.0 |
+| XPowersLib | Lewis He | 0.3.0 |
 | lvgl | Kisvegabor / lvgl project | 9.3.0 |
 
 ## 4. Project-local configuration files
