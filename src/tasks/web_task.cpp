@@ -17,6 +17,7 @@
 #include <WiFi.h>
 #include <new>
 #include <ESPAsyncWebServer.h>
+#include <Update.h>
 
 #include "src/tasks/html_interface.h"
 #include "src/tasks/state_task.h"
@@ -33,6 +34,11 @@
 static AsyncWebServer s_server(WEB_SERVER_PORT);
 static bool s_enabled = false;
 static bool s_started = false;
+static volatile bool s_ota_active = false;
+static volatile bool s_ota_ok = false;
+static volatile bool s_ota_reboot_pending = false;
+static char s_ota_error[48] = "";
+
 
 static IPAddress s_ap_ip = AP_IP_ADDRESS;
 static IPAddress s_gateway = AP_GATEWAY;
@@ -207,6 +213,46 @@ static const char* content_type_from_name(const String& filename){
 static bool web_snprintf_ok_(int n, size_t cap){
   return (n >= 0) && ((size_t)n < cap);
 }
+
+/**
+ * Store a short OTA error reason for the final upload response.
+ *
+ * Inputs: `reason`.
+ * Returns: None.
+ */
+static void ota_set_error_(const char *reason){
+  if(reason == nullptr){
+    reason = "failed";
+  }
+
+  size_t i = 0u;
+  for(; (i < (sizeof(s_ota_error) - 1u)) && (reason[i] != '\0'); ++i){
+    s_ota_error[i] = reason[i];
+  }
+  s_ota_error[i] = '\0';
+}
+
+/**
+ * Return whether OTA update is allowed by the current power/status snapshot.
+ *
+ * Inputs: None.
+ * Returns: `true` when USB power is present.
+ */
+static bool ota_usb_allowed_(void){
+  const system_status_t st = state_task_get_status();
+  return st.usb_present_valid && st.usb_present;
+}
+
+/**
+ * Return whether the uploaded firmware filename is acceptable for Web OTA.
+ *
+ * Inputs: `filename`.
+ * Returns: `true` for an application .bin file name that is not a merged bin.
+ */
+static bool ota_filename_allowed_(const String& filename){
+  return filename.endsWith(".bin") && (filename.indexOf("merged") < 0);
+}
+
 
 
 static const char *cal_status_name_(calibration_status_t status){
@@ -418,6 +464,72 @@ static void register_routes_once(){
     request->send_P(200, "text/html", HTML_PAGE);
   });
 
+  s_server.on("/api/ota", HTTP_POST,
+    [](AsyncWebServerRequest *request){
+      if(s_ota_ok){
+        request->send(200, "text/plain", "Firmware update OK. Rebooting...");
+        s_ota_reboot_pending = true;
+      } else {
+        const char *reason = (s_ota_error[0] != '\0') ? s_ota_error : "ota_failed";
+        request->send(500, "text/plain", reason);
+      }
+
+      s_ota_active = false;
+    },
+    [](AsyncWebServerRequest *request,
+       String filename,
+       size_t index,
+       uint8_t *data,
+       size_t len,
+       bool final){
+      (void)request;
+
+      if(index == 0u){
+        s_ota_ok = false;
+        s_ota_active = false;
+        s_ota_error[0] = '\0';
+
+        if(!ota_usb_allowed_()){
+          ota_set_error_("usb_required");
+          return;
+        }
+
+        if(!ota_filename_allowed_(filename)){
+          ota_set_error_("application_bin_required");
+          return;
+        }
+
+        if(!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)){
+          ota_set_error_("update_begin_failed");
+          return;
+        }
+
+        s_ota_active = true;
+      }
+
+      if(!s_ota_active){
+        return;
+      }
+
+      if((len > 0u) && (Update.write(data, len) != len)){
+        Update.abort();
+        s_ota_active = false;
+        ota_set_error_("update_write_failed");
+        return;
+      }
+
+      if(final){
+        if(Update.end(true)){
+          s_ota_ok = true;
+        } else {
+          Update.abort();
+          s_ota_active = false;
+          ota_set_error_("update_end_failed");
+        }
+      }
+    });
+
+
   // API endpoints expected by the embedded HTML interface (prototype-compatible)
   s_server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
     const system_status_t st = state_task_get_status();
@@ -494,7 +606,6 @@ struct WebDownloadCtx {
   void release_busy_once(void) {
     if (!released) {
       released = true;
-      (void)sd_files_download_end();
       web_sd_end();
     }
   }
@@ -531,7 +642,7 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     }
 
     uint32_t file_size = 0u;
-    if (!sd_files_download_begin(path.c_str(), &file_size)) {
+    if (!sd_files_get_file_size(path.c_str(), &file_size)) {
       web_sd_end();
       request->send(404, "text/plain", "not found");
       return;
@@ -544,7 +655,6 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
 
     WebDownloadCtx *ctx = new (std::nothrow) WebDownloadCtx(path, file_size);
     if (ctx == nullptr) {
-      (void)sd_files_download_end();
       web_sd_end();
       request->send(500, "text/plain", "oom");
       return;
@@ -565,7 +675,11 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
                                    : (uint32_t)maxLen;
 
         uint32_t got = 0u;
-        const bool ok = sd_files_download_read(buffer, to_read, &got);
+        const bool ok = sd_files_read(ctx->path.c_str(),
+                                      (uint32_t)index,
+                                      to_read,
+                                      buffer,
+                                      &got);
 
         if ((!ok) || (got == 0u)) {
           // Signal end-of-stream/read failure.  The disconnect hook owns
@@ -577,8 +691,8 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
       });
 
     if (response == nullptr) {
-      ctx->release_busy_once();
       delete ctx;
+      web_sd_end();
       request->send(500, "text/plain", "response_alloc");
       return;
     }
@@ -849,6 +963,10 @@ static void web_task_loop(void *arg){
     }
     if(!s_enabled && s_started){
       stop_ap_and_server();
+    }
+    if(s_ota_reboot_pending){
+      vTaskDelay(pdMS_TO_TICKS(500));
+      ESP.restart();
     }
     vTaskDelay(pdMS_TO_TICKS(200));
   }

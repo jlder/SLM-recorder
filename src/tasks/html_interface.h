@@ -150,6 +150,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         <div class="tabs">
             <button id="tabFilesBtn" class="tab-btn active" onclick="showTab('files')">Files</button>
             <button id="tabCalBtn" class="tab-btn" onclick="showTab('cal')">Calibration</button>
+            <button id="tabOtaBtn" class="tab-btn" onclick="showTab('ota')">Firmware Update</button>
         </div>
 
         <div class="info-bar">
@@ -172,8 +173,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         <div id="calSection" class="hidden section">
             <h2>Accelerometer Calibration</h2>
             <div class="card">
-                <p><b>Workflow:</b> Click Start, then slowly rotate the recorder through all six faces. When a stable face is detected, the current session value is stored automatically for that face. Leave the recorder still on a face to improve the stddev for that current-session value, then review and save.</p>
-                <p class="small">The backend detects the face from the dominant stable acceleration axis. For each face, the current session keeps the stable value with the lowest stddev. Stored values are shown only for comparison. Recording remains disabled until calibration is valid.</p>
+                <p><b>Workflow:</b> Install the recorder in its calibration tool. Make sure the surface used for calibration is perfectly leveled. Leave the recorder on one of its six face. Click Start and wait until a stable face is detected. Wait a few seconds until the standard deviation (std dev) is stable and as low as possible. Then slowly rotate the recorder through all six faces following the same procedure. The current session value is stored and updated automatically for the identified face. When all 6 faces have been detected, the recorder gains and offsets are computed for each axis. If a previous calibration has been performed, the values are displayed and can be compared to current calibration values. When results are satisfactory, save to the recorder.</p>                <p class="small">The backend detects the face from the dominant stable acceleration axis. For each face, the current session keeps the stable value with the lowest stddev. Stored values are shown only for comparison. Recording remains disabled until calibration is valid.</p>
             </div>
 
             <div class="controls">
@@ -231,6 +231,21 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 <pre id="calLog" class="hidden">Ready.</pre>
             </div>
         </div>
+
+        <div id="otaSection" class="hidden section">
+            <h2>Firmware Update</h2>
+            <div class="card">
+                <p><b>USB power is required for firmware update.</b></p>
+                <p class="small">Upload only the Arduino application <span class="mono">.bin</span> file, typically <span class="mono">SLM_recorder.ino.bin</span>. Do not upload the merged binary.</p>
+                <p class="small">The recorder will restart automatically after a successful update.</p>
+            </div>
+
+            <div class="card">
+                <input type="file" id="otaFile" accept=".bin">
+                <button class="btn btn-warning" id="btnOtaUpload" onclick="otaUpload()">Upload Firmware</button>
+                <div id="otaStatus" class="small">Ready.</div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -240,17 +255,27 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         function showTab(name) {
             const files = document.getElementById('filesSection');
             const cal = document.getElementById('calSection');
+            const ota = document.getElementById('otaSection');
             document.getElementById('tabFilesBtn').classList.remove('active');
             document.getElementById('tabCalBtn').classList.remove('active');
+            document.getElementById('tabOtaBtn').classList.remove('active');
 
             if (name === 'cal') {
                 files.classList.add('hidden');
+                ota.classList.add('hidden');
                 cal.classList.remove('hidden');
                 document.getElementById('tabCalBtn').classList.add('active');
                 calStatus();
                 startCalPolling();
+            } else if (name === 'ota') {
+                files.classList.add('hidden');
+                cal.classList.add('hidden');
+                ota.classList.remove('hidden');
+                document.getElementById('tabOtaBtn').classList.add('active');
+                stopCalPolling();
             } else {
                 cal.classList.add('hidden');
+                ota.classList.add('hidden');
                 files.classList.remove('hidden');
                 document.getElementById('tabFilesBtn').classList.add('active');
                 stopCalPolling();
@@ -541,6 +566,55 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     save.disabled = false;
                     logCal('SAVE ERROR: ' + err);
                 });
+        }
+
+        function otaUpload() {
+            const fileInput = document.getElementById('otaFile');
+            const status = document.getElementById('otaStatus');
+            const button = document.getElementById('btnOtaUpload');
+
+            if (!fileInput.files || fileInput.files.length === 0) {
+                status.textContent = 'Select a firmware .bin file first.';
+                return;
+            }
+
+            const file = fileInput.files[0];
+            if (!file.name.endsWith('.bin') || file.name.indexOf('merged') >= 0) {
+                status.textContent = 'Use the application .bin file, not the merged binary.';
+                return;
+            }
+
+            const form = new FormData();
+            form.append('firmware', file, file.name);
+
+            button.disabled = true;
+            status.textContent = 'Uploading firmware: 0%. Do not disconnect USB power.';
+
+            const xhr = new XMLHttpRequest();
+
+            xhr.upload.onprogress = function(evt) {
+                if (evt.lengthComputable) {
+                    const pct = Math.round((evt.loaded * 100) / evt.total);
+                    status.textContent = 'Uploading firmware: ' + pct + '%. Do not disconnect USB power.';
+                } else {
+                    status.textContent = 'Uploading firmware. Do not disconnect USB power.';
+                }
+            };
+
+            xhr.onload = function() {
+                status.textContent = xhr.responseText || 'Upload complete.';
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    button.disabled = false;
+                }
+            };
+
+            xhr.onerror = function() {
+                status.textContent = 'Firmware update failed.';
+                button.disabled = false;
+            };
+
+            xhr.open('POST', '/api/ota');
+            xhr.send(form);
         }
 
         setInterval(updateStatus, 5000);

@@ -35,9 +35,12 @@ Required project-local files:
 ```text
 src/board/pin_config.h
 lv_conf.h
+partitions.csv
 ```
 
 The firmware shall not require these files to be manually copied into the global Arduino libraries folder.
+
+`partitions.csv` shall define the project-local flash partition layout used for OTA-capable builds.
 
 Status:
 
@@ -83,6 +86,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `AP_GATEWAY` | `192.168.4.1` | access-point gateway |
 | `AP_SUBNET` | `255.255.255.0` | access-point subnet |
 | `WEB_SINGLE_CLIENT_TIMEOUT_MS` | 60000 ms | Web single-client timeout |
+| `WEB_SD_BUSY_STALE_MS` | 30000 ms | Web SD busy-lock stale recovery guard |
 
 ### 3.4 Calibration
 
@@ -120,7 +124,8 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `SD_IO_FAIL_LIMIT` | 3 | consecutive SD I/O failure limit |
 | `SD_WRITE_RETRY_MAX` | 3 | SD write retry limit |
 | `SD_RECORD_FLUSH_PERIOD_MS` | 500 ms | recording file flush period |
-| `SD_TASK_PERIOD_MS` | 50 ms | SD task service period |
+| `SD_TASK_PERIOD_MS` | 50 ms | normal SD task service period |
+| `SD_TASK_FILE_OP_PERIOD_MS` | 5 ms | SD task service period while idle and Web file-management is authorized |
 | `SD_IDLE_REPROBE_PERIOD_MS` | 500 ms | idle SD reprobe period |
 | `SD_ERROR_REPROBE_PERIOD_MS` | 500 ms | SD error-state reprobe period |
 | `SD_FILE_OP_TIMEOUT_MS` | 2000 ms | file-management operation timeout |
@@ -320,7 +325,7 @@ When the recorder is READY and not recording, the MENU button shall be active an
 
 The MENU button shall be:
 
-START WIFI shall be disabled while required settings are incomplete because the WiFi password is one of the required settings. Calibration over the Web interface shall therefore only be offered after SETTINGS is complete.
+START WIFI shall be disabled while required settings are incomplete because the WiFi password is one of the required settings. Calibration and Firmware Update over the Web interface shall therefore only be offered after SETTINGS is complete.
 
 - blue when READY and no setup/calibration action is required;
 - orange when READY and a setup/calibration action is required;
@@ -354,7 +359,7 @@ When START WIFI is selected, the recorder shall run a Web server at:
 http://192.168.4.1/
 ```
 
-The Web server shall support file management and recorder calibration from a remote device connected to the recorder WiFi access point.
+The Web server shall support file management, recorder calibration, and firmware update from a remote device connected to the recorder WiFi access point.
 
 When calibration is required or faulted, the START WIFI button shall be orange to guide the operator to the Web calibration interface.
 
@@ -367,6 +372,20 @@ Status:
 #### OP-WEB-002 — Web unavailable during recording
 
 Web/file-management support shall not interfere with active recording.
+
+Status:
+
+- **Implemented.**
+
+#### OP-WEB-003 — Web firmware update
+
+The Web interface shall provide a Firmware Update function that allows the operator to upload a new firmware application binary through the recorder WiFi access point.
+
+Firmware update shall require USB power to be present. If USB power is not detected, the update request shall be rejected.
+
+The Firmware Update page shall instruct the operator to upload the Arduino application `.bin`.
+
+After a successful firmware update, the recorder shall restart automatically.
 
 Status:
 
@@ -772,6 +791,7 @@ Status:
 | OP-MENU-002 | `ui_task`, `ui_message`, `state_task` | VAL-CAL-001 |
 | OP-WEB-001 | `web_task`, `html_interface`, `ui_task` | VAL-WIFI-001 |
 | OP-WEB-002 | `state_task`, `web_task`, `sd_files` | VAL-WIFI-001 |
+| OP-WEB-003 | `web_task`, `html_interface`, ESP32 `Update` API, `partitions.csv` | VAL-OTA-001 |
 | OP-SET-001 | `settings_store`, `state_task` | VAL-SET-001 |
 | OP-SET-002 | `settings_store` | VAL-SET-001 |
 | OP-SET-003 | `ui_task`, `settings_store` | VAL-SET-001 |

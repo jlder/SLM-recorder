@@ -158,7 +158,7 @@ flowchart LR
 | `accel_driver` | Reads raw accelerometer data and returns corrected accelerometer data for normal recorder operation |
 | `error_manager` | Maps active errors to clearability and user-visible messages |
 | `ui_task` | Renders local display, touch, menu/settings pages, display dimming, and message display |
-| `web_task` | Owns WiFi/AP lifecycle and Web endpoints for file support and calibration support |
+| `web_task` | Owns WiFi/AP lifecycle and Web endpoints for file support, calibration support, and firmware update |
 | `html_interface` | Embedded Web page presentation |
 
 ## 8. State and Task Ownership
@@ -204,7 +204,7 @@ The UI does not independently create recorder-core error messages.
 
 `web_task` owns WiFi/AP/server lifecycle and Web endpoints.
 
-The Web page is support presentation. Calibration backend logic resides in `calibration_service`; Web handlers request actions and display backend state.
+The Web page is support presentation. Calibration backend logic resides in `calibration_service`; Web handlers request actions and display backend state. Firmware update upload handling resides in `web_task` and uses the ESP32 Arduino `Update` API.
 
 ## 9. Calibration Architecture
 
@@ -437,3 +437,14 @@ Web downloads are implemented as an SD-owned sequential download session:
 This avoids repeated open/seek/close cycles for each HTTP chunk while preserving the rule that SD filesystem access remains owned by the SD layer.
 
 While the SD state machine is in `SD_IDLE` and SD file-management is authorized, the SD task may use `SD_TASK_FILE_OP_PERIOD_MS` instead of `SD_TASK_PERIOD_MS` to improve Web file-management responsiveness. This shorter period is not used during SD boot, recording open, recording write, recording close, or SD error handling.
+
+## Web OTA Firmware Update
+
+The firmware uses a project-local `partitions.csv` file for OTA-capable builds. The partition table provides two OTA application slots so a new application image can be written to the inactive slot while the current firmware continues running.
+
+Firmware update is exposed as a manual Web maintenance function from the recorder access point. The operator selects Firmware Update in the Web interface and uploads the Arduino application binary. 
+
+`web_task` owns the OTA endpoint and streams the uploaded file to the ESP32 Arduino `Update` API. USB power is required before the update begins. If USB power is not present, the upload is rejected and the current firmware remains active.
+
+After the update image is written and accepted by the update API, `web_task` sends the final Web response and requests a restart. Boot selection of the new OTA application is handled by the ESP32 OTA boot infrastructure.
+

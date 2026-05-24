@@ -7,7 +7,7 @@ Copyright (c) 2026 AgingGliders
 
 Firmware for the AgingGliders recorder prototype based on the Waveshare ESP32-S3 AMOLED 2.06 board.
 
-The recorder samples acceleration at 20 Hz, stores recordings on SD card, provides a local lvgl user interface, and exposes a WiFi/Web interface for file management and calibration.
+The recorder samples acceleration at 20 Hz, stores recordings on SD card, provides a local lvgl user interface, and exposes a WiFi/Web interface for file management, calibration, and firmware update.
 
 ## 1. Hardware
 
@@ -41,7 +41,7 @@ PSRAM:             OPI PSRAM
 ```
 
 The exact COM port depends on your PC and connected board.
-The custom partition scheme is described in the file partitions.csv located at the root of the project. It allows for 2 x 3.5 MB OTA partitions.
+The custom partition scheme is described in the project-root `partitions.csv` file. It provides two 3.5 MB OTA application slots and the remaining flash space as FATFS.
 
 ## 3. Required Libraries
 
@@ -85,7 +85,8 @@ Do not rely on copies of these files in `Documents/Arduino/libraries`.
 6. Connect the recorder board by USB.
 7. Select the matching COM port.
 8. Compile the firmware.
-9. Upload the firmware to the board.
+9. Upload the firmware to the board with USB.
+10. After the first USB firmware upload and initial configuration (see Section 6), later firmware updates may be installed from the Web interface using Firmware Update.
 
 After uploading firmware from the Arduino IDE, perform a full device restart before formal testing. This avoids occasional transient startup issues after the IDE upload/reset sequence.
 
@@ -99,7 +100,7 @@ Typical required setup:
 2. Configure time.
 3. Configure glider registration.
 4. Configure WiFi password.
-5. Start WiFi and perform accelerometer calibration from the Web interface.
+5. Perform calibration using web interface (see section 7).
 
 The recorder will not authorize recording until required settings are stored and a valid calibration exists.
 
@@ -117,16 +118,9 @@ The Web interface supports:
 
 - SD file listing;
 - file download;
-- file archive;
-- calibration.
-
-The Web delete action archives files by moving root recording files to:
-
-```text
-/processed
-```
-
-It does not erase the file contents from the SD card.
+- file delete/archive (delete moves the files to the /processed folder);
+- calibration;
+- firmware update (the firmware can be updated only when USB power is connected to the device. The firmware releases are available in the firmware folder of the project)
 
 ## 8. SD Card Behavior
 
@@ -144,13 +138,7 @@ Important SD conditions:
 SD FULL (FILES)
 ```
 
-This means the SD root file-count limit has been reached. It can be resolved from the recorder by using:
-
-```text
-MENU -> START WIFI -> Web file archive
-```
-
-Archiving moves root files to `/processed`, reducing the root file count.
+This means the SD root file-count limit has been reached. It can be resolved by using web interface to delete/archive files.
 
 ```text
 SD LOW

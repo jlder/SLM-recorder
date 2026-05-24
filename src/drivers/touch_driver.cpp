@@ -27,9 +27,9 @@
 
 // DriveBus initializes FT3x68 by writing 0xA5 = 0x01, then delaying 20 ms.
 // The retry delay is kept longer to tolerate Arduino IDE upload/reset startup.
-#define TOUCH_INIT_POST_WRITE_DELAY_MS 20u
-#define TOUCH_INIT_RETRY_DELAY_MS      150u
-#define TOUCH_INIT_ATTEMPTS            3u
+#define TOUCH_INIT_POST_WRITE_DELAY_MS 50u
+#define TOUCH_INIT_RETRY_DELAY_MS      250u
+#define TOUCH_INIT_ATTEMPTS            4u
 
 static volatile bool s_touch_ready = false;
 static volatile bool s_touch_irq_pending = false;

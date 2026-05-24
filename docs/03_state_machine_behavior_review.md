@@ -437,3 +437,14 @@ Web downloads use a sequential SD-owned session. The Web task does not open SD f
 5. transfer cleanup calls `sd_files_download_end()`, which closes the SD-owned file handle.
 
 While a download session is active, the SD idle reprobe is skipped so the open download file handle is not invalidated by an SD reinitialization.
+
+## 24. Web OTA Firmware Update Behavior
+
+Firmware update is available only through the Web interface. Since Web support is enabled from READY, firmware update is operationally separated from active recording.
+
+The Web Firmware Update tab provides a file selector and upload button. Browser-side upload progress is shown using the upload progress event.
+
+`web_task` handles `POST /api/ota` uploads in chunks. At the first chunk, the handler checks that USB power is present and that the uploaded filename is an application `.bin`. If the check fails, the upload is rejected and the current firmware remains active.
+
+During upload, received chunks are written through the ESP32 Arduino `Update` API. If write or finalization fails, the update is aborted and the current firmware remains active. If finalization succeeds, the Web response reports success and `web_task` restarts the recorder.
+
