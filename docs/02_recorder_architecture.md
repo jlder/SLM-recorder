@@ -423,6 +423,12 @@ after UI and state-task local services are initialized, the startup path shows
 `FATAL WDG/CLR` before normal BOOT checks continue so the operator knows that
 the previous stop was caused by a watchdog fault.
 
+### SD Free-Space Threshold Hysteresis
+
+The SD layer uses two free-space thresholds. `SD_RECORD_START_MIN_FREE_MB` is the higher threshold required before opening a new recording. `SD_RECORD_LOW_FREE_MB` is the lower threshold used while a recording is already active.
+
+This hysteresis prevents a recording from being allowed just above the low-space limit and then immediately stopping with `SD LOW` after the first writes. During recording, the SD storage layer uses its cached free-space estimate to detect when the lower in-recording threshold has been crossed and the SD task then closes the file through the normal low-space close path.
+
 ## SD-Owned Web Download Session
 
 Web file-management operations are authorized only when the recorder is in READY and Web support is enabled. Active recording, SD open, SD write, and SD close states retain priority over support file-management operations.

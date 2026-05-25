@@ -127,7 +127,7 @@ The Web interface supports:
 Recording requires:
 
 - SD card present;
-- sufficient free space;
+- free space above the configured recording-start threshold;
 - root recording file count below the configured limit;
 - valid settings;
 - valid calibration.
@@ -144,7 +144,9 @@ This means the SD root file-count limit has been reached. It can be resolved by 
 SD LOW
 ```
 
-This means SD free space is below the configured threshold. Archiving does not solve this, because moving files to `/processed` does not free SD memory.
+This means SD free space is below the configured low-space threshold. Archiving does not solve this, because moving files to `/processed` does not free SD memory.
+
+The firmware uses two SD free-space thresholds: a higher threshold required before recording starts and a lower threshold while recording is already active. This prevents recording from starting just above the low-space threshold and immediately stopping with `SD LOW`.
 
 ## 9. Artificial Intelligence Assistance
 

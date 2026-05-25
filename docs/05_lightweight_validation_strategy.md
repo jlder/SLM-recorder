@@ -643,3 +643,11 @@ A helper script is provided at `tools/validate_recording.py` to inspect recordin
 
 
 WiFi validation should include confirming that pressing BACK on the MENU page stops WiFi/AP support and returns to the main page.
+
+## VAL-SD-LOW-002 — SD free-space threshold hysteresis
+
+Verify that recording is blocked when SD free space is below `SD_RECORD_START_MIN_FREE_MB`.
+
+Verify that a recording may continue after start until the lower in-recording threshold `SD_RECORD_LOW_FREE_MB` is reached.
+
+Verify that crossing the in-recording low-space threshold causes the recorder to close the recording through the normal low-space close path and report `SD LOW`.

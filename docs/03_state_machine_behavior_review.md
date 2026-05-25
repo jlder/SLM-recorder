@@ -394,6 +394,12 @@ Touch remains enabled during RECORDING so the UI standby sub-state can wake from
 
 The UI does not enter standby from MENU, SETTINGS, or setting-edit pages. These pages keep the display active while the operator is navigating or editing setup data.
 
+### SD Free-Space Hysteresis
+
+`SD_BOOT`, `SD_IDLE`, and the final pre-open guard use `SD_RECORD_START_MIN_FREE_MB` when deciding whether recording may start. This threshold is intentionally higher than the low-space threshold used during active recording.
+
+While `SD_WRITING` is active, the SD storage layer updates a cached free-space estimate after each successful write. If the cached estimate falls below `SD_RECORD_LOW_FREE_MB`, the write path reports `ERR_SD_SPACE_LOW`; `sd_task` then transitions through `SD_CLOSING` so the file is closed using the normal low-space close path.
+
 ## 22. SD Low-Space / File-Count Maintenance
 
 When SD low-space or SD max-file-count is detected while not recording, the condition blocks recording but does not force the high-level recorder into ERROR. READY remains active, MENU remains available, and Web file maintenance can be started. The SD task continues servicing file operations for these maintenance conditions and automatically returns to normal SD operation once the condition clears.

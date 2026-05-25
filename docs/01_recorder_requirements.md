@@ -120,7 +120,8 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 |---|---:|---|
 | `PREFS_NAMESPACE` | `slm-data` | settings NVS namespace |
 | `SD_MAX_RECORD_FILES` | 50 files | recording file-count limit |
-| `SD_SPACE_LOW_MB` | 500 MB | minimum free-space threshold before/during recording |
+| `SD_RECORD_START_MIN_FREE_MB` | 500 MB | minimum free space required before recording start |
+| `SD_RECORD_LOW_FREE_MB` | 250 MB | lower low-space threshold used while recording is active |
 | `SD_IO_FAIL_LIMIT` | 3 | consecutive SD I/O failure limit |
 | `SD_WRITE_RETRY_MAX` | 3 | SD write retry limit |
 | `SD_RECORD_FLUSH_PERIOD_MS` | 500 ms | recording file flush period |
@@ -525,7 +526,7 @@ Recording shall start only when all required operating conditions are satisfied:
 - recorder is READY;
 - no active blocking error;
 - SD card is present;
-- SD free space is sufficient;
+- SD free space is above the recording-start threshold;
 - SD file count is below `SD_MAX_RECORD_FILES`;
 - required settings are saved;
 - valid calibration exists;
@@ -572,10 +573,10 @@ Status:
 
 #### OP-SD-002 — SD free space required before recording
 
-Recording shall not start if SD free space is below:
+Recording shall not start if SD free space is below the recording-start threshold:
 
 ```text
-SD_SPACE_LOW_MB = 500 MB
+SD_RECORD_START_MIN_FREE_MB = 500 MB
 ```
 
 Because file archive moves files to `/processed` on the same SD card and does not free memory, this condition cannot be corrected by Web archive.
@@ -586,10 +587,10 @@ Status:
 
 #### OP-SD-003 — SD low space while recording
 
-If SD free space falls below:
+If SD free space falls below the lower in-recording threshold:
 
 ```text
-SD_SPACE_LOW_MB = 500 MB
+SD_RECORD_LOW_FREE_MB = 250 MB
 ```
 
 while recording, the recorder shall close the file through the normal close path before reporting the low-space condition.
@@ -597,6 +598,9 @@ while recording, the recorder shall close the file through the normal close path
 Status:
 
 - **Implemented.**
+
+
+The recording-start threshold shall be higher than the in-recording low-space threshold so that a recording does not start just above the low-space limit and immediately stop with `SD LOW`.
 
 #### OP-SD-004 — SD file-count limit
 
@@ -851,7 +855,7 @@ result: PASS
 | Calibration missing or expired while READY | none | `CAL REQUIRED` | yes, by Web calibration | `calibration_service` status consumed by `state_task` |
 | Calibration plausibility fault | `ERR_CALIBRATION_FAULT` | `CAL FAULT` | no direct clear; retry calibration or setup clear can clear stored state | `calibration_service` / `calibration_store` |
 | SD card missing | `ERR_SD_NO_CARD` | `NO SD`, then `SD OK/CLR` when recovered | yes | `sd_task` status / recovery path |
-| SD free space below threshold | `ERR_SD_SPACE_LOW` | `SD LOW` | no, because archive does not free SD memory | `sd_task` pre-open check or low-space during write |
+| SD free space below recording-start threshold or below in-recording low-space threshold | `ERR_SD_SPACE_LOW` | `SD LOW` | no, because archive does not free SD memory | `sd_task` pre-open check or low-space during write |
 | SD file-count threshold reached | `ERR_SD_FILES_FULL` | `SD FULL (FILES)` in orange | yes, by Web file maintenance if SD free space is not low | `sd_task` status check; message does not force main page |
 | Unexpected SD I/O fault | `ERR_SD_FAULT` | `SD ERROR` | no | `sd_task` write/flush/open/close failure classification |
 | Accelerometer read failure | `ERR_ACCEL_NO_RESPONSE` | `ACCEL ERR` | no | `state_task` recording acquisition retries exhausted |

@@ -21,8 +21,15 @@
 #include <cstring>
 #include <cstdlib>
 
-// Threshold below which SD space is considered too low for continued recording.
-static constexpr uint64_t SD_SPACE_LOW_BYTES = (uint64_t)SD_SPACE_LOW_MB * 1024ULL * 1024ULL;
+// Free-space threshold required before a recording can start.
+static constexpr uint64_t SD_RECORD_START_MIN_FREE_BYTES =
+    (uint64_t)SD_RECORD_START_MIN_FREE_MB * 1024ULL * 1024ULL;
+
+// Lower free-space threshold used while recording is already active. The gap
+// between start and record-low thresholds prevents immediate low-space closure
+// when recording starts close to the start threshold.
+static constexpr uint64_t SD_RECORD_LOW_FREE_BYTES =
+    (uint64_t)SD_RECORD_LOW_FREE_MB * 1024ULL * 1024ULL;
 
 // True after a successful mount / detect sequence.
 static bool s_mounted = false;
@@ -332,7 +339,7 @@ error_code_t sd_status_check(sd_status_scope_t scope) {
     }
   }
 
-  if (free_bytes < SD_SPACE_LOW_BYTES) {
+  if (free_bytes < SD_RECORD_START_MIN_FREE_BYTES) {
     return ERR_SD_SPACE_LOW;
   }
 
@@ -436,6 +443,10 @@ error_code_t sd_write_record_block(const uint8_t *data, size_t len, size_t *out_
         s_cached_free_bytes -= written;
       } else {
         s_cached_free_bytes = 0u;
+      }
+
+      if (s_cached_free_bytes < SD_RECORD_LOW_FREE_BYTES) {
+        return ERR_SD_SPACE_LOW;
       }
     }
     return ERR_NONE;

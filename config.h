@@ -101,7 +101,8 @@
 
 #define SD_IO_FAIL_LIMIT             3u
 #define SD_WRITE_RETRY_MAX           3u
-#define SD_SPACE_LOW_MB              500u
+#define SD_RECORD_START_MIN_FREE_MB   500u
+#define SD_RECORD_LOW_FREE_MB         250u
 #define SD_RECORD_FLUSH_PERIOD_MS    500u
 #define SD_TASK_PERIOD_MS            50u
 #define SD_TASK_FILE_OP_PERIOD_MS    5u
