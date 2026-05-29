@@ -130,7 +130,8 @@ Setup lock behavior:
 | Setup condition | READY behavior |
 |---|---|
 | settings incomplete | remain READY, show `NEED SETTINGS`, recording locked |
-| calibration missing/expired | remain READY, show `CAL REQUIRED`, recording locked |
+| sensor calibration missing/expired | remain READY, show `ACC CAL REQ`, recording locked |
+| installation calibration missing | remain READY, show `INST CAL REQ`, recording locked |
 | calibration fault latched | remain READY, show `CAL FAULT`, recording locked |
 | setup complete | show `READY`, recording may be authorized if other conditions are met |
 
@@ -402,11 +403,9 @@ While `SD_WRITING` is active, the SD storage layer updates a cached free-space e
 
 ## 22. SD Low-Space / File-Count Maintenance
 
-When SD low-space or SD max-file-count is detected while not recording, the condition blocks recording but does not force the high-level recorder into ERROR. READY remains active, MENU remains available, and Web file maintenance can be started. The SD task continues servicing file operations for these maintenance conditions and automatically returns to normal SD operation once the condition clears.
-
 ## 22. SD Max-File-Count Maintenance
 
-When SD max-file-count is detected while not recording and free space is still available, the condition blocks recording but does not force the high-level recorder into ERROR. READY remains active, MENU remains available, and Web file maintenance can be started. SD low-space remains a blocking SD condition because archiving files to `/processed` does not free SD memory.
+When SD max-file-count is detected while not recording and free space is still above `SD_RECORD_START_MIN_FREE_MB`, the condition blocks recording but does not force the high-level recorder into ERROR. READY remains active, MENU remains available, and Web file maintenance can be started. SD low-space remains a blocking SD condition because archiving files to `/processed` does not free SD memory.
 
 `MSG_SD_FULL_FILES` is included in the UI non-forcing menu-access lock set, the same way settings/calibration setup-lock messages are. This prevents the UI sync layer from forcing the MENU page back to main while file-count maintenance is needed.
 
@@ -420,6 +419,17 @@ file-count maintenance requires MENU/START WIFI access, state_task exits
 `ST_ERROR`, clears the active error latch, enters `ST_READY`, and publishes
 `MSG_SD_FULL_FILES`. Recording remains blocked until the root file count is
 reduced, but Web file archive is available.
+
+
+## Installation Calibration State Behavior
+
+Installation calibration is controlled from the Web interface while the recorder is in READY and Web support is enabled. Starting an installation calibration requires a valid sensor calibration because the installation workflow uses sensor-corrected samples as its input.
+
+During the installation session, the calibration service waits for a stable sample window. When the standard deviation is below the configured stability threshold and the measured gravity magnitude is within `INSTALLATION_GRAVITY_TOL_PCT`, the service computes a 3 x 3 matrix that rotates the measured gravity vector to +Z. If a later stable window has lower standard deviation, the candidate matrix is updated.
+
+Sensor calibration preview/result endpoints compute candidate gains and offsets without saving to NVS and without latching calibration faults. Only the save path is allowed to persist the calibration or latch a calibration plausibility fault.
+
+Saving the installation calibration stores the matrix in NVS as the installation-calibration part of the active calibration record and applies it to normal accelerometer reads. Recording remains blocked until both the sensor calibration and installation calibration are valid. Sensor calibration and installation calibration have independent validity and timestamp fields.
 
 ## SD File-Management Timing and Download Behavior
 

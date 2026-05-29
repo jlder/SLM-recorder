@@ -39,7 +39,7 @@ static uint8_t checksum_8(const uint8_t *p, size_t n){
 static void static_assert_record_size(void){
   typedef char _assert_size[(sizeof(record_block_t)==13) ? 1 : -1];
   typedef char _assert_status_size[(sizeof(record_status_block_t)==13) ? 1 : -1];
-  typedef char _assert_cal_size[(sizeof(record_calibration_block_t)==184) ? 1 : -1];
+  typedef char _assert_cal_size[(sizeof(record_calibration_block_t)==252) ? 1 : -1];
   (void)sizeof(_assert_size);
   (void)sizeof(_assert_status_size);
   (void)sizeof(_assert_cal_size);
@@ -126,31 +126,49 @@ void record_format_build_calibration_block(record_calibration_block_t *out,
   if(cal != nullptr){
     out->calibration_version = cal->version;
 
-    out->year = cal->timestamp.year;
-    out->month = cal->timestamp.month;
-    out->day = cal->timestamp.day;
-    out->hour = cal->timestamp.hour;
-    out->minute = cal->timestamp.min;
-    out->second = cal->timestamp.sec;
+    out->year = cal->sensor.timestamp.year;
+    out->month = cal->sensor.timestamp.month;
+    out->day = cal->sensor.timestamp.day;
+    out->hour = cal->sensor.timestamp.hour;
+    out->minute = cal->sensor.timestamp.min;
+    out->second = cal->sensor.timestamp.sec;
 
-    out->gain_x = cal->gain_x;
-    out->gain_y = cal->gain_y;
-    out->gain_z = cal->gain_z;
+    out->gain_x = cal->sensor.gain_x;
+    out->gain_y = cal->sensor.gain_y;
+    out->gain_z = cal->sensor.gain_z;
 
-    out->offset_x_mg = cal->offset_x_mg;
-    out->offset_y_mg = cal->offset_y_mg;
-    out->offset_z_mg = cal->offset_z_mg;
+    out->offset_x_mg = cal->sensor.offset_x_mg;
+    out->offset_y_mg = cal->sensor.offset_y_mg;
+    out->offset_z_mg = cal->sensor.offset_z_mg;
 
     for(uint32_t i = 0u; i < (uint32_t)CAL_FACE_COUNT; ++i){
 
-      out->face_mean_mg[i][0] = cal->face[i].mean_mg.x_mg;
-      out->face_mean_mg[i][1] = cal->face[i].mean_mg.y_mg;
-      out->face_mean_mg[i][2] = cal->face[i].mean_mg.z_mg;
+      out->face_mean_mg[i][0] = cal->sensor.face[i].mean_mg.x_mg;
+      out->face_mean_mg[i][1] = cal->sensor.face[i].mean_mg.y_mg;
+      out->face_mean_mg[i][2] = cal->sensor.face[i].mean_mg.z_mg;
 
-      out->face_stddev_mg[i][0] = cal->face[i].stddev_mg.x_mg;
-      out->face_stddev_mg[i][1] = cal->face[i].stddev_mg.y_mg;
-      out->face_stddev_mg[i][2] = cal->face[i].stddev_mg.z_mg;
+      out->face_stddev_mg[i][0] = cal->sensor.face[i].stddev_mg.x_mg;
+      out->face_stddev_mg[i][1] = cal->sensor.face[i].stddev_mg.y_mg;
+      out->face_stddev_mg[i][2] = cal->sensor.face[i].stddev_mg.z_mg;
     }
+
+    out->installation_valid = cal->installation.valid ? 1u : 0u;
+    out->installation_year = cal->installation.timestamp.year;
+    out->installation_month = cal->installation.timestamp.month;
+    out->installation_day = cal->installation.timestamp.day;
+    out->installation_hour = cal->installation.timestamp.hour;
+    out->installation_minute = cal->installation.timestamp.min;
+    out->installation_second = cal->installation.timestamp.sec;
+    out->installation_mean_mg[0] = cal->installation.mean_mg.x_mg;
+    out->installation_mean_mg[1] = cal->installation.mean_mg.y_mg;
+    out->installation_mean_mg[2] = cal->installation.mean_mg.z_mg;
+    out->installation_stddev_mg[0] = cal->installation.stddev_mg.x_mg;
+    out->installation_stddev_mg[1] = cal->installation.stddev_mg.y_mg;
+    out->installation_stddev_mg[2] = cal->installation.stddev_mg.z_mg;
+    for(uint32_t i = 0u; i < 9u; ++i){
+      out->installation_matrix[i] = cal->installation.matrix[i];
+    }
+
   }
 
   out->checksum = checksum_8((const uint8_t*)out, sizeof(*out)-1);

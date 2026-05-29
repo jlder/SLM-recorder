@@ -65,10 +65,11 @@
 
 // Accelerometer calibration
 #define CALIBRATION_PREFS_NAMESPACE        "slm-cal"
-#define CALIBRATION_RECORD_VERSION         1u
+#define CALIBRATION_RECORD_VERSION         3u
 #define CALIBRATION_GRAVITY_MG             1000.0f
 #define CALIBRATION_VALIDITY_MONTHS        12u
 #define CALIBRATION_FACE_GRAVITY_TOL_PCT   10.0f
+#define INSTALLATION_GRAVITY_TOL_PCT        10.0f
 #define CALIBRATION_SAMPLE_PERIOD_MS       50u
 // Number of samples in the calibration stability window.
 // Requirement: must be greater than 0 because mean/stddev computation divides by this value.

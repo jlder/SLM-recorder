@@ -93,7 +93,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | Configuration | Current value | Requirement use |
 |---|---:|---|
 | `CALIBRATION_PREFS_NAMESPACE` | `slm-cal` | calibration NVS namespace |
-| `CALIBRATION_RECORD_VERSION` | 1 | calibration record version |
+| `CALIBRATION_RECORD_VERSION` | 3 | calibration record version |
 | `CALIBRATION_GRAVITY_MG` | 1000 mg | calibration reference gravity |
 | `CALIBRATION_VALIDITY_MONTHS` | 12 months | calibration expiration |
 | `CALIBRATION_FACE_GRAVITY_TOL_PCT` | 10% | face-axis gravity tolerance |
@@ -362,6 +362,8 @@ http://192.168.4.1/
 
 The Web server shall support file management, recorder calibration, and firmware update from a remote device connected to the recorder WiFi access point.
 
+Calibration access shall be protected because calibration is a maintenance/mechanical activity and not an everyday pilot action. The calibration menu and calibration action endpoints shall require the operator to enter the recorder registration string as the calibration password.
+
 When calibration is required or faulted, the START WIFI button shall be orange to guide the operator to the Web calibration interface.
 
 WiFi shall be turned OFF when the operator leaves the MENU page using BACK to return to the main page.
@@ -465,7 +467,7 @@ Status:
 
 #### OP-CAL-002 — Calibration through Web interface
 
-The recorder shall provide a Web interface allowing the operator to perform calibration while the recorder is not recording.
+The recorder shall provide a Web interface allowing the operator to perform calibration while the recorder is not recording. The Calibration tab shall first request the recorder registration as a calibration password, then show a simple calibration menu with separate Accelerometer Calibration and Installation Calibration buttons. Each button shall display the date of the last saved calibration of that type when available.
 
 Status:
 
@@ -852,7 +854,8 @@ result: PASS
 | Condition / trigger | Error code | Display message | Recoverable by user | Triggering logic / source |
 |---|---|---|---|---|
 | Settings incomplete while READY | none | `NEED SETTINGS` | yes, by completing settings | `state_task` checks `settings_store` completeness |
-| Calibration missing or expired while READY | none | `CAL REQUIRED` | yes, by Web calibration | `calibration_service` status consumed by `state_task` |
+| Sensor calibration missing or expired while READY | none | `ACC CAL REQ` | yes, by MENU/Web sensor calibration | `calibration_service` status consumed by `state_task` |
+| Installation calibration missing while READY | none | `INST CAL REQ` | yes, by MENU/Web installation calibration | `calibration_service` installation validity consumed by `state_task` |
 | Calibration plausibility fault | `ERR_CALIBRATION_FAULT` | `CAL FAULT` | no direct clear; retry calibration or setup clear can clear stored state | `calibration_service` / `calibration_store` |
 | SD card missing | `ERR_SD_NO_CARD` | `NO SD`, then `SD OK/CLR` when recovered | yes | `sd_task` status / recovery path |
 | SD free space below recording-start threshold or below in-recording low-space threshold | `ERR_SD_SPACE_LOW` | `SD LOW` | no, because archive does not free SD memory | `sd_task` pre-open check or low-space during write |
@@ -1029,3 +1032,5 @@ recorder shall display `FATAL WDG/CLR` in red before normal BOOT checks
 continue. Pressing the power/clear button shall clear the persistent watchdog
 flag and allow normal BOOT checks to continue. The watchdog fault is an operator acknowledgement latch, not
 a permanent recording block.
+
+The 0x72 calibration block shall include the active sensor calibration coefficients and the active installation calibration matrix so each recording file carries the corrections used to generate recorded acceleration samples. The persistent calibration record shall store sensor calibration and installation calibration with independent validity and timestamp fields. The calibration NVS checksum shall be calculated over an explicit packed storage representation, not over runtime C++ struct padding.

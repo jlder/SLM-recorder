@@ -44,6 +44,17 @@ typedef struct __attribute__((packed)) {
   float face_mean_mg[CAL_FACE_COUNT][3];
   float face_stddev_mg[CAL_FACE_COUNT][3];
 
+  uint8_t installation_valid;
+  uint16_t installation_year;
+  uint8_t installation_month;
+  uint8_t installation_day;
+  uint8_t installation_hour;
+  uint8_t installation_minute;
+  uint8_t installation_second;
+  float installation_mean_mg[3];
+  float installation_stddev_mg[3];
+  float installation_matrix[9];
+
   uint8_t checksum;
 } record_calibration_block_t;
 

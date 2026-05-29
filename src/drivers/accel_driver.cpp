@@ -21,6 +21,10 @@ static SensorQMI8658 qmi;
 static bool s_accel_inited = false;
 static accel_calibration_t s_accel_cal = {1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f};
 static bool s_accel_cal_active = false;
+static accel_installation_t s_accel_install = {{1.0f, 0.0f, 0.0f,
+                                               0.0f, 1.0f, 0.0f,
+                                               0.0f, 0.0f, 1.0f}};
+static bool s_accel_install_active = false;
 
 /**
  * Clamp i16 performs the accel driver operation represented by this function
@@ -95,18 +99,58 @@ bool accel_read_xyz_raw(accel_sample_t *out) {
  * Inputs: `out`.
  * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
  */
-bool accel_read_xyz(accel_sample_t *out) {
-  if(!accel_read_xyz_raw(out)){
-    return false;
-  }
-
-  if(!s_accel_cal_active){
-    return true;
+static void accel_apply_sensor_calibration_(accel_sample_t *out){
+  if((out == nullptr) || !s_accel_cal_active){
+    return;
   }
 
   out->ax = clamp_i16((int32_t)lrintf((s_accel_cal.gain_x * (float)out->ax) + s_accel_cal.offset_x_mg));
   out->ay = clamp_i16((int32_t)lrintf((s_accel_cal.gain_y * (float)out->ay) + s_accel_cal.offset_y_mg));
   out->az = clamp_i16((int32_t)lrintf((s_accel_cal.gain_z * (float)out->az) + s_accel_cal.offset_z_mg));
+}
+
+static void accel_apply_installation_(accel_sample_t *out){
+  if((out == nullptr) || !s_accel_install_active){
+    return;
+  }
+
+  const float x = (float)out->ax;
+  const float y = (float)out->ay;
+  const float z = (float)out->az;
+  const float *m = s_accel_install.matrix;
+
+  out->ax = clamp_i16((int32_t)lrintf((m[0] * x) + (m[1] * y) + (m[2] * z)));
+  out->ay = clamp_i16((int32_t)lrintf((m[3] * x) + (m[4] * y) + (m[5] * z)));
+  out->az = clamp_i16((int32_t)lrintf((m[6] * x) + (m[7] * y) + (m[8] * z)));
+}
+
+/**
+ * Reads acceleration and applies gain/offset sensor correction only.
+ * Installation rotation is not applied, so installation calibration can use
+ * this function to observe the mounted sensor orientation.
+ */
+bool accel_read_xyz_sensor_corrected(accel_sample_t *out) {
+  if(!accel_read_xyz_raw(out)){
+    return false;
+  }
+
+  accel_apply_sensor_calibration_(out);
+  return true;
+}
+
+/**
+ * Reads acceleration for normal recorder operation and applies the active
+ * gain/offset calibration followed by the installation rotation.
+ *
+ * Inputs: `out`.
+ * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
+ */
+bool accel_read_xyz(accel_sample_t *out) {
+  if(!accel_read_xyz_sensor_corrected(out)){
+    return false;
+  }
+
+  accel_apply_installation_(out);
   return true;
 }
 
@@ -148,6 +192,27 @@ void accel_driver_clear_calibration(void){
  */
 bool accel_driver_has_calibration(void){
   return s_accel_cal_active;
+}
+
+bool accel_driver_set_installation(const accel_installation_t *installation){
+  if(installation == nullptr){
+    return false;
+  }
+
+  s_accel_install = *installation;
+  s_accel_install_active = true;
+  return true;
+}
+
+void accel_driver_clear_installation(void){
+  s_accel_install = {{1.0f, 0.0f, 0.0f,
+                      0.0f, 1.0f, 0.0f,
+                      0.0f, 0.0f, 1.0f}};
+  s_accel_install_active = false;
+}
+
+bool accel_driver_has_installation(void){
+  return s_accel_install_active;
 }
 
 /**

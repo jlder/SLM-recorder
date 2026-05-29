@@ -171,7 +171,29 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         </div>
 
         <div id="calSection" class="hidden section">
-            <h2>Accelerometer Calibration</h2>
+            <div id="calAuthPanel" class="card">
+                <h2>Calibration Access</h2>
+                <p><b>Calibration is a maintenance activity.</b> Enter the recorder registration to unlock accelerometer and installation calibration.</p>
+                <input type="password" id="calPassword" placeholder="Registration" class="mono" style="padding:10px; margin:5px;">
+                <button class="btn btn-warning" onclick="calUnlock()">Unlock Calibration</button>
+                <div id="calAuthStatus" class="small">Locked.</div>
+            </div>
+
+            <div id="calMenuPanel" class="hidden">
+                <h2>Calibration Menu</h2>
+                <div class="card">
+                    <button class="btn btn-primary" onclick="openAccelCal()">Accelerometer Calibration</button>
+                    <span class="small">Last calibration: <span id="sensorCalDate" class="mono">-</span></span>
+                </div>
+                <div class="card">
+                    <button class="btn btn-primary" onclick="openInstallCal()">Installation Calibration</button>
+                    <span class="small">Last calibration: <span id="installationCalDate" class="mono">-</span></span>
+                </div>
+            </div>
+
+            <div id="accelCalPage" class="hidden">
+                <button class="btn btn-primary" onclick="showCalMenu()">Back to Calibration Menu</button>
+                <h2>Accelerometer Calibration</h2>
             <div class="card">
                 <p><b>Workflow:</b> Install the recorder in its calibration tool. Make sure the surface used for calibration is perfectly leveled. Leave the recorder on one of its six face. Click Start and wait until a stable face is detected. Wait a few seconds until the standard deviation (std dev) is stable and as low as possible. Then slowly rotate the recorder through all six faces following the same procedure. The current session value is stored and updated automatically for the identified face. When all 6 faces have been detected, the recorder gains and offsets are computed for each axis. If a previous calibration has been performed, the values are displayed and can be compared to current calibration values. When results are satisfactory, save to the recorder.</p>                <p class="small">The backend detects the face from the dominant stable acceleration axis. For each face, the current session keeps the stable value with the lowest stddev. Stored values are shown only for comparison. Recording remains disabled until calibration is valid.</p>
             </div>
@@ -230,6 +252,30 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 </table>
                 <pre id="calLog" class="hidden">Ready.</pre>
             </div>
+
+            </div>
+
+            <div id="installCalPage" class="hidden">
+                <button class="btn btn-primary" onclick="showCalMenu()">Back to Calibration Menu</button>
+                <h2>Installation Calibration</h2>
+            <div class="card">
+                <p><b>Workflow:</b> Put the glider in its AFM/AMM level-flight attitude. Sensor calibration must already be valid. Click Start, leave the glider still, then save when a stable installation matrix is available.</p>
+                <p class="small">This calibration aligns corrected Z to +1 g in level flight. It corrects pitch/roll mounting error. Yaw around the vertical axis is not observable from gravity and is not corrected.</p>
+            </div>
+            <div class="controls">
+                <button class="btn btn-success" id="btnInstallStart" onclick="installStart()">Start Installation</button>
+                <button class="btn btn-success" id="btnInstallSave" onclick="installSave()">Save Installation</button>
+                <button class="btn btn-danger" id="btnInstallCancel" onclick="installCancel()">Cancel Installation</button>
+            </div>
+            <div class="card">
+                <div>Status: <span id="installStatus" class="mono">-</span></div>
+                <div>Session: <span id="installSession" class="mono">-</span></div>
+                <div>Mean mg: <span id="installMean" class="mono">-</span></div>
+                <div>Stddev mg: <span id="installStd" class="mono">-</span></div>
+                <div>NVS date: <span id="installNvsDate" class="mono">-</span></div>
+                <pre id="installMatrix">Ready.</pre>
+            </div>
+            </div>
         </div>
 
         <div id="otaSection" class="hidden section">
@@ -251,6 +297,8 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
     <script>
         let allFiles = [];
         let calPoll = null;
+        let calAuth = false;
+        let calView = 'menu';
 
         function showTab(name) {
             const files = document.getElementById('filesSection');
@@ -266,7 +314,8 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 cal.classList.remove('hidden');
                 document.getElementById('tabCalBtn').classList.add('active');
                 calStatus();
-                startCalPolling();
+                if (calAuth) showCalMenu();
+                else showCalLocked();
             } else if (name === 'ota') {
                 files.classList.add('hidden');
                 cal.classList.add('hidden');
@@ -281,6 +330,69 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 stopCalPolling();
                 refreshFiles();
             }
+        }
+
+        function showCalLocked() {
+            calView = 'locked';
+            stopCalPolling();
+            document.getElementById('calAuthPanel').classList.remove('hidden');
+            document.getElementById('calMenuPanel').classList.add('hidden');
+            document.getElementById('accelCalPage').classList.add('hidden');
+            document.getElementById('installCalPage').classList.add('hidden');
+        }
+
+        function showCalMenu() {
+            calView = 'menu';
+            stopCalPolling();
+            document.getElementById('calAuthPanel').classList.add('hidden');
+            document.getElementById('calMenuPanel').classList.remove('hidden');
+            document.getElementById('accelCalPage').classList.add('hidden');
+            document.getElementById('installCalPage').classList.add('hidden');
+            calStatus();
+        }
+
+        function openAccelCal() {
+            calView = 'accel';
+            document.getElementById('calAuthPanel').classList.add('hidden');
+            document.getElementById('calMenuPanel').classList.add('hidden');
+            document.getElementById('accelCalPage').classList.remove('hidden');
+            document.getElementById('installCalPage').classList.add('hidden');
+            calStatus();
+            startCalPolling();
+            calSample();
+        }
+
+        function openInstallCal() {
+            calView = 'install';
+            document.getElementById('calAuthPanel').classList.add('hidden');
+            document.getElementById('calMenuPanel').classList.add('hidden');
+            document.getElementById('accelCalPage').classList.add('hidden');
+            document.getElementById('installCalPage').classList.remove('hidden');
+            calStatus();
+            startCalPolling();
+            installSample();
+        }
+
+        function calUnlock() {
+            const password = document.getElementById('calPassword').value || '';
+            const status = document.getElementById('calAuthStatus');
+            status.textContent = 'Checking...';
+            fetch('/api/cal/auth?password=' + encodeURIComponent(password), { method: 'POST' })
+                .then(r => r.json().then(j => ({ok:r.ok, json:j})))
+                .then(res => {
+                    if (res.ok && res.json && res.json.ok) {
+                        calAuth = true;
+                        status.textContent = 'Unlocked.';
+                        showCalMenu();
+                    } else {
+                        calAuth = false;
+                        status.textContent = 'Wrong registration or calibration access denied.';
+                    }
+                })
+                .catch(err => {
+                    calAuth = false;
+                    status.textContent = 'Unlock error: ' + err;
+                });
         }
 
         function logCal(text) {
@@ -305,8 +417,19 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             }
         }
 
+        function handleCalibrationAuthError(res) {
+            if (res && res.status === 403 && res.json && res.json.reason === 'calibration_auth_required') {
+                calAuth = false;
+                showCalLocked();
+            }
+        }
+
         function postJson(url) {
-            return fetch(url, { method: 'POST' }).then(r => r.json().then(j => ({ok:r.ok, status:r.status, json:j})));
+            return fetch(url, { method: 'POST' }).then(r => r.json().then(j => {
+                const res = {ok:r.ok, status:r.status, json:j};
+                handleCalibrationAuthError(res);
+                return res;
+            }));
         }
 
         function refreshFiles() {
@@ -396,17 +519,25 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             fetch('/api/cal/status')
                 .then(r => r.json())
                 .then(data => {
-                    document.getElementById('calTopStatus').textContent = data.status;
-                    document.getElementById('calStatus').textContent = data.status + ', recording_allowed=' + data.recording_allowed;
+                    document.getElementById('calTopStatus').textContent = data.recording_allowed ? 'ready' : (data.sensor_valid ? 'install required' : data.status);
+                    document.getElementById('sensorCalDate').textContent = data.sensor_valid ? fmtDate(data.sensor_date) : '-';
+                    document.getElementById('installationCalDate').textContent = data.installation_valid ? fmtDate(data.installation_date) : '-';
+                    document.getElementById('calStatus').textContent = data.status + ', recording_allowed=' + data.recording_allowed + ', installation_valid=' + data.installation_valid;
                     document.getElementById('calSession').textContent = data.session_active ? 'active' : 'inactive';
+                    document.getElementById('installStatus').textContent = data.installation_valid ? 'valid' : 'missing';
+                    document.getElementById('installSession').textContent = data.installation_session_active ? 'active' : 'inactive';
                 })
                 .catch(err => console.error(err));
         }
 
         function startCalPolling() {
             if (calPoll) return;
-            calPoll = setInterval(calSample, 500);
-            calSample();
+            calPoll = setInterval(function(){
+                if (calView === 'accel') calSample();
+                else if (calView === 'install') installSample();
+            }, 500);
+            if (calView === 'accel') calSample();
+            else if (calView === 'install') installSample();
         }
 
         function stopCalPolling() {
@@ -492,8 +623,10 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
 
         function calSample() {
             fetch('/api/cal/sample')
-                .then(r => r.json())
-                .then(data => {
+                .then(r => r.json().then(j => ({ok:r.ok, status:r.status, json:j})))
+                .then(res => {
+                    handleCalibrationAuthError(res);
+                    const data = res.json;
                     if (!data.ok) {
                         logCal(JSON.stringify(data, null, 2));
                         return;
@@ -565,6 +698,70 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 .catch(err => {
                     save.disabled = false;
                     logCal('SAVE ERROR: ' + err);
+                });
+        }
+
+        function fmtVec(v) {
+            if (!v) return '-';
+            return 'x=' + Number(v.x || 0).toFixed(1) + ', y=' + Number(v.y || 0).toFixed(1) + ', z=' + Number(v.z || 0).toFixed(1);
+        }
+
+        function fmtMatrix(m) {
+            if (!m || m.length < 9) return '-';
+            return '[' + Number(m[0]).toFixed(6) + ' ' + Number(m[1]).toFixed(6) + ' ' + Number(m[2]).toFixed(6) + ']\n' +
+                   '[' + Number(m[3]).toFixed(6) + ' ' + Number(m[4]).toFixed(6) + ' ' + Number(m[5]).toFixed(6) + ']\n' +
+                   '[' + Number(m[6]).toFixed(6) + ' ' + Number(m[7]).toFixed(6) + ' ' + Number(m[8]).toFixed(6) + ']';
+        }
+
+        function installSample() {
+            fetch('/api/install/sample')
+                .then(r => r.json().then(j => ({ok:r.ok, status:r.status, json:j})))
+                .then(res => {
+                    handleCalibrationAuthError(res);
+                    const data = res.json;
+                    if (!data.ok) return;
+                    document.getElementById('installSession').textContent = data.active ? 'active' : 'inactive';
+                    document.getElementById('installMean').textContent = fmtVec(data.mean);
+                    document.getElementById('installStd').textContent = fmtVec(data.stddev);
+                    document.getElementById('installNvsDate').textContent = data.stored_valid ? fmtDate(data.stored_date) : '-';
+                    document.getElementById('installMatrix').textContent = data.candidate_valid ? fmtMatrix(data.matrix) : (data.stored_valid ? fmtMatrix(data.stored_matrix) : 'Waiting for stable level-flight attitude.');
+                    document.getElementById('btnInstallSave').disabled = !data.candidate_valid;
+                })
+                .catch(err => console.error(err));
+        }
+
+        function installStart() {
+            document.getElementById('btnInstallSave').disabled = true;
+            postJson('/api/install/start')
+                .then(res => {
+                    document.getElementById('installMatrix').textContent = prettyJson(res.json);
+                    calStatus();
+                    startCalPolling();
+                });
+        }
+
+        function installCancel() {
+            postJson('/api/install/cancel')
+                .then(res => {
+                    document.getElementById('installMatrix').textContent = prettyJson(res.json);
+                    calStatus();
+                    installSample();
+                });
+        }
+
+        function installSave() {
+            const save = document.getElementById('btnInstallSave');
+            save.disabled = true;
+            postJson('/api/install/save')
+                .then(res => {
+                    document.getElementById('installMatrix').textContent = prettyJson(res.json);
+                    calStatus();
+                    installSample();
+                    if (!res.ok) save.disabled = false;
+                })
+                .catch(err => {
+                    document.getElementById('installMatrix').textContent = 'SAVE ERROR: ' + err;
+                    save.disabled = false;
                 });
         }
 

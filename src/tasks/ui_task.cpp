@@ -429,6 +429,8 @@ static bool settings_action_required_(msg_id_t msg){
  */
 static bool calibration_action_required_(msg_id_t msg){
     return (msg == MSG_CALIBRATION_REQUIRED) ||
+           (msg == MSG_ACCEL_CALIBRATION_REQUIRED) ||
+           (msg == MSG_INSTALLATION_CALIBRATION_REQUIRED) ||
            (msg == MSG_CALIBRATION_FAULT);
 }
 
@@ -940,6 +942,8 @@ void syncUIToSystemState() {
         ready &&
         ((st.message_id == MSG_SETTINGS_LOCKED) ||
          (st.message_id == MSG_CALIBRATION_REQUIRED) ||
+         (st.message_id == MSG_ACCEL_CALIBRATION_REQUIRED) ||
+         (st.message_id == MSG_INSTALLATION_CALIBRATION_REQUIRED) ||
          (st.message_id == MSG_CALIBRATION_FAULT) ||
          (st.message_id == MSG_SD_FULL_FILES));
 

@@ -148,6 +148,12 @@ This means SD free space is below the configured low-space threshold. Archiving 
 
 The firmware uses two SD free-space thresholds: a higher threshold required before recording starts and a lower threshold while recording is already active. This prevents recording from starting just above the low-space threshold and immediately stopping with `SD LOW`.
 
+### Installation calibration
+
+In addition to the six-face sensor gain/offset calibration, the recorder supports an installation calibration from the Web interface. The glider must be placed in its AFM/AMM level-flight attitude. The recorder then reads the sensor-calibrated acceleration, waits for a stable window, and computes a 3 x 3 installation rotation matrix so that corrected Z reads +1 g in level flight.
+
+The installation calibration corrects pitch/roll mounting error. Yaw around the vertical axis is not observable from gravity alone and is not corrected. Recording remains disabled until both the sensor calibration and the installation calibration are valid.
+
 ## 9. Artificial Intelligence Assistance
 
 This project was developed with significant assistance from artificial intelligence tools.

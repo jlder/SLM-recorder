@@ -9,10 +9,19 @@ Checks:
 - block sequence and checksums;
 - 0x72 calibration block before first 0x70 acceleration block;
 - 0x70 acceleration timestamp intervals for 20 Hz rate / jitter review;
-- final 0x71 status block when present.
+- final 0x71 status block when present;
+- optional graph of recorded X/Y/Z g-load versus time.
+
+The graph opens by default for interactive checks. Use --no-plot for automated
+validation runs where a plot window would block the script.
 
 Usage:
     python tools/validate_recording.py path/to/file.bin
+    python tools/validate_recording.py path/to/file.bin --plot-output recording_g_load.png
+    python tools/validate_recording.py path/to/file.bin --no-plot
+
+After installation calibration, if the recorder is stable and has not moved,
+the g-load plot should show approximately X = 0 g, Y = 0 g, and Z = +1 g.
 """
 
 from __future__ import annotations
@@ -21,6 +30,7 @@ import argparse
 import math
 import struct
 from pathlib import Path
+from typing import Optional
 
 SYNC = 0x55
 BLOCK_ACCEL = 0x70
@@ -29,7 +39,7 @@ BLOCK_CAL = 0x72
 
 SIZE_ACCEL = 13
 SIZE_STATUS = 13
-SIZE_CAL = 184
+SIZE_CAL = 252
 
 
 def checksum_ok(block: bytes) -> bool:
@@ -68,6 +78,17 @@ def parse_calibration(block: bytes) -> dict:
         face_stddev.append(struct.unpack_from("<fff", block, offset))
         offset += 12
 
+    installation_valid = struct.unpack_from("<B", block, offset)[0] != 0
+    offset += 1
+    inst_year, inst_month, inst_day, inst_hour, inst_minute, inst_second = struct.unpack_from("<HBBBBB", block, offset)
+    offset += struct.calcsize("<HBBBBB")
+    installation_mean = struct.unpack_from("<fff", block, offset)
+    offset += 12
+    installation_stddev = struct.unpack_from("<fff", block, offset)
+    offset += 12
+    installation_matrix = struct.unpack_from("<fffffffff", block, offset)
+    offset += 36
+
     return {
         "sync": sync,
         "id": bid,
@@ -78,6 +99,11 @@ def parse_calibration(block: bytes) -> dict:
         "offset_mg": offsets,
         "face_mean_mg": face_mean,
         "face_stddev_mg": face_stddev,
+        "installation_valid": installation_valid,
+        "installation_timestamp": f"{inst_year:04d}-{inst_month:02d}-{inst_day:02d} {inst_hour:02d}:{inst_minute:02d}:{inst_second:02d}",
+        "installation_mean_mg": installation_mean,
+        "installation_stddev_mg": installation_stddev,
+        "installation_matrix": installation_matrix,
     }
 
 
@@ -97,12 +123,60 @@ def describe_intervals(ts_values: list[int]) -> dict:
     }
 
 
-def validate(path: Path) -> int:
+
+
+def display_g_load_graph(accel_samples: list[dict], output: Optional[Path] = None) -> None:
+    """Display or save a simple X/Y/Z g-load graph from 0x70 blocks.
+
+    Acceleration samples are stored in signed milli-g. The graph converts them
+    to g and uses time relative to the first recorded acceleration timestamp.
+    After installation calibration, a stable recorder that has not moved should
+    show X ~= 0 g, Y ~= 0 g, and Z ~= +1 g.
+    """
+    if not accel_samples:
+        print("g-load graph: skipped, no acceleration samples")
+        return
+
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("g-load graph: skipped, matplotlib is not installed")
+        print("install with: python -m pip install matplotlib")
+        return
+
+    t0_ms = accel_samples[0]["ts_ms"]
+    time_s = [(s["ts_ms"] - t0_ms) / 1000.0 for s in accel_samples]
+    x_g = [s["ax"] / 1000.0 for s in accel_samples]
+    y_g = [s["ay"] / 1000.0 for s in accel_samples]
+    z_g = [s["az"] / 1000.0 for s in accel_samples]
+
+    plt.figure()
+    plt.plot(time_s, x_g, label="X")
+    plt.plot(time_s, y_g, label="Y")
+    plt.plot(time_s, z_g, label="Z")
+    plt.axhline(0.0, linewidth=0.8, linestyle="--")
+    plt.axhline(1.0, linewidth=0.8, linestyle="--")
+    plt.xlabel("Time since first sample (s)")
+    plt.ylabel("g-load (g)")
+    plt.title("SLM recorder g-load: X/Y/Z")
+    plt.legend()
+    plt.grid(True, linewidth=0.3)
+    plt.tight_layout()
+
+    if output is not None:
+        plt.savefig(output, dpi=150)
+        print(f"g-load graph saved: {output}")
+    else:
+        print("g-load graph: close the plot window to finish")
+        plt.show()
+
+def validate(path: Path, show_plot: bool = True, plot_output: Optional[Path] = None) -> int:
     data = path.read_bytes()
     pos = 0
     errors: list[str] = []
     warnings: list[str] = []
     accel_ts: list[int] = []
+    accel_samples: list[dict] = []
     counts = {BLOCK_ACCEL: 0, BLOCK_STATUS: 0, BLOCK_CAL: 0}
     first_accel_pos = None
     cal_info = None
@@ -147,6 +221,7 @@ def validate(path: Path) -> int:
                 first_accel_pos = pos
             accel = parse_accel(block)
             accel_ts.append(accel["ts_ms"])
+            accel_samples.append(accel)
             counts[BLOCK_ACCEL] += 1
         elif bid == BLOCK_STATUS:
             counts[BLOCK_STATUS] += 1
@@ -195,6 +270,9 @@ def validate(path: Path) -> int:
         for w in warnings:
             print(f"  - {w}")
 
+    if show_plot or plot_output is not None:
+        display_g_load_graph(accel_samples, plot_output)
+
     if errors:
         print("errors:")
         for e in errors:
@@ -208,8 +286,18 @@ def validate(path: Path) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("recording", type=Path)
+    ap.add_argument(
+        "--no-plot",
+        action="store_true",
+        help="validate only; do not display the X/Y/Z g-load graph",
+    )
+    ap.add_argument(
+        "--plot-output",
+        type=Path,
+        help="save the X/Y/Z g-load graph to a PNG file instead of only displaying it",
+    )
     args = ap.parse_args()
-    return validate(args.recording)
+    return validate(args.recording, show_plot=not args.no_plot, plot_output=args.plot_output)
 
 
 if __name__ == "__main__":

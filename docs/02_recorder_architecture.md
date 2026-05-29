@@ -206,6 +206,8 @@ The UI does not independently create recorder-core error messages.
 
 The Web page is support presentation. Calibration backend logic resides in `calibration_service`; Web handlers request actions and display backend state. Firmware update upload handling resides in `web_task` and uses the ESP32 Arduino `Update` API.
 
+Calibration Web access is intentionally gated because calibration is a maintenance/mechanical activity. The operator must unlock calibration using the recorder registration string. After authorization, the Web UI shows a calibration menu with separate Accelerometer Calibration and Installation Calibration entries and the last saved date for each calibration type. Calibration action/sample/save endpoints require the same per-client calibration authorization.
+
 ## 9. Calibration Architecture
 
 ### 9.1 Persistent calibration ownership
@@ -383,7 +385,7 @@ The Web delete action is implemented as an archive operation. Root-level recordi
 
 ## 21. SD Maintenance While READY
 
-SD low-space and SD max-file-count are treated as maintenance conditions when the recorder is not recording. They block recording start but keep the high-level recorder in READY so MENU and START WIFI remain available for Web file maintenance. The SD task remains responsible for the SD condition and continues servicing authorized file-management operations so the operator can archive root files to `/processed` without removing the SD card.
+SD max-file-count is treated as a Web-maintenance condition when the recorder is not recording and SD free space is still above the recording-start threshold. It blocks recording start but keeps the high-level recorder in READY so MENU and START WIFI remain available for Web file maintenance. SD low-space is not a Web-maintenance condition because archiving files to `/processed` does not free SD memory; the operator must replace the SD card or free space outside the recorder.
 
 Orange means a user-resolvable action or condition that can be cleared through the device workflow. Red is reserved for blocking conditions that cannot be cleared through the current device workflow. Therefore `SD FULL (FILES)` is orange because Web archive can clear the root-file-count condition, while `SD LOW` remains blocking because archiving does not free SD memory.
 
@@ -428,6 +430,24 @@ the previous stop was caused by a watchdog fault.
 The SD layer uses two free-space thresholds. `SD_RECORD_START_MIN_FREE_MB` is the higher threshold required before opening a new recording. `SD_RECORD_LOW_FREE_MB` is the lower threshold used while a recording is already active.
 
 This hysteresis prevents a recording from being allowed just above the low-space limit and then immediately stopping with `SD LOW` after the first writes. During recording, the SD storage layer uses its cached free-space estimate to detect when the lower in-recording threshold has been crossed and the SD task then closes the file through the normal low-space close path.
+
+
+## Sensor and Installation Calibration Architecture
+
+The recorder uses two calibration layers in the acceleration path:
+
+```text
+raw accelerometer sample
+  -> sensor gain/offset correction
+  -> installation rotation matrix
+  -> ring buffer / recording file
+```
+
+The six-face sensor calibration corrects accelerometer gain and offset. The installation calibration is separate and is performed after the recorder is mounted in the glider. During installation calibration the glider is placed in its AFM/AMM level-flight attitude. The service reads sensor-corrected acceleration samples, waits for a stable sample window, and computes a fixed 3 x 3 rotation matrix that maps the measured gravity vector to +Z.
+
+The 3 x 3 matrix is stored in NVS as the installation-calibration part of the calibration record and is written into the 0x72 calibration block at the beginning of each recording. The sensor calibration and installation calibration each carry independent validity and timestamp fields. The NVS checksum is calculated over an explicit packed storage representation rather than over the runtime C++ structure, so the checksum is not affected by runtime struct padding or C++ `bool` representation. Yaw about the vertical axis is not observable from a static gravity measurement and is therefore not corrected by this calibration. The primary requirement is that corrected Z reads approximately +1 g in level-flight attitude.
+
+Recording is allowed only when the sensor calibration is valid and the installation calibration exists.
 
 ## SD-Owned Web Download Session
 

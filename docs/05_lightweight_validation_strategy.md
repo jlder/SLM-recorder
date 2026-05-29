@@ -133,7 +133,7 @@ Procedure:
 3. Confirm message is one of expected startup/setup messages:
    - `READY`;
    - `NEED SETTINGS`;
-   - `CAL REQUIRED`;
+   - `ACC CAL REQ`;
    - `CAL FAULT`;
    - SD-related error if SD is intentionally absent.
 
@@ -258,7 +258,7 @@ Procedure:
 
 Expected result:
 
-- Device displays `CAL REQUIRED`.
+- Device displays `ACC CAL REQ`.
 - MENU/WiFi access remains available.
 - Recording does not start.
 
@@ -320,7 +320,7 @@ Procedure:
 
 Expected result:
 
-- `CAL REQUIRED` is no longer shown.
+- `ACC CAL REQ` is no longer shown.
 - Recording start is authorized if SD/settings/error conditions are also satisfied.
 
 ### VAL-CAL-005 — Calibration expiration review
@@ -338,7 +338,7 @@ Procedure:
 Expected result:
 
 - Calibration older than `CALIBRATION_VALIDITY_MONTHS` is treated as expired.
-- Device displays `CAL REQUIRED`.
+- Device displays `ACC CAL REQ`.
 - Recording is locked.
 
 Note:
@@ -458,7 +458,7 @@ Procedure:
 Expected result:
 
 - Device acknowledges SD recovery.
-- After clear, device returns to READY or setup-lock message such as `CAL REQUIRED`.
+- After clear, device returns to READY or setup-lock message such as `ACC CAL REQ` or `INST CAL REQ`.
 
 ### VAL-SD-003 — Low-space and file-count review
 
@@ -475,7 +475,8 @@ Procedure:
 Expected result:
 
 - Recording is not started.
-- Appropriate SD low-space/full/files message is displayed.
+- `SD FULL (FILES)` allows READY/Web maintenance.
+- `SD LOW` does not rely on Web maintenance because archiving does not free SD memory.
 
 
 ### VAL-PERF-001 — 20 Hz sample-rate validation
@@ -559,11 +560,11 @@ Expected result:
 
 Purpose:
 
-Confirm that SD low-space and SD max-file-count conditions block recording but still allow Web file maintenance.
+Confirm that SD max-file-count blocks recording but still allows Web file maintenance, while SD low-space blocks recording and requires SD replacement or external cleanup.
 
 Procedure:
 
-1. Create an SD low-space condition or a root file-count condition at `SD_MAX_RECORD_FILES`.
+1. Create a root file-count condition at `SD_MAX_RECORD_FILES`, then separately create an SD low-space condition.
 2. Confirm the recorder remains in READY with the applicable SD message.
 3. Confirm MENU and START WIFI remain available.
 4. Use the Web file-management page to archive one or more files.
@@ -639,7 +640,7 @@ Operational requirement -> derived software requirement -> implementation alloca
 Some requirements are currently validated by source review only because hardware fault injection or simulation hooks are not yet available. Those cases are explicitly noted as limitations or future test-support candidates.
 
 
-A helper script is provided at `tools/validate_recording.py` to inspect recording block sequence, checksums, calibration block placement, and 20 Hz timing statistics.
+A helper script is provided at `tools/validate_recording.py` to inspect recording block sequence, checksums, calibration block placement, 20 Hz timing statistics, and recorded X/Y/Z g-load. The g-load plot opens by default for interactive checks; use `--no-plot` for automated validation runs or `--plot-output <png>` to save the graph.
 
 
 WiFi validation should include confirming that pressing BACK on the MENU page stops WiFi/AP support and returns to the main page.
@@ -651,3 +652,14 @@ Verify that recording is blocked when SD free space is below `SD_RECORD_START_MI
 Verify that a recording may continue after start until the lower in-recording threshold `SD_RECORD_LOW_FREE_MB` is reached.
 
 Verify that crossing the in-recording low-space threshold causes the recorder to close the recording through the normal low-space close path and report `SD LOW`.
+
+
+## VAL-CAL-INSTALL-001 — Installation calibration
+
+Verify that recording is blocked after sensor calibration until installation calibration has been saved and that the device displays `INST CAL REQ` for this condition.
+
+Verify that the Web installation calibration workflow accepts stable level-attitude samples, computes a matrix, and saves it to NVS.
+
+Verify that a stable level-attitude sample reads approximately +1 g on corrected Z after the installation matrix is applied.
+
+Verify that the 0x72 calibration block contains the saved installation calibration data.

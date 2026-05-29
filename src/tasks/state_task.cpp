@@ -664,10 +664,11 @@ static void state_task_main(void *arg){
         const bool settings_ready = settings_storage_ok && settings_get(&settings) && settings_is_complete(&settings);
         calibration_service_refresh_status();
         const calibration_status_t cal_status = calibration_service_status();
-        const bool calibration_ready = (cal_status == CAL_STATUS_VALID);
+        const bool installation_ready = calibration_service_installation_valid();
+        const bool calibration_ready = calibration_service_is_recording_allowed();
 
-        // SD maintenance errors block recording but keep READY/menu/WiFi available
-        // so the operator can archive files through the Web interface.
+        // SD max-file-count maintenance blocks recording but keeps
+        // READY/menu/WiFi available so the operator can archive files.
         const error_code_t sd_err = sd_error_get();
         const bool sd_maintenance_needed = sd_maintenance_error_(sd_err);
 
@@ -686,12 +687,16 @@ static void state_task_main(void *arg){
           set_msg(MSG_SETTINGS_LOCKED);
         } else if(cal_status == CAL_STATUS_FAULT){
           set_msg(MSG_CALIBRATION_FAULT);
-        } else if(!calibration_ready){
-          set_msg(MSG_CALIBRATION_REQUIRED);
+        } else if(cal_status != CAL_STATUS_VALID){
+          set_msg(MSG_ACCEL_CALIBRATION_REQUIRED);
+        } else if(!installation_ready){
+          set_msg(MSG_INSTALLATION_CALIBRATION_REQUIRED);
         } else if(sd_maintenance_needed){
           set_msg(sd_maintenance_msg_(sd_err));
         } else if((s_st.message_id == MSG_SETTINGS_LOCKED) ||
                   (s_st.message_id == MSG_CALIBRATION_REQUIRED) ||
+                  (s_st.message_id == MSG_ACCEL_CALIBRATION_REQUIRED) ||
+                  (s_st.message_id == MSG_INSTALLATION_CALIBRATION_REQUIRED) ||
                   (s_st.message_id == MSG_CALIBRATION_FAULT) ||
                   (s_st.message_id == MSG_SD_LOW_SPACE) ||
                   (s_st.message_id == MSG_SD_FULL_FILES)){
@@ -704,9 +709,9 @@ static void state_task_main(void *arg){
 
         // State change actions
         // READY still monitors SD errors because SD task may detect an SD fault
-        // while idle, before recording is requested. Low-space and max-file-count
-        // are maintenance conditions: they block recording but keep READY/menu/WiFi
-        // available so Web file maintenance can be used.
+        // while idle, before recording is requested. Max root-file-count is a
+        // READY/Web maintenance condition. Low free space is not, because
+        // archiving root files to /processed does not free SD memory.
         if((sd_err != ERR_NONE) && !sd_maintenance_needed){
           error_manager_raise(sd_err);
           ready_exit_cleanup();

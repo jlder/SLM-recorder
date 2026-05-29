@@ -52,6 +52,12 @@ static bool s_routes_registered = false;
 static uint32_t s_web_client_ip = 0u; // IPv4 packed
 static uint32_t s_web_client_last_ms = 0u;
 
+// Calibration is a maintenance/mechanical activity.  A client must unlock the
+// calibration routes with the recorder registration string before access.
+static bool s_cal_client_authorized = false;
+static uint32_t s_cal_client_ip = 0u;
+static uint32_t s_cal_client_last_ms = 0u;
+
 /**
  * Ip to u32 performs the web task operation represented by this function and
  * keeps the module state consistent with recorder ownership rules.
@@ -92,6 +98,74 @@ static bool web_single_client_allow(AsyncWebServerRequest* req) {
     return true;
   }
 
+  return false;
+}
+
+/**
+ * Return whether the calibration password matches the stored registration.
+ *
+ * Inputs: `password`.
+ * Returns: `true` when the password matches the recorder registration.
+ */
+static bool cal_password_matches_(const String& password){
+  settings_t st;
+  if((!settings_get(&st)) || (st.registration[0] == '\0')){
+    return false;
+  }
+  return password == String(st.registration);
+}
+
+/**
+ * Authorize this client IP for calibration routes.
+ *
+ * Inputs: `req`.
+ * Returns: None.
+ */
+static void cal_authorize_client_(AsyncWebServerRequest *req){
+  s_cal_client_authorized = true;
+  s_cal_client_ip = ip_to_u32(req->client()->remoteIP());
+  s_cal_client_last_ms = (uint32_t)millis();
+}
+
+/**
+ * Check whether this client IP has a non-expired calibration authorization.
+ *
+ * Inputs: `req`.
+ * Returns: `true` when calibration access is authorized.
+ */
+static bool cal_client_authorized_(AsyncWebServerRequest *req){
+  const uint32_t now_ms = (uint32_t)millis();
+
+  if(s_cal_client_authorized){
+    if((now_ms - s_cal_client_last_ms) > (uint32_t)WEB_SINGLE_CLIENT_TIMEOUT_MS){
+      s_cal_client_authorized = false;
+    }
+  }
+
+  if(!s_cal_client_authorized){
+    return false;
+  }
+
+  if(ip_to_u32(req->client()->remoteIP()) != s_cal_client_ip){
+    return false;
+  }
+
+  s_cal_client_last_ms = now_ms;
+  return true;
+}
+
+/**
+ * Send a calibration authorization error when the client is not unlocked.
+ *
+ * Inputs: `req`.
+ * Returns: `true` when the request may continue; otherwise `false`.
+ */
+static bool cal_require_auth_(AsyncWebServerRequest *req){
+  if(cal_client_authorized_(req)){
+    return true;
+  }
+
+  req->send(403, "application/json", "{\"ok\":false,\"reason\":\"calibration_auth_required\"}");
   return false;
 }
 
@@ -310,6 +384,22 @@ static String cal_vec_json_(const calibration_vec_t& v){
   return web_snprintf_ok_(n, sizeof(buf)) ? String(buf) : String("{}");
 }
 
+static String cal_matrix_json_(const float matrix[9]){
+  if(matrix == nullptr){
+    return String("[]");
+  }
+
+  String s = "[";
+  for(uint32_t i = 0u; i < 9u; ++i){
+    if(i > 0u) s += ",";
+    char buf[32];
+    const int n = snprintf(buf, sizeof(buf), "%.6f", matrix[i]);
+    s += web_snprintf_ok_(n, sizeof(buf)) ? String(buf) : String("0");
+  }
+  s += "]";
+  return s;
+}
+
 /**
  * Cal face capture json performs the web task operation represented by this
  * function and keeps the module state consistent with recorder ownership
@@ -344,9 +434,9 @@ static String cal_face_capture_json_(const calibration_face_capture_t face[CAL_F
  */
 static float cal_record_axis_pos_(const calibration_record_t& rec, uint32_t axis){
   switch(axis){
-    case 0u: return rec.face[CAL_FACE_PX].mean_mg.x_mg;
-    case 1u: return rec.face[CAL_FACE_PY].mean_mg.y_mg;
-    case 2u: return rec.face[CAL_FACE_PZ].mean_mg.z_mg;
+    case 0u: return rec.sensor.face[CAL_FACE_PX].mean_mg.x_mg;
+    case 1u: return rec.sensor.face[CAL_FACE_PY].mean_mg.y_mg;
+    case 2u: return rec.sensor.face[CAL_FACE_PZ].mean_mg.z_mg;
     default: return 0.0f;
   }
 }
@@ -361,9 +451,9 @@ static float cal_record_axis_pos_(const calibration_record_t& rec, uint32_t axis
  */
 static float cal_record_axis_neg_(const calibration_record_t& rec, uint32_t axis){
   switch(axis){
-    case 0u: return rec.face[CAL_FACE_NX].mean_mg.x_mg;
-    case 1u: return rec.face[CAL_FACE_NY].mean_mg.y_mg;
-    case 2u: return rec.face[CAL_FACE_NZ].mean_mg.z_mg;
+    case 0u: return rec.sensor.face[CAL_FACE_NX].mean_mg.x_mg;
+    case 1u: return rec.sensor.face[CAL_FACE_NY].mean_mg.y_mg;
+    case 2u: return rec.sensor.face[CAL_FACE_NZ].mean_mg.z_mg;
     default: return 0.0f;
   }
 }
@@ -378,9 +468,9 @@ static float cal_record_axis_neg_(const calibration_record_t& rec, uint32_t axis
  */
 static float cal_record_axis_gain_(const calibration_record_t& rec, uint32_t axis){
   switch(axis){
-    case 0u: return rec.gain_x;
-    case 1u: return rec.gain_y;
-    case 2u: return rec.gain_z;
+    case 0u: return rec.sensor.gain_x;
+    case 1u: return rec.sensor.gain_y;
+    case 2u: return rec.sensor.gain_z;
     default: return 0.0f;
   }
 }
@@ -395,9 +485,9 @@ static float cal_record_axis_gain_(const calibration_record_t& rec, uint32_t axi
  */
 static float cal_record_axis_offset_(const calibration_record_t& rec, uint32_t axis){
   switch(axis){
-    case 0u: return rec.offset_x_mg;
-    case 1u: return rec.offset_y_mg;
-    case 2u: return rec.offset_z_mg;
+    case 0u: return rec.sensor.offset_x_mg;
+    case 1u: return rec.sensor.offset_y_mg;
+    case 2u: return rec.sensor.offset_z_mg;
     default: return 0.0f;
   }
 }
@@ -435,17 +525,21 @@ static String cal_record_axis_result_json_(const calibration_record_t& rec){
  * Inputs: `rec`.
  * Returns: Requested value.
  */
-static String cal_record_date_json_(const calibration_record_t& rec){
+static String rtc_date_json_(const rtc_datetime_t& dt){
   char buf[96];
   const int n = snprintf(buf, sizeof(buf),
                          "{\"year\":%u,\"month\":%u,\"day\":%u,\"hour\":%u,\"min\":%u,\"sec\":%u}",
-                         (unsigned)rec.timestamp.year,
-                         (unsigned)rec.timestamp.month,
-                         (unsigned)rec.timestamp.day,
-                         (unsigned)rec.timestamp.hour,
-                         (unsigned)rec.timestamp.min,
-                         (unsigned)rec.timestamp.sec);
+                         (unsigned)dt.year,
+                         (unsigned)dt.month,
+                         (unsigned)dt.day,
+                         (unsigned)dt.hour,
+                         (unsigned)dt.min,
+                         (unsigned)dt.sec);
   return web_snprintf_ok_(n, sizeof(buf)) ? String(buf) : String("{}");
+}
+
+static String cal_record_date_json_(const calibration_record_t& rec){
+  return rtc_date_json_(rec.sensor.timestamp);
 }
 
 /**
@@ -739,25 +833,54 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   
 
 
+  s_server.on("/api/cal/auth", HTTP_POST, [](AsyncWebServerRequest *request){
+    String password = "";
+    if(request->hasParam("password", true)){
+      password = request->getParam("password", true)->value();
+    } else if(request->hasParam("password")){
+      password = request->getParam("password")->value();
+    }
+
+    if(!cal_password_matches_(password)){
+      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"bad_password\"}");
+      return;
+    }
+
+    cal_authorize_client_(request);
+    request->send(200, "application/json", "{\"ok\":true}");
+  });
+
   s_server.on("/api/cal/status", HTTP_GET, [](AsyncWebServerRequest *request){
     calibration_service_refresh_status();
     const calibration_status_t status = calibration_service_status();
     const bool recording_allowed = calibration_service_is_recording_allowed();
+    calibration_record_t active = {};
+    const bool active_ok = calibration_service_get_active(&active);
 
-    char buf[192];
-    const int n = snprintf(buf, sizeof(buf),
-                           "{\"status\":\"%s\",\"recording_allowed\":%s,\"session_active\":%s}",
-                           cal_status_name_(status),
-                           recording_allowed ? "true" : "false",
-                           calibration_session_active() ? "true" : "false");
-    if(!web_snprintf_ok_(n, sizeof(buf))){
-      request->send(500, "application/json", "{\"error\":\"format_failed\"}");
-      return;
-    }
-    request->send(200, "application/json", buf);
+    String out = "{";
+    out += "\"status\":\"";
+    out += cal_status_name_(status);
+    out += "\"";
+    out += ",\"recording_allowed\":";
+    out += recording_allowed ? "true" : "false";
+    out += ",\"session_active\":";
+    out += calibration_session_active() ? "true" : "false";
+    out += ",\"sensor_valid\":";
+    out += (active_ok && active.sensor.valid) ? "true" : "false";
+    out += ",\"sensor_date\":";
+    out += (active_ok && active.sensor.valid) ? rtc_date_json_(active.sensor.timestamp) : "{}";
+    out += ",\"installation_valid\":";
+    out += (active_ok && active.installation.valid) ? "true" : "false";
+    out += ",\"installation_date\":";
+    out += (active_ok && active.installation.valid) ? rtc_date_json_(active.installation.timestamp) : "{}";
+    out += ",\"installation_session_active\":";
+    out += calibration_installation_session_active() ? "true" : "false";
+    out += "}";
+    request->send(200, "application/json", out);
   });
 
   s_server.on("/api/cal/start", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
     const system_status_t st = state_task_get_status();
     const bool recording = (st.state == ST_RECORDING) || (st.state == ST_STARTING) || (st.state == ST_STOPPING);
     if(recording){
@@ -770,11 +893,13 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   });
 
   s_server.on("/api/cal/cancel", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
     calibration_session_cancel();
     request->send(200, "application/json", "{\"ok\":true}");
   });
 
   s_server.on("/api/cal/sample", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
     calibration_sample_status_t st = {};
     if(!calibration_session_get_status(&st)){
       request->send(500, "application/json", "{\"ok\":false,\"reason\":\"status_failed\"}");
@@ -830,32 +955,13 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   });
 
   s_server.on("/api/cal/accept", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
     const bool ok = calibration_session_accept_candidate();
     request->send(ok ? 200 : 409, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false}");
   });
 
-  s_server.on("/api/cal/result", HTTP_GET, [](AsyncWebServerRequest *request){
-    calibration_record_t rec = {};
-    if(!calibration_session_compute(&rec)){
-      request->send(409, "application/json", "{\"ok\":false}");
-      return;
-    }
-
-    char buf[384];
-    const int n = snprintf(buf, sizeof(buf),
-                           "{\"ok\":true,\"saved\":true,\"message\":\"calibration_saved\","
-                           "\"gain\":{\"x\":%.6f,\"y\":%.6f,\"z\":%.6f},"
-                           "\"offset_mg\":{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}}",
-                           rec.gain_x, rec.gain_y, rec.gain_z,
-                           rec.offset_x_mg, rec.offset_y_mg, rec.offset_z_mg);
-    if(!web_snprintf_ok_(n, sizeof(buf))){
-      request->send(500, "application/json", "{\"ok\":false,\"reason\":\"format_failed\"}");
-      return;
-    }
-    request->send(200, "application/json", buf);
-  });
-
   s_server.on("/api/cal/save", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
     calibration_record_t rec = {};
     if(!calibration_session_save(&rec)){
       request->send(409, "application/json", "{\"ok\":false,\"reason\":\"save_failed\"}");
@@ -867,13 +973,89 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
                            "{\"ok\":true,\"saved\":true,\"message\":\"calibration_saved\","
                            "\"gain\":{\"x\":%.6f,\"y\":%.6f,\"z\":%.6f},"
                            "\"offset_mg\":{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}}",
-                           rec.gain_x, rec.gain_y, rec.gain_z,
-                           rec.offset_x_mg, rec.offset_y_mg, rec.offset_z_mg);
+                           rec.sensor.gain_x, rec.sensor.gain_y, rec.sensor.gain_z,
+                           rec.sensor.offset_x_mg, rec.sensor.offset_y_mg, rec.sensor.offset_z_mg);
     if(!web_snprintf_ok_(n, sizeof(buf))){
       request->send(500, "application/json", "{\"ok\":false,\"reason\":\"format_failed\"}");
       return;
     }
     request->send(200, "application/json", buf);
+  });
+
+
+  s_server.on("/api/install/start", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+    const system_status_t st = state_task_get_status();
+    const bool recording = (st.state == ST_RECORDING) || (st.state == ST_STARTING) || (st.state == ST_STOPPING);
+    if(recording){
+      request->send(409, "application/json", "{\"ok\":false,\"reason\":\"recording\"}");
+      return;
+    }
+
+    const bool ok = calibration_installation_session_start();
+    request->send(ok ? 200 : 409, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false,\"reason\":\"sensor_cal_required\"}");
+  });
+
+  s_server.on("/api/install/cancel", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+    calibration_installation_session_cancel();
+    request->send(200, "application/json", "{\"ok\":true}");
+  });
+
+  s_server.on("/api/install/sample", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+    installation_calibration_status_t st = {};
+    if(!calibration_installation_session_get_status(&st)){
+      request->send(500, "application/json", "{\"ok\":false,\"reason\":\"status_failed\"}");
+      return;
+    }
+
+    String out = "{";
+    out += "\"ok\":true";
+    out += ",\"active\":";
+    out += st.session_active ? "true" : "false";
+    out += ",\"stable\":";
+    out += st.stable ? "true" : "false";
+    out += ",\"candidate_valid\":";
+    out += st.candidate_valid ? "true" : "false";
+    out += ",\"samples\":";
+    out += String((unsigned long)st.sample_count);
+    out += ",\"mean\":";
+    out += cal_vec_json_(st.mean_mg);
+    out += ",\"stddev\":";
+    out += cal_vec_json_(st.stddev_mg);
+    out += ",\"matrix\":";
+    out += cal_matrix_json_(st.matrix);
+    out += ",\"stored_valid\":";
+    out += st.stored_valid ? "true" : "false";
+    out += ",\"stored_date\":";
+    if(st.stored_valid){
+      out += rtc_date_json_(st.stored_timestamp);
+    } else {
+      out += "{}";
+    }
+    out += ",\"stored_mean\":";
+    out += cal_vec_json_(st.stored_mean_mg);
+    out += ",\"stored_stddev\":";
+    out += cal_vec_json_(st.stored_stddev_mg);
+    out += ",\"stored_matrix\":";
+    out += cal_matrix_json_(st.stored_matrix);
+    out += "}";
+    request->send(200, "application/json", out);
+  });
+
+  s_server.on("/api/install/save", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+    calibration_record_t rec = {};
+    if(!calibration_installation_session_save(&rec)){
+      request->send(409, "application/json", "{\"ok\":false,\"reason\":\"save_failed\"}");
+      return;
+    }
+
+    String out = "{\"ok\":true,\"saved\":true,\"message\":\"installation_calibration_saved\",\"matrix\":";
+    out += cal_matrix_json_(rec.installation.matrix);
+    out += "}";
+    request->send(200, "application/json", out);
   });
 
 
@@ -919,6 +1101,7 @@ static void stop_ap_and_server(){
   s_server.end();
   web_sd_end();
   s_web_client_locked = false;
+  s_cal_client_authorized = false;
   WiFi.softAPdisconnect(true);
   delay(20);
   WiFi.mode(WIFI_OFF);

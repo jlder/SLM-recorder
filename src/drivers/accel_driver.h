@@ -28,6 +28,10 @@ typedef struct {
   float offset_z_mg;
 } accel_calibration_t;
 
+typedef struct {
+  float matrix[9];
+} accel_installation_t;
+
 /**
  * @brief Accel driver init.
  *
@@ -53,6 +57,12 @@ bool accel_read_xyz(accel_sample_t *out);
  *   true if a raw sample was read, false otherwise.
  */
 bool accel_read_xyz_raw(accel_sample_t *out);
+
+/**
+ * Read one accelerometer sample with gain/offset sensor correction only.
+ * Installation rotation is intentionally not applied.
+ */
+bool accel_read_xyz_sensor_corrected(accel_sample_t *out);
 
 /**
  * Set the calibration used by normal corrected accelerometer reads.
@@ -86,6 +96,15 @@ void accel_driver_clear_calibration(void);
  *   true if calibration is active, false otherwise.
  */
 bool accel_driver_has_calibration(void);
+
+/** Set the installation rotation matrix used by normal corrected reads. */
+bool accel_driver_set_installation(const accel_installation_t *installation);
+
+/** Clear the active installation rotation. */
+void accel_driver_clear_installation(void);
+
+/** Return whether the accelerometer driver has active installation correction. */
+bool accel_driver_has_installation(void);
 
 // Read one accelerometer sample with bounded retries.
 // - Computes a fresh timestamp for every attempt (ts_ms_out = last attempt time).

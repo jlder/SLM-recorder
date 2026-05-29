@@ -39,7 +39,14 @@ typedef struct {
 } calibration_face_capture_t;
 
 typedef struct {
-  uint32_t version;
+  bool valid;
+  rtc_datetime_t timestamp;
+  calibration_vec_t mean_mg;
+  calibration_vec_t stddev_mg;
+  float matrix[9];
+} installation_calibration_t;
+
+typedef struct {
   bool valid;
   rtc_datetime_t timestamp;
 
@@ -54,6 +61,13 @@ typedef struct {
   float offset_z_mg;
 
   calibration_face_capture_t face[CAL_FACE_COUNT];
+} sensor_calibration_t;
+
+typedef struct {
+  uint32_t version;
+
+  sensor_calibration_t sensor;
+  installation_calibration_t installation;
 
   uint32_t checksum;
 } calibration_record_t;

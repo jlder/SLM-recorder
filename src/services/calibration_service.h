@@ -207,6 +207,40 @@ bool calibration_session_compute(calibration_record_t *out);
  */
 bool calibration_session_save(calibration_record_t *out_saved);
 
+typedef struct {
+  bool session_active;
+  bool stable;
+  bool candidate_valid;
+  calibration_vec_t mean_mg;
+  calibration_vec_t stddev_mg;
+  uint32_t sample_count;
+  float matrix[9];
+
+  bool stored_valid;
+  rtc_datetime_t stored_timestamp;
+  calibration_vec_t stored_mean_mg;
+  calibration_vec_t stored_stddev_mg;
+  float stored_matrix[9];
+} installation_calibration_status_t;
+
+/** Start a RAM-only installation calibration session. */
+bool calibration_installation_session_start(void);
+
+/** Cancel the active installation calibration session. */
+void calibration_installation_session_cancel(void);
+
+/** Return whether installation calibration session is active. */
+bool calibration_installation_session_active(void);
+
+/** Copy current installation calibration sample/status. */
+bool calibration_installation_session_get_status(installation_calibration_status_t *out);
+
+/** Save the best current installation calibration candidate. */
+bool calibration_installation_session_save(calibration_record_t *out_saved);
+
+/** Return whether the active calibration record includes installation correction. */
+bool calibration_service_installation_valid(void);
+
 #ifdef __cplusplus
 }
 #endif
