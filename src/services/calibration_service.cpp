@@ -22,6 +22,18 @@ static calibration_status_t s_status = CAL_STATUS_MISSING;
 
 static bool s_session_active = false;
 static calibration_face_capture_t s_session_face[CAL_FACE_COUNT] = {};
+static float s_session_face_quality[CAL_FACE_COUNT] = {};
+static uint32_t s_session_face_updates[CAL_FACE_COUNT] = {};
+static uint32_t s_session_face_last_update_ms[CAL_FACE_COUNT] = {};
+static uint32_t s_session_face_last_update_sample[CAL_FACE_COUNT] = {};
+static uint32_t s_session_last_update_ms = 0u;
+static uint32_t s_session_last_update_sample = 0u;
+static uint32_t s_session_total_samples = 0u;
+static uint32_t s_session_valid_windows = 0u;
+static uint32_t s_session_total_updates = 0u;
+static bool s_session_current_face_valid = false;
+static calibration_face_t s_session_current_face = CAL_FACE_PX;
+static uint32_t s_session_current_face_samples = 0u;
 
 static uint32_t s_last_sample_ms = 0u;
 
@@ -46,11 +58,17 @@ static float s_install_candidate_matrix[9] = {1.0f, 0.0f, 0.0f,
                                              0.0f, 1.0f, 0.0f,
                                              0.0f, 0.0f, 1.0f};
 static float s_install_candidate_quality = 999999.0f;
+static uint32_t s_install_total_samples = 0u;
+static uint32_t s_install_valid_windows = 0u;
+static uint32_t s_install_update_count = 0u;
+static uint32_t s_install_last_update_ms = 0u;
 
 static bool calibration_detect_face_(const calibration_vec_t *mean, calibration_face_t *out_face);
+static void calibration_session_quality_reset_(void);
 static void calibration_store_session_face_(calibration_face_t face,
                                             const calibration_vec_t *mean,
                                             const calibration_vec_t *stddev);
+static bool calibration_track_current_face_sample_(const calibration_vec_t *v);
 
 /**
  * Convert a calibration record into driver calibration parameters.
@@ -311,6 +329,32 @@ static void calibration_candidate_clear_(void){
 }
 
 /**
+ * Reset per-session face quality/progress counters.
+ *
+ * Parameters:
+ *   none.
+ *
+ * Return:
+ *   none.
+ */
+static void calibration_session_quality_reset_(void){
+  for(uint32_t i = 0u; i < (uint32_t)CAL_FACE_COUNT; ++i){
+    s_session_face_quality[i] = 999999.0f;
+    s_session_face_updates[i] = 0u;
+    s_session_face_last_update_ms[i] = 0u;
+    s_session_face_last_update_sample[i] = 0u;
+  }
+  s_session_last_update_ms = 0u;
+  s_session_total_samples = 0u;
+  s_session_valid_windows = 0u;
+  s_session_total_updates = 0u;
+  s_session_last_update_sample = 0u;
+  s_session_current_face_valid = false;
+  s_session_current_face = CAL_FACE_PX;
+  s_session_current_face_samples = 0u;
+}
+
+/**
  * Return the dominant absolute acceleration component.
  *
  * Parameters:
@@ -351,6 +395,44 @@ static bool calibration_raw_sample_in_range_(const calibration_vec_t *v){
   const float dominant = calibration_dominant_abs_(v);
   const float tol_mg = CALIBRATION_GRAVITY_MG * (CALIBRATION_FACE_GRAVITY_TOL_PCT / 100.0f);
   return (fabsf(dominant - CALIBRATION_GRAVITY_MG) <= tol_mg);
+}
+
+/**
+ * Track the currently sampled physical face from each accepted raw sample.
+ *
+ * The Web UI uses this counter to show how long the recorder has been held on
+ * the current face. It resets immediately when the detected face changes, so
+ * the operator sees a fresh sample count after rotating the recorder.
+ *
+ * Parameters:
+ *   v - raw acceleration sample already checked against gravity range.
+ *
+ * Return:
+ *   true if a face was detected and the sample was counted, false otherwise.
+ */
+static bool calibration_track_current_face_sample_(const calibration_vec_t *v){
+  if(v == nullptr){
+    s_session_current_face_valid = false;
+    s_session_current_face_samples = 0u;
+    return false;
+  }
+
+  calibration_face_t face = CAL_FACE_PX;
+  if(!calibration_detect_face_(v, &face)){
+    s_session_current_face_valid = false;
+    s_session_current_face_samples = 0u;
+    return false;
+  }
+
+  if((!s_session_current_face_valid) || (face != s_session_current_face)){
+    s_session_current_face_valid = true;
+    s_session_current_face = face;
+    s_session_current_face_samples = 0u;
+    calibration_window_reset_();
+  }
+
+  s_session_current_face_samples++;
+  return true;
 }
 
 /**
@@ -445,16 +527,13 @@ static void calibration_window_evaluate_(void){
     s_candidate_face = detected_face;
     s_candidate_mean = mean;
     s_candidate_stddev = stddev;
+    s_session_valid_windows++;
 
     // A valid stable face is offered to the current calibration session.
     // If the same face already has a current-session value, only a lower
-    // standard-deviation result replaces it. NVS/stored calibration is not used
-    // for this decision.
+    // dominant-axis standard-deviation result replaces it. The window remains
+    // rolling so a patient operator can continue improving the same face.
     calibration_store_session_face_(detected_face, &mean, &stddev);
-
-    // Once a valid capture has been stored, reset the rolling window so the
-    // same samples cannot be reused for the next evaluation.
-    calibration_window_reset_();
   }
 }
 
@@ -587,28 +666,52 @@ static bool calibration_gain_offset_plausible_(float gain, float offset_mg){
 }
 
 /**
- * Return one scalar quality metric from a 3-axis standard-deviation vector.
+ * Return the quality metric for installation calibration.
  *
  * Parameters:
  *   stddev - standard-deviation vector.
  *
  * Return:
- *   maximum axis standard deviation in milli-g.
+ *   quadratic sum of axis standard deviations in milli-g.
  */
-static float calibration_stddev_quality_(const calibration_vec_t *stddev){
+static float calibration_installation_quality_(const calibration_vec_t *stddev){
   if(stddev == nullptr){
     return 999999.0f;
   }
 
-  float q = stddev->x_mg;
-  if(stddev->y_mg > q){
-    q = stddev->y_mg;
-  }
-  if(stddev->z_mg > q){
-    q = stddev->z_mg;
+  return sqrtf((stddev->x_mg * stddev->x_mg) +
+               (stddev->y_mg * stddev->y_mg) +
+               (stddev->z_mg * stddev->z_mg));
+}
+
+/**
+ * Return the quality metric for one accelerometer calibration face.
+ *
+ * Parameters:
+ *   face - detected face.
+ *   stddev - standard-deviation vector.
+ *
+ * Return:
+ *   dominant face-axis standard deviation in milli-g.
+ */
+static float calibration_face_quality_(calibration_face_t face, const calibration_vec_t *stddev){
+  if(stddev == nullptr){
+    return 999999.0f;
   }
 
-  return q;
+  switch(face){
+    case CAL_FACE_PX:
+    case CAL_FACE_NX:
+      return stddev->x_mg;
+    case CAL_FACE_PY:
+    case CAL_FACE_NY:
+      return stddev->y_mg;
+    case CAL_FACE_PZ:
+    case CAL_FACE_NZ:
+      return stddev->z_mg;
+    default:
+      return 999999.0f;
+  }
 }
 
 /**
@@ -631,13 +734,15 @@ static void calibration_store_session_face_(calibration_face_t face,
 
   calibration_face_capture_t *dst = &s_session_face[(uint32_t)face];
 
+  const float new_quality = calibration_face_quality_(face, stddev);
+
   if(dst->valid){
-    const float current_quality = calibration_stddev_quality_(&dst->stddev_mg);
-    const float new_quality = calibration_stddev_quality_(stddev);
+    const float current_quality = s_session_face_quality[(uint32_t)face];
 
     // During a calibration session, keep the best stable capture for each face.
-    // Stored/NVS calibration is not part of this decision; it is displayed only
-    // for comparison and traceability.
+    // Face quality is the standard deviation of the gravity-aligned axis only;
+    // off-axis stddev is still validated for stability but cannot replace a face
+    // capture by itself. Stored/NVS calibration is displayed only for comparison.
     if(new_quality >= current_quality){
       return;
     }
@@ -646,6 +751,15 @@ static void calibration_store_session_face_(calibration_face_t face,
   dst->valid = true;
   dst->mean_mg = *mean;
   dst->stddev_mg = *stddev;
+  const uint32_t now_ms = millis();
+
+  s_session_face_quality[(uint32_t)face] = new_quality;
+  s_session_face_updates[(uint32_t)face]++;
+  s_session_face_last_update_ms[(uint32_t)face] = now_ms;
+  s_session_face_last_update_sample[(uint32_t)face] = s_session_current_face_samples;
+  s_session_last_update_ms = now_ms;
+  s_session_last_update_sample = s_session_current_face_samples;
+  s_session_total_updates++;
 }
 
 /**
@@ -659,6 +773,7 @@ bool calibration_session_start(void){
   calibration_installation_session_cancel();
   s_session_active = true;
   memset(s_session_face, 0, sizeof(s_session_face));
+  calibration_session_quality_reset_();
   calibration_candidate_clear_();
   calibration_window_reset_();
   s_last_sample_ms = 0u;
@@ -675,6 +790,7 @@ bool calibration_session_start(void){
 void calibration_session_cancel(void){
   s_session_active = false;
   memset(s_session_face, 0, sizeof(s_session_face));
+  calibration_session_quality_reset_();
   calibration_candidate_clear_();
   calibration_window_reset_();
   s_last_sample_ms = 0u;
@@ -846,6 +962,7 @@ static void installation_session_service_(uint32_t now_ms){
     return;
   }
 
+  s_install_total_samples++;
   calibration_window_push_(&v);
 
   calibration_vec_t mean = {};
@@ -869,16 +986,18 @@ static void installation_session_service_(uint32_t now_ms){
     return;
   }
 
-  const float quality = calibration_stddev_quality_(&stddev);
+  s_install_valid_windows++;
+
+  const float quality = calibration_installation_quality_(&stddev);
   if((!s_install_candidate_valid) || (quality < s_install_candidate_quality)){
     s_install_candidate_valid = true;
     s_install_candidate_mean = mean;
     s_install_candidate_stddev = stddev;
     memcpy(s_install_candidate_matrix, matrix, sizeof(s_install_candidate_matrix));
     s_install_candidate_quality = quality;
+    s_install_update_count++;
+    s_install_last_update_ms = now_ms;
   }
-
-  calibration_window_reset_();
 }
 
 /**
@@ -908,6 +1027,8 @@ void calibration_session_service(uint32_t now_ms){
   accel_sample_t raw = {};
   if(!accel_read_xyz_raw(&raw)){
     calibration_window_reset_();
+    s_session_current_face_valid = false;
+    s_session_current_face_samples = 0u;
     return;
   }
 
@@ -922,9 +1043,17 @@ void calibration_session_service(uint32_t now_ms){
   // contribute to the stability calculation.
   if(!calibration_raw_sample_in_range_(&v)){
     calibration_window_reset_();
+    s_session_current_face_valid = false;
+    s_session_current_face_samples = 0u;
     return;
   }
 
+  if(!calibration_track_current_face_sample_(&v)){
+    calibration_window_reset_();
+    return;
+  }
+
+  s_session_total_samples++;
   calibration_window_push_(&v);
   calibration_window_evaluate_();
 }
@@ -945,10 +1074,24 @@ bool calibration_session_get_status(calibration_sample_status_t *out){
   out->session_active = s_session_active;
   out->stable = s_latest_stable;
   out->candidate_valid = s_candidate_valid;
-  out->candidate_face = s_candidate_face;
+  out->candidate_face = s_candidate_valid ? s_candidate_face : s_session_current_face;
+  out->current_face_valid = s_session_current_face_valid;
+  out->current_face = s_session_current_face;
   out->mean_mg = s_candidate_valid ? s_candidate_mean : s_latest_mean;
   out->stddev_mg = s_candidate_valid ? s_candidate_stddev : s_latest_stddev;
   out->sample_count = s_window_count;
+  out->current_face_samples = s_session_current_face_samples;
+  out->total_samples = s_session_total_samples;
+  out->valid_windows = s_session_valid_windows;
+  out->total_updates = s_session_total_updates;
+  out->last_update_age_ms = (s_session_last_update_ms == 0u) ? 0u : (uint32_t)(millis() - s_session_last_update_ms);
+  out->last_update_sample = s_session_last_update_sample;
+  for(uint32_t i = 0u; i < (uint32_t)CAL_FACE_COUNT; ++i){
+    out->face_updates[i] = s_session_face_updates[i];
+    out->face_quality_mg[i] = s_session_face_quality[i];
+    out->face_last_update_age_ms[i] = (s_session_face_last_update_ms[i] == 0u) ? 0u : (uint32_t)(millis() - s_session_face_last_update_ms[i]);
+    out->face_last_update_sample[i] = s_session_face_last_update_sample[i];
+  }
   calibration_copy_face_status_(out);
   return true;
 }
@@ -1106,6 +1249,10 @@ bool calibration_installation_session_start(void){
   s_install_candidate_stddev = {};
   calibration_matrix_identity_(s_install_candidate_matrix);
   s_install_candidate_quality = 999999.0f;
+  s_install_total_samples = 0u;
+  s_install_valid_windows = 0u;
+  s_install_update_count = 0u;
+  s_install_last_update_ms = 0u;
   calibration_window_reset_();
   s_last_sample_ms = 0u;
   return true;
@@ -1118,6 +1265,10 @@ void calibration_installation_session_cancel(void){
   s_install_candidate_stddev = {};
   calibration_matrix_identity_(s_install_candidate_matrix);
   s_install_candidate_quality = 999999.0f;
+  s_install_total_samples = 0u;
+  s_install_valid_windows = 0u;
+  s_install_update_count = 0u;
+  s_install_last_update_ms = 0u;
   calibration_window_reset_();
   s_last_sample_ms = 0u;
 }
@@ -1138,6 +1289,11 @@ bool calibration_installation_session_get_status(installation_calibration_status
   out->mean_mg = s_install_candidate_valid ? s_install_candidate_mean : s_latest_mean;
   out->stddev_mg = s_install_candidate_valid ? s_install_candidate_stddev : s_latest_stddev;
   out->sample_count = s_window_count;
+  out->total_samples = s_install_total_samples;
+  out->valid_windows = s_install_valid_windows;
+  out->update_count = s_install_update_count;
+  out->last_update_age_ms = (s_install_last_update_ms == 0u) ? 0u : (uint32_t)(millis() - s_install_last_update_ms);
+  out->quality_mg = s_install_candidate_valid ? s_install_candidate_quality : 0.0f;
   memcpy(out->matrix, s_install_candidate_matrix, sizeof(out->matrix));
 
   if(s_active_loaded && s_active_cal.installation.valid){

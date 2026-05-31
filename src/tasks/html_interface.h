@@ -195,7 +195,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 <button class="btn btn-primary" onclick="showCalMenu()">Back to Calibration Menu</button>
                 <h2>Accelerometer Calibration</h2>
             <div class="card">
-                <p><b>Workflow:</b> Install the recorder in its calibration tool. Make sure the surface used for calibration is perfectly leveled. Leave the recorder on one of its six face. Click Start and wait until a stable face is detected. Wait a few seconds until the standard deviation (std dev) is stable and as low as possible. Then slowly rotate the recorder through all six faces following the same procedure. The current session value is stored and updated automatically for the identified face. When all 6 faces have been detected, the recorder gains and offsets are computed for each axis. If a previous calibration has been performed, the values are displayed and can be compared to current calibration values. When results are satisfactory, save to the recorder.</p>                <p class="small">The backend detects the face from the dominant stable acceleration axis. For each face, the current session keeps the stable value with the lowest stddev. Stored values are shown only for comparison. Recording remains disabled until calibration is valid.</p>
+                <p><b>Workflow:</b> Start calibration, place the recorder still on each of its six faces, and wait for each face to show OK. The recorder automatically keeps the best capture for each face. It is good practice to leave the recorder on a given face until the last best update is more than 10 seconds old. Save calibration when all six faces values are satisfactory.</p>
             </div>
 
             <div class="controls">
@@ -207,29 +207,14 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             <div class="card">
                 <div>Status: <span id="calStatus" class="mono">-</span></div>
                 <div>Session: <span id="calSession" class="mono">-</span></div>
-                <div class="candidate">Current / last updated face: <span id="calCandidate" class="warn">none</span></div>
+                <div>Current face: <span id="calCurrentFace" class="mono">-</span></div>
+                <div>Samples processed: <span id="calSamplesProcessed" class="mono">0</span></div>
+                <div>Lowest stddev: <span id="calLowestNoise" class="mono">-</span></div>
+                <div>Updates: <span id="calTotalUpdates" class="mono">0</span></div>
+                <div>Last best update: <span id="calLastBestUpdate" class="mono">-</span></div>
+                <div>Faces: <span id="calFaceSummary" class="mono">+X — | -X — | +Y — | -Y — | +Z — | -Z —</span></div>
+                <div class="candidate"><span id="calCandidate" class="warn">Start calibration and place the recorder on a face.</span></div>
             </div>
-
-            <table class="cal-table">
-                <thead>
-                    <tr>
-                        <th>Face</th>
-                        <th>Status</th>
-                        <th>Value</th>
-                        <th>NVS value</th>
-                        <th>Stddev</th>
-                        <th>NVS stddev</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr id="faceRow0"><td>+X</td><td id="faceStatus0">not captured</td><td id="faceMean0">-</td><td id="storedMean0">-</td><td id="faceStd0">-</td><td id="storedStd0">-</td></tr>
-                    <tr id="faceRow1"><td>-X</td><td id="faceStatus1">not captured</td><td id="faceMean1">-</td><td id="storedMean1">-</td><td id="faceStd1">-</td><td id="storedStd1">-</td></tr>
-                    <tr id="faceRow2"><td>+Y</td><td id="faceStatus2">not captured</td><td id="faceMean2">-</td><td id="storedMean2">-</td><td id="faceStd2">-</td><td id="storedStd2">-</td></tr>
-                    <tr id="faceRow3"><td>-Y</td><td id="faceStatus3">not captured</td><td id="faceMean3">-</td><td id="storedMean3">-</td><td id="faceStd3">-</td><td id="storedStd3">-</td></tr>
-                    <tr id="faceRow4"><td>+Z</td><td id="faceStatus4">not captured</td><td id="faceMean4">-</td><td id="storedMean4">-</td><td id="faceStd4">-</td><td id="storedStd4">-</td></tr>
-                    <tr id="faceRow5"><td>-Z</td><td id="faceStatus5">not captured</td><td id="faceMean5">-</td><td id="storedMean5">-</td><td id="faceStd5">-</td><td id="storedStd5">-</td></tr>
-                </tbody>
-            </table>
 
             <div class="card">
                 <b>Calibration:</b> <span id="calWorkflowStatus" class="mono">Ready</span>
@@ -259,8 +244,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 <button class="btn btn-primary" onclick="showCalMenu()">Back to Calibration Menu</button>
                 <h2>Installation Calibration</h2>
             <div class="card">
-                <p><b>Workflow:</b> Put the glider in its AFM/AMM level-flight attitude. Sensor calibration must already be valid. Click Start, leave the glider still, then save when a stable installation matrix is available.</p>
-                <p class="small">This calibration aligns corrected Z to +1 g in level flight. It corrects pitch/roll mounting error. Yaw around the vertical axis is not observable from gravity and is not corrected.</p>
+                <p><b>Workflow:</b> Put the glider in its flight-level attitude with wings leveled, following the AMM procedure. Sensor calibration must already be valid before attempting installation calibration. Click Start, leave the glider still. It is good practice to wait until the last best update is more than 10 seconds old. Save calibration when noise is satisfactory.</p>
             </div>
             <div class="controls">
                 <button class="btn btn-success" id="btnInstallStart" onclick="installStart()">Start Installation</button>
@@ -270,10 +254,11 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             <div class="card">
                 <div>Status: <span id="installStatus" class="mono">-</span></div>
                 <div>Session: <span id="installSession" class="mono">-</span></div>
-                <div>Mean mg: <span id="installMean" class="mono">-</span></div>
-                <div>Stddev mg: <span id="installStd" class="mono">-</span></div>
-                <div>NVS date: <span id="installNvsDate" class="mono">-</span></div>
-                <pre id="installMatrix">Ready.</pre>
+                <div>Samples processed: <span id="installTotalSamples" class="mono">0</span></div>
+                <div>Lowest noise: <span id="installBestNoise" class="mono">-</span></div>
+                <div>Updates: <span id="installUpdates" class="mono">0</span></div>
+                <div>Last best update: <span id="installLastUpdate" class="mono">-</span></div>
+                <pre id="installMatrix">Matrix will appear after a stable candidate is found.</pre>
             </div>
             </div>
         </div>
@@ -299,6 +284,9 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         let calPoll = null;
         let calAuth = false;
         let calView = 'menu';
+        let calLastBestLocalMs = 0;
+        let calLastBestLocalUpdates = 0;
+        let calLastBestLocalFace = -1;
 
         function showTab(name) {
             const files = document.getElementById('filesSection');
@@ -339,6 +327,8 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             document.getElementById('calMenuPanel').classList.add('hidden');
             document.getElementById('accelCalPage').classList.add('hidden');
             document.getElementById('installCalPage').classList.add('hidden');
+            resetAccelCalUi();
+            resetInstallCalUi();
         }
 
         function showCalMenu() {
@@ -348,11 +338,16 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             document.getElementById('calMenuPanel').classList.remove('hidden');
             document.getElementById('accelCalPage').classList.add('hidden');
             document.getElementById('installCalPage').classList.add('hidden');
+            resetAccelCalUi();
+            resetInstallCalUi();
             calStatus();
         }
 
         function openAccelCal() {
             calView = 'accel';
+            stopCalPolling();
+            resetAccelCalUi();
+            resetInstallCalUi();
             document.getElementById('calAuthPanel').classList.add('hidden');
             document.getElementById('calMenuPanel').classList.add('hidden');
             document.getElementById('accelCalPage').classList.remove('hidden');
@@ -364,6 +359,9 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
 
         function openInstallCal() {
             calView = 'install';
+            stopCalPolling();
+            resetAccelCalUi();
+            resetInstallCalUi();
             document.getElementById('calAuthPanel').classList.add('hidden');
             document.getElementById('calMenuPanel').classList.add('hidden');
             document.getElementById('accelCalPage').classList.add('hidden');
@@ -520,12 +518,17 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 .then(r => r.json())
                 .then(data => {
                     document.getElementById('calTopStatus').textContent = data.recording_allowed ? 'ready' : (data.sensor_valid ? 'install required' : data.status);
-                    document.getElementById('sensorCalDate').textContent = data.sensor_valid ? fmtDate(data.sensor_date) : '-';
-                    document.getElementById('installationCalDate').textContent = data.installation_valid ? fmtDate(data.installation_date) : '-';
-                    document.getElementById('calStatus').textContent = data.status + ', recording_allowed=' + data.recording_allowed + ', installation_valid=' + data.installation_valid;
-                    document.getElementById('calSession').textContent = data.session_active ? 'active' : 'inactive';
-                    document.getElementById('installStatus').textContent = data.installation_valid ? 'valid' : 'missing';
-                    document.getElementById('installSession').textContent = data.installation_session_active ? 'active' : 'inactive';
+                    const sensorDateText = data.sensor_valid ? fmtDate(data.sensor_date) : '-';
+                    const installDateText = data.installation_valid ? fmtDate(data.installation_date) : '-';
+                    document.getElementById('sensorCalDate').textContent = sensorDateText;
+                    document.getElementById('installationCalDate').textContent = installDateText;
+                    if (calView === 'accel') document.getElementById('nvsDate').textContent = sensorDateText;
+                    const accelStatus = data.sensor_valid ? ('valid since ' + sensorDateText) : data.status;
+                    const installStatus = data.installation_valid ? ('valid since ' + installDateText) : 'missing';
+                    document.getElementById('calStatus').textContent = accelStatus;
+                    document.getElementById('calSession').textContent = data.session_active ? 'sampling' : 'not started';
+                    document.getElementById('installStatus').textContent = installStatus;
+                    document.getElementById('installSession').textContent = data.installation_session_active ? 'sampling' : 'not started';
                 })
                 .catch(err => console.error(err));
         }
@@ -547,16 +550,40 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             }
         }
 
-        function faceAxisValue(faceIndex, vec) {
-            if (!vec) return null;
-            if (faceIndex === 0 || faceIndex === 1) return vec.x;
-            if (faceIndex === 2 || faceIndex === 3) return vec.y;
-            return vec.z;
+        function resetAccelCalUi() {
+            document.getElementById('calStatus').textContent = '-';
+            document.getElementById('calSession').textContent = '-';
+            document.getElementById('calCurrentFace').textContent = '-';
+            document.getElementById('calSamplesProcessed').textContent = '0';
+            document.getElementById('calLowestNoise').textContent = '-';
+            document.getElementById('calTotalUpdates').textContent = '0';
+            document.getElementById('calLastBestUpdate').textContent = '-';
+            document.getElementById('calFaceSummary').innerHTML = '+X — | -X — | +Y — | -Y — | +Z — | -Z —';
+            calLastBestLocalMs = 0;
+            calLastBestLocalUpdates = 0;
+            calLastBestLocalFace = -1;
+            document.getElementById('calCandidate').textContent = 'Start calibration and place the recorder on a face.';
+            document.getElementById('calWorkflowStatus').textContent = 'Ready';
+            document.getElementById('nvsDate').textContent = '-';
+            for (let i = 0; i < 3; i++) {
+                document.getElementById('resGain' + i).textContent = '-';
+                document.getElementById('resOffset' + i).textContent = '-';
+                document.getElementById('nvsGain' + i).textContent = '-';
+                document.getElementById('nvsOffset' + i).textContent = '-';
+            }
+            document.getElementById('btnSave').disabled = true;
+            logCal('Ready.');
         }
 
-        function fmtFaceValue(faceIndex, vec) {
-            const v = faceAxisValue(faceIndex, vec);
-            return (v === null || v === undefined) ? '-' : v.toFixed(1);
+        function resetInstallCalUi() {
+            document.getElementById('installStatus').textContent = '-';
+            document.getElementById('installSession').textContent = '-';
+            document.getElementById('installTotalSamples').textContent = '0';
+            document.getElementById('installBestNoise').textContent = '-';
+            document.getElementById('installUpdates').textContent = '0';
+            document.getElementById('installLastUpdate').textContent = '-';
+            document.getElementById('installMatrix').textContent = 'Matrix will appear after a stable candidate is found.';
+            document.getElementById('btnInstallSave').disabled = true;
         }
 
         function faceIndexFromName(name) {
@@ -564,42 +591,36 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             return names.indexOf(name);
         }
 
-        function updateFaceTable(sessionFace, storedFace, activeFaceName, activeValid) {
-            const activeIndex = activeValid ? faceIndexFromName(activeFaceName) : -1;
-
-            for (let i = 0; i < 6; i++) {
-                const sf = sessionFace && sessionFace[i] ? sessionFace[i] : null;
-                const st = storedFace && storedFace[i] ? storedFace[i] : null;
-                const row = document.getElementById('faceRow' + i);
-
-                if (row) {
-                    if (i === activeIndex) row.classList.add('face-active');
-                    else row.classList.remove('face-active');
-                }
-
-                document.getElementById('faceStatus' + i).innerHTML =
-                    (sf && sf.valid) ? '<span class="ok">captured</span>' : '<span class="warn">not captured</span>';
-
-                document.getElementById('faceMean' + i).innerHTML =
-                    (sf && sf.valid) ? '<span class="ok">' + fmtFaceValue(i, sf.mean) + '</span>' : '-';
-                document.getElementById('faceStd' + i).innerHTML =
-                    (sf && sf.valid) ? '<span class="ok">' + fmtFaceValue(i, sf.stddev) + '</span>' : '-';
-
-                document.getElementById('storedMean' + i).textContent =
-                    (st && st.valid) ? fmtFaceValue(i, st.mean) : '-';
-                document.getElementById('storedStd' + i).textContent =
-                    (st && st.valid) ? fmtFaceValue(i, st.stddev) : '-';
+        function fmtDate(dt) {
+            if (!dt || !dt.year || !dt.month || !dt.day) return '-';
+            const pad2 = function(v) { return String(v).padStart(2, '0'); };
+            let out = String(dt.year) + '-' + pad2(dt.month) + '-' + pad2(dt.day);
+            if (dt.hour !== undefined && dt.min !== undefined && dt.sec !== undefined) {
+                out += ' ' + pad2(dt.hour) + ':' + pad2(dt.min) + ':' + pad2(dt.sec);
             }
+            return out;
         }
 
-        function fmtDate(d) {
-            if (!d || !d.year) return '-';
-            const mm = String(d.month).padStart(2, '0');
-            const dd = String(d.day).padStart(2, '0');
-            const hh = String(d.hour).padStart(2, '0');
-            const mi = String(d.min).padStart(2, '0');
-            const ss = String(d.sec).padStart(2, '0');
-            return d.year + '-' + mm + '-' + dd + ' ' + hh + ':' + mi + ':' + ss;
+        function fmtNoise(v) {
+            if (v === null || v === undefined || !isFinite(Number(v)) || Number(v) > 900000) return '-';
+            return Number(v).toFixed(2) + ' mg';
+        }
+
+        function updateFaceSummary(faceValid, activeIdx) {
+            const names = ['+X', '-X', '+Y', '-Y', '+Z', '-Z'];
+            const parts = [];
+            for (let i = 0; i < names.length; i++) {
+                const ok = !!(faceValid && faceValid[i]);
+                const text = names[i] + ' ' + (ok ? 'OK' : '—');
+                if (ok) {
+                    parts.push('<span class="ok">' + text + '</span>');
+                } else if (i === activeIdx) {
+                    parts.push('<span class="warn">' + text + '</span>');
+                } else {
+                    parts.push('<span>' + text + '</span>');
+                }
+            }
+            document.getElementById('calFaceSummary').innerHTML = parts.join(' | ');
         }
 
         function updateResultTable(data) {
@@ -608,6 +629,8 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             else if (data.active) workflow = 'Active';
             document.getElementById('calWorkflowStatus').textContent = workflow;
             document.getElementById('nvsDate').textContent = data.nvs_result_available ? fmtDate(data.nvs_date) : '-';
+
+            document.getElementById('btnSave').disabled = !data.result_available;
 
             for (let i = 0; i < 3; i++) {
                 const r = data.result_available && data.result ? data.result[i] : null;
@@ -633,17 +656,36 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     }
 
                     const cand = document.getElementById('calCandidate');
-                    if (data.candidate_valid) {
-                        cand.innerHTML = '<span class="ok">' + data.candidate_face + ' updated</span>';
+                    if (data.active && data.candidate_valid) {
+                        cand.innerHTML = '<span class="ok">Sampling ' + data.candidate_face + '. Leave still to improve, or rotate to another face.</span>';
                     } else if (data.active) {
-                        cand.innerHTML = '<span class="warn">waiting for stable face</span>';
+                        cand.innerHTML = '<span class="warn">Waiting for a stable face.</span>';
                     } else {
-                        cand.textContent = 'none';
+                        cand.textContent = 'Start calibration and place the recorder on a face.';
                     }
 
-                    document.getElementById('calSession').textContent = data.active ? 'active' : 'inactive';
+                    document.getElementById('calSession').textContent = data.active ? 'sampling' : 'not started';
+                    const currentFaceName = data.current_face_valid ? data.current_face : (data.candidate_valid ? data.candidate_face : '-');
+                    document.getElementById('calCurrentFace').textContent = currentFaceName;
+                    document.getElementById('calSamplesProcessed').textContent = data.samples || 0;
+                    const activeIdx = currentFaceName !== '-' ? faceIndexFromName(currentFaceName) : -1;
+                    const activeUpdates = (activeIdx >= 0 && data.face_updates) ? (data.face_updates[activeIdx] || 0) : 0;
+                    const activeAge = (activeIdx >= 0 && data.face_last_update_age_ms) ? data.face_last_update_age_ms[activeIdx] : null;
+                    document.getElementById('calTotalUpdates').textContent = activeUpdates;
+                    document.getElementById('calLowestNoise').textContent = activeIdx >= 0 ? fmtNoise(data.face_quality && data.face_quality[activeIdx]) : '-';
+                    if (activeIdx < 0 || activeUpdates === 0) {
+                        calLastBestLocalMs = 0;
+                        calLastBestLocalUpdates = 0;
+                        calLastBestLocalFace = activeIdx;
+                    } else if (calLastBestLocalFace !== activeIdx || calLastBestLocalUpdates !== activeUpdates) {
+                        const ageMs = (activeAge !== undefined && activeAge !== null) ? Number(activeAge) : 0;
+                        calLastBestLocalMs = Date.now() - Math.max(0, ageMs);
+                        calLastBestLocalUpdates = activeUpdates;
+                        calLastBestLocalFace = activeIdx;
+                    }
+                    document.getElementById('calLastBestUpdate').textContent = activeUpdates > 0 ? fmtAgeFromLocal(calLastBestLocalMs) : '-';
 
-                    updateFaceTable(data.session_face, data.stored_face, data.candidate_face, data.candidate_valid);
+                    updateFaceSummary(data.face_valid, activeIdx);
                     updateResultTable(data);
                 })
                 .catch(err => logCal('sample error: ' + err));
@@ -713,6 +755,22 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                    '[' + Number(m[6]).toFixed(6) + ' ' + Number(m[7]).toFixed(6) + ' ' + Number(m[8]).toFixed(6) + ']';
         }
 
+        function fmtAge(ms) {
+            if (ms === undefined || ms === null) return '-';
+            if (ms <= 0) return 'now';
+            const sec = Math.round(ms / 1000);
+            if (sec < 60) return sec + ' s ago';
+            const min = Math.floor(sec / 60);
+            const rem = sec % 60;
+            return min + 'm ' + rem + 's ago';
+        }
+
+
+        function fmtAgeFromLocal(startMs) {
+            if (!startMs) return '-';
+            return fmtAge(Date.now() - startMs);
+        }
+
         function installSample() {
             fetch('/api/install/sample')
                 .then(r => r.json().then(j => ({ok:r.ok, status:r.status, json:j})))
@@ -720,11 +778,19 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     handleCalibrationAuthError(res);
                     const data = res.json;
                     if (!data.ok) return;
-                    document.getElementById('installSession').textContent = data.active ? 'active' : 'inactive';
-                    document.getElementById('installMean').textContent = fmtVec(data.mean);
-                    document.getElementById('installStd').textContent = fmtVec(data.stddev);
-                    document.getElementById('installNvsDate').textContent = data.stored_valid ? fmtDate(data.stored_date) : '-';
-                    document.getElementById('installMatrix').textContent = data.candidate_valid ? fmtMatrix(data.matrix) : (data.stored_valid ? fmtMatrix(data.stored_matrix) : 'Waiting for stable level-flight attitude.');
+                    document.getElementById('installSession').textContent = data.active ? 'sampling' : 'not started';
+                    document.getElementById('installTotalSamples').textContent = data.total_samples || 0;
+                    document.getElementById('installBestNoise').textContent = data.candidate_valid ? fmtNoise(data.quality_mg) : '-';
+                    document.getElementById('installUpdates').textContent = data.update_count || 0;
+                    document.getElementById('installLastUpdate').textContent = (data.update_count || 0) > 0 ? fmtAge(data.last_update_age_ms) : '-';
+                    document.getElementById('installStatus').textContent = data.stored_valid ? ('valid since ' + fmtDate(data.stored_date)) : 'missing';
+                    if (data.candidate_valid) {
+                        document.getElementById('installMatrix').textContent = fmtMatrix(data.matrix);
+                    } else if (data.stored_valid) {
+                        document.getElementById('installMatrix').textContent = fmtMatrix(data.stored_matrix);
+                    } else {
+                        document.getElementById('installMatrix').textContent = 'Waiting for stable level-flight attitude.';
+                    }
                     document.getElementById('btnInstallSave').disabled = !data.candidate_valid;
                 })
                 .catch(err => console.error(err));
@@ -734,8 +800,9 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             document.getElementById('btnInstallSave').disabled = true;
             postJson('/api/install/start')
                 .then(res => {
-                    document.getElementById('installMatrix').textContent = prettyJson(res.json);
+                    document.getElementById('installMatrix').textContent = 'Waiting for stable level-flight attitude.';
                     calStatus();
+                    installSample();
                     startCalPolling();
                 });
         }
@@ -743,7 +810,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         function installCancel() {
             postJson('/api/install/cancel')
                 .then(res => {
-                    document.getElementById('installMatrix').textContent = prettyJson(res.json);
+                    document.getElementById('installMatrix').textContent = 'Waiting for stable level-flight attitude.';
                     calStatus();
                     installSample();
                 });
@@ -754,7 +821,11 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             save.disabled = true;
             postJson('/api/install/save')
                 .then(res => {
-                    document.getElementById('installMatrix').textContent = prettyJson(res.json);
+                    if (res.ok && res.json && res.json.matrix) {
+                        document.getElementById('installMatrix').textContent = fmtMatrix(res.json.matrix);
+                    } else {
+                        document.getElementById('installMatrix').textContent = prettyJson(res.json);
+                    }
                     calStatus();
                     installSample();
                     if (!res.ok) save.disabled = false;

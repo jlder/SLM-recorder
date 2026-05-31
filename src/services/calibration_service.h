@@ -97,9 +97,21 @@ typedef struct {
   bool stable;
   bool candidate_valid;
   calibration_face_t candidate_face;
+  bool current_face_valid;
+  calibration_face_t current_face;
   calibration_vec_t mean_mg;
   calibration_vec_t stddev_mg;
   uint32_t sample_count;
+  uint32_t current_face_samples;
+  uint32_t total_samples;
+  uint32_t valid_windows;
+  uint32_t total_updates;
+  uint32_t last_update_age_ms;
+  uint32_t last_update_sample;
+  uint32_t face_updates[CAL_FACE_COUNT];
+  uint32_t face_last_update_age_ms[CAL_FACE_COUNT];
+  uint32_t face_last_update_sample[CAL_FACE_COUNT];
+  float face_quality_mg[CAL_FACE_COUNT];
 
   bool face_valid[CAL_FACE_COUNT];
   calibration_face_capture_t face[CAL_FACE_COUNT];
@@ -214,6 +226,11 @@ typedef struct {
   calibration_vec_t mean_mg;
   calibration_vec_t stddev_mg;
   uint32_t sample_count;
+  uint32_t total_samples;
+  uint32_t valid_windows;
+  uint32_t update_count;
+  uint32_t last_update_age_ms;
+  float quality_mg;
   float matrix[9];
 
   bool stored_valid;

@@ -324,20 +324,22 @@ Calibration session behavior:
 1. Web Start starts a RAM-only calibration session.
 2. `state_task` periodically calls `calibration_session_service(now)`.
 3. The calibration service reads raw acceleration using `accel_read_xyz_raw()`.
-4. Samples outside the dominant-axis gravity tolerance reset the rolling window.
-5. A 40-sample rolling window is evaluated.
+4. Samples outside the dominant-axis gravity tolerance reset the rolling window and current-face sample count.
+5. When the detected face changes, the current-face sample count and rolling window reset. A 40-sample rolling window is evaluated on the current face.
 6. If the full window has stddev above threshold, the window is reset.
 7. If the full window is stable and within gravity tolerance, a face is detected from the dominant axis.
 8. If this is the first current-session value for the face, it is stored.
-9. If the face already has a current-session value, it is replaced only if the new candidate has lower stddev than the current-session value.
+9. If the face already has a current-session value, it is replaced only if the new candidate has lower dominant-axis stddev than the current-session value. For +X/-X faces this means X stddev, for +Y/-Y this means Y stddev, and for +Z/-Z this means Z stddev. Off-axis stddev is still used for the stability check but does not decide whether a face capture improves.
 10. Stored/NVS values are not used for this selection decision.
-11. Once all six faces are captured, gains/offsets are computed and displayed.
-12. Web Save stores the new calibration in NVS and clears any calibration fault latch.
+11. A valid face capture does not reset the rolling window. The service continues evaluating overlapping windows until the operator moves the recorder, the window becomes unstable, or the session ends.
+12. Once all six faces are captured, gains/offsets are computed and displayed.
+13. Web Save stores the new calibration in NVS and clears any calibration fault latch.
 
 Calibration Web display behavior:
 
-- face table: `Face | Status | Value | NVS value | Stddev | NVS stddev`;
-- current/last updated face highlighted in blue;
+- progress area: status, session state, current face, samples processed on that face, lowest stddev for that face, best update count for that face, and time since the last best update;
+- face table: `Face | State | Best stddev | Updates`;
+- states are intentionally simple: `ACTIVE` for the currently detected/sampled face, `OK` for captured faces, and `—` for missing faces;
 - result area: `Calibration: Ready / Active / Done`, NVS date, and `Axis | Gain | NVS Gain | Offset | NVS Offset`.
 
 ## 15. Follow-up Items
@@ -425,7 +427,7 @@ reduced, but Web file archive is available.
 
 Installation calibration is controlled from the Web interface while the recorder is in READY and Web support is enabled. Starting an installation calibration requires a valid sensor calibration because the installation workflow uses sensor-corrected samples as its input.
 
-During the installation session, the calibration service waits for a stable sample window. When the standard deviation is below the configured stability threshold and the measured gravity magnitude is within `INSTALLATION_GRAVITY_TOL_PCT`, the service computes a 3 x 3 matrix that rotates the measured gravity vector to +Z. If a later stable window has lower standard deviation, the candidate matrix is updated.
+During the installation session, the calibration service maintains a rolling sample window. When the standard deviation is below the configured stability threshold and the measured gravity magnitude is within `INSTALLATION_GRAVITY_TOL_PCT`, the service computes a 3 x 3 matrix that rotates the measured gravity vector to +Z. The installation quality metric is the quadratic sum `sqrt(stddev_x^2 + stddev_y^2 + stddev_z^2)`. If a later stable window has lower quality, the complete candidate is updated, including mean, stddev, quality, update counters, and matrix. A valid candidate does not reset the rolling window; invalid samples, unstable windows, invalid mean gravity, or matrix-computation failure reset it.
 
 Sensor calibration preview/result endpoints compute candidate gains and offsets without saving to NVS and without latching calibration faults. Only the save path is allowed to persist the calibration or latch a calibration plausibility fault.
 

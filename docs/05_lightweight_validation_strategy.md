@@ -663,3 +663,14 @@ Verify that the Web installation calibration workflow accepts stable level-attit
 Verify that a stable level-attitude sample reads approximately +1 g on corrected Z after the installation matrix is applied.
 
 Verify that the 0x72 calibration block contains the saved installation calibration data.
+
+## VAL-CAL-QUALITY-001 — Calibration rolling-window quality selection
+
+Verify that accelerometer calibration keeps sampling a stable face after the first capture and updates that face only when the dominant face-axis noise improves. Verify that the Web page reports a simplified progress summary: validity status with NVS date when valid, session state, current face, samples processed on the current face, lowest stddev for the current face, current-face best-update count, and time since the last best update. Verify that the six-face summary shows captured faces as OK and missing faces as —, with unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. Verify that the workflow text advises leaving a face still until the last best update is more than 10 seconds old and saving when all six face values are satisfactory.
+
+Verify that installation calibration keeps sampling after a valid candidate is found and updates the complete candidate, including the matrix, only when the quadratic stddev quality improves.
+
+Verify that the Web UI progress counters continue to change while calibration is active, even when the best candidate is not improving.
+
+
+Verify that installation calibration workflow text instructs the operator to put the glider in flight-level attitude with wings leveled following the AMM procedure, confirms sensor calibration must already be valid, advises waiting until the last best update is more than 10 seconds old, and tells the operator to save when noise is satisfactory.

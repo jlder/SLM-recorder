@@ -467,7 +467,7 @@ Status:
 
 #### OP-CAL-002 — Calibration through Web interface
 
-The recorder shall provide a Web interface allowing the operator to perform calibration while the recorder is not recording. The Calibration tab shall first request the recorder registration as a calibration password, then show a simple calibration menu with separate Accelerometer Calibration and Installation Calibration buttons. Each button shall display the date of the last saved calibration of that type when available.
+The recorder shall provide a Web interface allowing the operator to perform calibration while the recorder is not recording. The Calibration tab shall first request the recorder registration as a calibration password, then show a simple calibration menu with separate Accelerometer Calibration and Installation Calibration buttons. Each button shall display the date of the last saved calibration of that type when available. Calibration pages shall show simple live progress so the operator can see that sampling continues even when the best candidate is not improving.
 
 Status:
 
@@ -489,7 +489,7 @@ Status:
 
 #### OP-CAL-004 — Automatic calibration capture
 
-During calibration, the recorder shall automatically capture stable face values without requiring the operator to manually accept each face.
+During calibration, the recorder shall automatically capture stable face values without requiring the operator to manually accept each face. The current session shall retain the best capture for each face using the dominant face-axis standard deviation as the replacement metric. A valid capture shall not reset the rolling window; the recorder shall continue to evaluate overlapping windows while the face remains stable.
 
 Status:
 
@@ -497,7 +497,7 @@ Status:
 
 #### OP-CAL-005 — Calibration review and save
 
-The operator shall be able to review current calibration results and stored NVS calibration values before saving the new calibration.
+The operator shall be able to review current calibration results and stored NVS calibration values before saving the new calibration. The accelerometer page shall use a simplified live progress area showing validity status with NVS date when valid, session state, current face, samples processed on that face, lowest stddev for that face, current-face update count, time since the last best update, and a compact six-face completion summary. The accelerometer workflow text shall instruct the operator to start calibration, place the recorder still on each of its six faces, wait for each face to show OK, leave the recorder on a given face until the last best update is more than 10 seconds old when practical, and save calibration when all six face values are satisfactory. The face summary shall show unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. The installation page shall show validity status with NVS date when valid, session state, samples processed, lowest noise, update count, time since the last best update, and the candidate or stored installation matrix. The installation workflow text shall direct the operator to put the glider in flight-level attitude with wings leveled following the AMM procedure, confirm sensor calibration is already valid, start calibration, leave the glider still, wait until the last best update is more than 10 seconds old when practical, and save calibration when noise is satisfactory.
 
 Status:
 

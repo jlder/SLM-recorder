@@ -369,6 +369,28 @@ static String cal_face_valid_json_(const bool face_valid[CAL_FACE_COUNT]){
   return s;
 }
 
+static String cal_u32_array_json_(const uint32_t values[CAL_FACE_COUNT]){
+  String s = "[";
+  for(uint32_t i = 0u; i < (uint32_t)CAL_FACE_COUNT; ++i){
+    if(i > 0u) s += ",";
+    s += String((unsigned long)values[i]);
+  }
+  s += "]";
+  return s;
+}
+
+static String cal_float_array_json_(const float values[CAL_FACE_COUNT]){
+  String s = "[";
+  for(uint32_t i = 0u; i < (uint32_t)CAL_FACE_COUNT; ++i){
+    if(i > 0u) s += ",";
+    char buf[24];
+    const int n = snprintf(buf, sizeof(buf), "%.2f", values[i]);
+    s += web_snprintf_ok_(n, sizeof(buf)) ? String(buf) : String("0");
+  }
+  s += "]";
+  return s;
+}
+
 /**
  * Cal vec json performs the web task operation represented by this function
  * and keeps the module state consistent with recorder ownership rules.
@@ -926,8 +948,39 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     out += ",\"candidate_face\":\"";
     out += cal_face_name_(st.candidate_face);
     out += "\"";
+    out += ",\"current_face_valid\":";
+    out += st.current_face_valid ? "true" : "false";
+    out += ",\"current_face\":\"";
+    out += cal_face_name_(st.current_face);
+    out += "\"";
     out += ",\"samples\":";
+    out += String((unsigned long)st.current_face_samples);
+    out += ",\"window_samples\":";
     out += String((unsigned long)st.sample_count);
+    out += ",\"total_samples\":";
+    out += String((unsigned long)st.total_samples);
+    out += ",\"valid_windows\":";
+    out += String((unsigned long)st.valid_windows);
+    out += ",\"total_updates\":";
+    out += String((unsigned long)st.total_updates);
+    out += ",\"last_update_age_ms\":";
+    out += String((unsigned long)st.last_update_age_ms);
+    out += ",\"last_update_sample\":";
+    out += String((unsigned long)st.last_update_sample);
+    out += ",\"current_face_last_update_sample\":";
+    if(st.current_face_valid){
+      out += String((unsigned long)st.face_last_update_sample[(uint32_t)st.current_face]);
+    } else {
+      out += "0";
+    }
+    out += ",\"face_updates\":";
+    out += cal_u32_array_json_(st.face_updates);
+    out += ",\"face_last_update_age_ms\":";
+    out += cal_u32_array_json_(st.face_last_update_age_ms);
+    out += ",\"face_last_update_sample\":";
+    out += cal_u32_array_json_(st.face_last_update_sample);
+    out += ",\"face_quality\":";
+    out += cal_float_array_json_(st.face_quality_mg);
     out += ",\"mean\":";
     out += cal_vec_json_(st.mean_mg);
     out += ",\"stddev\":";
@@ -1020,6 +1073,16 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     out += st.candidate_valid ? "true" : "false";
     out += ",\"samples\":";
     out += String((unsigned long)st.sample_count);
+    out += ",\"total_samples\":";
+    out += String((unsigned long)st.total_samples);
+    out += ",\"valid_windows\":";
+    out += String((unsigned long)st.valid_windows);
+    out += ",\"update_count\":";
+    out += String((unsigned long)st.update_count);
+    out += ",\"last_update_age_ms\":";
+    out += String((unsigned long)st.last_update_age_ms);
+    out += ",\"quality_mg\":";
+    out += String(st.quality_mg, 2);
     out += ",\"mean\":";
     out += cal_vec_json_(st.mean_mg);
     out += ",\"stddev\":";
