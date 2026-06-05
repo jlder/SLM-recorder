@@ -11,6 +11,9 @@
 
 #include "src/services/error_manager.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
+
 // Ownership note:
 // This module is a latch and mapping table only. State task owns the policy
 // decision to raise, clear, and update active user-visible errors.
@@ -64,6 +67,28 @@ static const error_def_t* find_def(error_code_t err){
 
 static error_code_t s_active_err = ERR_NONE;
 static bool s_clearable = false;
+static portMUX_TYPE s_error_mux = portMUX_INITIALIZER_UNLOCKED;
+
+typedef struct {
+  error_code_t active_err;
+  bool clearable;
+} error_state_snapshot_t;
+
+/**
+ * Copies the active error state as one coherent snapshot.
+ *
+ * Keep this critical section short: copy only, no table lookup or service calls.
+ */
+static error_state_snapshot_t error_manager_snapshot_(){
+  error_state_snapshot_t snapshot;
+
+  portENTER_CRITICAL(&s_error_mux);
+  snapshot.active_err = s_active_err;
+  snapshot.clearable = s_clearable;
+  portEXIT_CRITICAL(&s_error_mux);
+
+  return snapshot;
+}
 
 /**
  * Classifies, stores, reports, or clears error manager is sd error information
@@ -94,7 +119,10 @@ bool error_manager_is_sd_error(error_code_t code){
  * Inputs: None.
  * Returns: Active error code, or `ERR_NONE` when no error is active.
  */
-error_code_t error_manager_get_active(void){ return s_active_err; }
+error_code_t error_manager_get_active(void){
+  const error_state_snapshot_t snapshot = error_manager_snapshot_();
+  return snapshot.active_err;
+}
 
 /**
  * Classifies, stores, reports, or clears error manager raise information used
@@ -105,10 +133,13 @@ error_code_t error_manager_get_active(void){ return s_active_err; }
  */
 void error_manager_raise(error_code_t code){
   if(code == ERR_NONE) return;
+
+  portENTER_CRITICAL(&s_error_mux);
   // Last error wins.
   s_active_err = code;
   // Reset clearable: caller must re-evaluate the condition.
   s_clearable = false;
+  portEXIT_CRITICAL(&s_error_mux);
 }
 
 /**
@@ -119,7 +150,9 @@ void error_manager_raise(error_code_t code){
  * Returns: None.
  */
 void error_manager_set_clearable(bool clearable){
+  portENTER_CRITICAL(&s_error_mux);
   s_clearable = clearable;
+  portEXIT_CRITICAL(&s_error_mux);
 }
 
 /**
@@ -143,9 +176,11 @@ static bool is_recoverable(error_code_t err){
  * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
  */
 bool error_manager_can_clear(void){
-  if(s_active_err == ERR_NONE) return false;
-  if(!is_recoverable(s_active_err)) return false;
-  if(!s_clearable) return false;
+  const error_state_snapshot_t snapshot = error_manager_snapshot_();
+
+  if(snapshot.active_err == ERR_NONE) return false;
+  if(!is_recoverable(snapshot.active_err)) return false;
+  if(!snapshot.clearable) return false;
   return true;
 }
 
@@ -157,8 +192,10 @@ bool error_manager_can_clear(void){
  * Returns: None.
  */
 void error_manager_clear_active(void){
+  portENTER_CRITICAL(&s_error_mux);
   s_active_err = ERR_NONE;
   s_clearable  = false;
+  portEXIT_CRITICAL(&s_error_mux);
 }
 
 
@@ -170,10 +207,12 @@ void error_manager_clear_active(void){
  * Returns: Message identifier selected for display.
  */
 msg_id_t error_manager_get_display_message(void){
-  if(s_active_err == ERR_NONE) return MSG_NONE;
-  const error_def_t* d = find_def(s_active_err);
+  const error_state_snapshot_t snapshot = error_manager_snapshot_();
+
+  if(snapshot.active_err == ERR_NONE) return MSG_NONE;
+  const error_def_t* d = find_def(snapshot.active_err);
   if(!d) return MSG_ERROR;
 
-  if(s_clearable && d->recoverable && d->msg_clear != MSG_NONE) return d->msg_clear;
+  if(snapshot.clearable && d->recoverable && d->msg_clear != MSG_NONE) return d->msg_clear;
   return d->msg_set;
 }
