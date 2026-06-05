@@ -56,7 +56,17 @@ extern bool settings_storage_ok;
 // =============================================================================
 
 static TaskHandle_t s_task = nullptr;
-static system_status_t s_st = {};         
+
+// State-task private working copy. Only state_task_main() and helpers in this
+// file modify it directly. Other tasks shall read only the published snapshot
+// through state_task_get_status().
+static system_status_t s_st = {};
+
+// Cross-core published status snapshot. UI, Web, and SD-side consumers may run
+// on a different ESP32 core, so copying the multi-field system_status_t must be
+// protected against torn reads while the state task publishes a new snapshot.
+static system_status_t s_st_pub = {};
+static portMUX_TYPE s_st_pub_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static bool s_first_pass = true;
 static uint32_t s_entry_ms = 0u;
@@ -71,6 +81,39 @@ static bool s_watchdog_ack_pending = false;
 
 // UI request latches (simple, no queues).
 // UI actions are handled directly by the UI task (e.g. web_task_set_enabled).
+
+// =============================================================================
+// Published status snapshot helpers
+// =============================================================================
+
+/**
+ * Publishes the current state-task-owned working status as a coherent snapshot
+ * for other tasks.
+ *
+ * The critical section deliberately copies only the status structure. It shall
+ * not call services or drivers while the spinlock is held.
+ */
+static void publish_status_snapshot_(void){
+  portENTER_CRITICAL(&s_st_pub_mux);
+  s_st_pub = s_st;
+  portEXIT_CRITICAL(&s_st_pub_mux);
+}
+
+/**
+ * Copies the latest published status snapshot without exposing readers to a
+ * partially updated multi-field structure.
+ *
+ * Returns: Coherent published system status snapshot.
+ */
+static system_status_t copy_status_snapshot_(void){
+  system_status_t out = {};
+
+  portENTER_CRITICAL(&s_st_pub_mux);
+  out = s_st_pub;
+  portEXIT_CRITICAL(&s_st_pub_mux);
+
+  return out;
+}
 
 // =============================================================================
 // Time helpers
@@ -236,6 +279,8 @@ static bool handle_error_clear_request(void){
 // -----------------------------------------------------------------------------
 
 static bool s_battery_low_cached = false;
+static bool s_low_battery_shutdown_requested = false;
+static bool s_low_battery_notice_active = false;
 
 /**
  * Updates the published USB status snapshot and USB-loss edge latch used by
@@ -406,6 +451,22 @@ static bool low_power_on_battery_(void){
 }
 
 /**
+ * Requests the user-visible low-battery notice before PMU shutdown.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+static void request_low_battery_shutdown_(void){
+  s_low_battery_shutdown_requested = true;
+  s_low_battery_notice_active = true;
+  web_task_set_enabled(false);
+  sd_files_set_authorized(false);
+  touch_enable(false);
+  state_set(ST_OFF);
+  set_msg(MSG_LOW_BATT);
+}
+
+/**
  * Low-power shutdown service enforces battery protection from any state when
  * the recorder is running on battery without USB power.
  *
@@ -419,31 +480,33 @@ static void low_power_shutdown_service_(void){
 
   switch(s_st.state){
     case ST_OFF:
+      if(s_low_battery_notice_active){
+        set_msg(MSG_LOW_BATT);
+      }
       return;
 
     case ST_RECORDING:
     case ST_STARTING:
       s_shutdown_after_stop_requested = true;
+      s_low_battery_shutdown_requested = true;
       sd_request_close();
       state_set(ST_STOPPING);
       return;
 
     case ST_STOPPING:
       s_shutdown_after_stop_requested = true;
+      s_low_battery_shutdown_requested = true;
       return;
 
     case ST_READY:
       ready_exit_cleanup();
-      state_set(ST_OFF);
+      request_low_battery_shutdown_();
       return;
 
     case ST_BOOT:
     case ST_ERROR:
     default:
-      web_task_set_enabled(false);
-      sd_files_set_authorized(false);
-      touch_enable(false);
-      state_set(ST_OFF);
+      request_low_battery_shutdown_();
       return;
   }
 }
@@ -500,6 +563,7 @@ static void state_task_main(void *arg){
   }
 
   s_first_pass = false;
+  publish_status_snapshot_();
 
   for(;;){
     // Task runs periodically.  State-specific work is performed first; lower-rate
@@ -518,6 +582,7 @@ static void state_task_main(void *arg){
         s_watchdog_ack_pending = false;
         state_set(ST_BOOT);
       }
+      publish_status_snapshot_();
       continue;
     }
 
@@ -635,6 +700,8 @@ static void state_task_main(void *arg){
           // READY entry resets state-task-owned stop/error latches only. It
           // shall not directly clear SD-task internal state.
           s_shutdown_after_stop_requested = false;
+          s_low_battery_shutdown_requested = false;
+          s_low_battery_notice_active = false;
           error_manager_clear_active();
 
           // READY is the normal state where the UI can edit date/time settings.
@@ -875,8 +942,9 @@ static void state_task_main(void *arg){
 
         // Low battery uses the same close-then-shutdown path as power-long:
         // close the file through ST_STOPPING before entering ST_OFF.
-        if(s_battery_low_cached == true){
+        if(low_power_on_battery_() == true){
           s_shutdown_after_stop_requested = true;
+          s_low_battery_shutdown_requested = true;
           state_set(ST_STOPPING);
           break;
         }
@@ -903,7 +971,11 @@ static void state_task_main(void *arg){
         if(sd_is_closed()){
           if(s_shutdown_after_stop_requested){
             s_shutdown_after_stop_requested = false;
-            state_set(ST_OFF);
+            if(s_low_battery_shutdown_requested){
+              request_low_battery_shutdown_();
+            } else {
+              state_set(ST_OFF);
+            }
           } else {
             state_set(ST_READY);
           }
@@ -941,9 +1013,13 @@ static void state_task_main(void *arg){
         }
 
         // State change actions
-        if((test_power_button(POWER_SHUTDOWN_HOLD_MS) == true) || (s_battery_low_cached == true)){
-          // Power-long or low-battery forces shutdown from ERROR.
+        if(test_power_button(POWER_SHUTDOWN_HOLD_MS) == true){
           state_set(ST_OFF);
+          break;
+        }
+        if(low_power_on_battery_() == true){
+          // Low-battery shutdown from ERROR still shows the recharge notice.
+          request_low_battery_shutdown_();
           break;
         }
 
@@ -981,9 +1057,10 @@ static void state_task_main(void *arg){
         break;
       }
 
-      case ST_OFF:
+      case ST_OFF: {
 
-        // Purpose: Display SHUTDOWN briefly, then request PMU power down.
+        // Purpose: Display the selected shutdown notice briefly, then request
+        // PMU power down. Low-battery shutdown uses a longer recharge notice.
         // ST_OFF is terminal from the state-machine perspective. If
         // shutdown_device() returns, the state remains ST_OFF and retries.
 
@@ -992,10 +1069,16 @@ static void state_task_main(void *arg){
         // Recurring actions: none
 
         // State change actions
-        if((now - s_entry_ms) > CFG_POWERDOWN_DELAY_MS){
+        if(s_low_battery_notice_active){
+          set_msg(MSG_LOW_BATT);
+        }
+        const uint32_t powerdown_delay_ms = s_low_battery_notice_active ?
+            CFG_LOW_BATTERY_NOTICE_MS : CFG_POWERDOWN_DELAY_MS;
+        if((now - s_entry_ms) > powerdown_delay_ms){
           shutdown_device();
         }
         break;
+      }
 
       default:
         // Unexpected state shall transition to ERROR.
@@ -1017,6 +1100,8 @@ static void state_task_main(void *arg){
       update_battery_snapshot();
       low_power_shutdown_service_();
     }
+
+    publish_status_snapshot_();
   }
 }
 
@@ -1063,7 +1148,7 @@ system_status_t state_task_get_status(void){
   // Return an effective status snapshot for consumers. The stored state
   // message may be replaced in this returned copy by an active error message.
   // Callers shall not re-classify errors or select alternative SD text.
-  system_status_t out = s_st;
+  system_status_t out = copy_status_snapshot_();
 
   const error_code_t active_err = error_manager_get_active();
   out.last_error = (int32_t)active_err;
