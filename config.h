@@ -95,7 +95,7 @@
 // SD file-management sizing. Keep these derived from the filename/file-count
 // policy so the web API, SD request buffers, and storage list buffers stay in sync.
 #define SD_MOUNT_PREFIX              "/sdcard"
-#define SD_STORAGE_PATH_MAX          (sizeof(SD_MOUNT_PREFIX) + FILENAME_MAX_LENGTH + 1u)
+#define SD_STORAGE_PATH_MAX          ((sizeof(SD_MOUNT_PREFIX) - 1u) + 1u + FILENAME_MAX_LENGTH + 1u)
 #define SD_FILE_LIST_JSON_ENTRY_MAX  (FILENAME_MAX_LENGTH + 64u)
 #define SD_FILE_LIST_JSON_MAX        (2u + (SD_MAX_RECORD_FILES * (SD_FILE_LIST_JSON_ENTRY_MAX + 1u)) + 1u)
 #define SD_FILE_OP_TIMEOUT_MS        2000u
