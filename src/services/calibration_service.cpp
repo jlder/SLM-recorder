@@ -11,10 +11,14 @@
 #include <string.h>
 #include <math.h>
 #include <Arduino.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "config.h"
 #include "src/services/calibration_store.h"
 #include "src/services/datetime_service.h"
 #include "src/drivers/accel_driver.h"
+
+static SemaphoreHandle_t s_calibration_mutex = nullptr;
 
 static calibration_record_t s_active_cal = {};
 static bool s_active_loaded = false;
@@ -63,12 +67,41 @@ static uint32_t s_install_valid_windows = 0u;
 static uint32_t s_install_update_count = 0u;
 static uint32_t s_install_last_update_ms = 0u;
 
+
+static void calibration_lock_(void){
+  if(s_calibration_mutex != nullptr){
+    (void)xSemaphoreTake(s_calibration_mutex, portMAX_DELAY);
+  }
+}
+
+static void calibration_unlock_(void){
+  if(s_calibration_mutex != nullptr){
+    (void)xSemaphoreGive(s_calibration_mutex);
+  }
+}
+
+class CalibrationLockGuard_ {
+public:
+  CalibrationLockGuard_(){
+    calibration_lock_();
+  }
+
+  ~CalibrationLockGuard_(){
+    calibration_unlock_();
+  }
+
+  CalibrationLockGuard_(const CalibrationLockGuard_&) = delete;
+  CalibrationLockGuard_& operator=(const CalibrationLockGuard_&) = delete;
+};
+
 static bool calibration_detect_face_(const calibration_vec_t *mean, calibration_face_t *out_face);
 static void calibration_session_quality_reset_(void);
 static void calibration_store_session_face_(calibration_face_t face,
                                             const calibration_vec_t *mean,
                                             const calibration_vec_t *stddev);
 static bool calibration_track_current_face_sample_(const calibration_vec_t *v);
+static void calibration_session_reset_unlocked_(void);
+static void calibration_installation_session_reset_unlocked_(void);
 
 /**
  * Convert a calibration record into driver calibration parameters.
@@ -168,6 +201,13 @@ static void calibration_apply_driver_state_(void){
  * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
  */
 bool calibration_service_init(void){
+  if(s_calibration_mutex == nullptr){
+    s_calibration_mutex = xSemaphoreCreateMutex();
+    if(s_calibration_mutex == nullptr){
+      return false;
+    }
+  }
+
   const bool storage_ok = calibration_store_init();
 
   s_active_loaded = false;
@@ -770,13 +810,11 @@ static void calibration_store_session_face_(calibration_face_t face,
  * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
  */
 bool calibration_session_start(void){
-  calibration_installation_session_cancel();
+  CalibrationLockGuard_ guard;
+
+  calibration_installation_session_reset_unlocked_();
+  calibration_session_reset_unlocked_();
   s_session_active = true;
-  memset(s_session_face, 0, sizeof(s_session_face));
-  calibration_session_quality_reset_();
-  calibration_candidate_clear_();
-  calibration_window_reset_();
-  s_last_sample_ms = 0u;
   return true;
 }
 
@@ -788,12 +826,8 @@ bool calibration_session_start(void){
  * Returns: None.
  */
 void calibration_session_cancel(void){
-  s_session_active = false;
-  memset(s_session_face, 0, sizeof(s_session_face));
-  calibration_session_quality_reset_();
-  calibration_candidate_clear_();
-  calibration_window_reset_();
-  s_last_sample_ms = 0u;
+  CalibrationLockGuard_ guard;
+  calibration_session_reset_unlocked_();
 }
 
 /**
@@ -803,6 +837,7 @@ void calibration_session_cancel(void){
  * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
  */
 bool calibration_session_active(void){
+  CalibrationLockGuard_ guard;
   return s_session_active;
 }
 
@@ -814,6 +849,30 @@ static void calibration_matrix_identity_(float m[9]){
   m[0] = 1.0f; m[1] = 0.0f; m[2] = 0.0f;
   m[3] = 0.0f; m[4] = 1.0f; m[5] = 0.0f;
   m[6] = 0.0f; m[7] = 0.0f; m[8] = 1.0f;
+}
+
+static void calibration_session_reset_unlocked_(void){
+  s_session_active = false;
+  memset(s_session_face, 0, sizeof(s_session_face));
+  calibration_session_quality_reset_();
+  calibration_candidate_clear_();
+  calibration_window_reset_();
+  s_last_sample_ms = 0u;
+}
+
+static void calibration_installation_session_reset_unlocked_(void){
+  s_install_session_active = false;
+  s_install_candidate_valid = false;
+  s_install_candidate_mean = {};
+  s_install_candidate_stddev = {};
+  calibration_matrix_identity_(s_install_candidate_matrix);
+  s_install_candidate_quality = 999999.0f;
+  s_install_total_samples = 0u;
+  s_install_valid_windows = 0u;
+  s_install_update_count = 0u;
+  s_install_last_update_ms = 0u;
+  calibration_window_reset_();
+  s_last_sample_ms = 0u;
 }
 
 static float calibration_vec_norm_(const calibration_vec_t *v){
@@ -1009,6 +1068,8 @@ static void installation_session_service_(uint32_t now_ms){
  * Returns: None.
  */
 void calibration_session_service(uint32_t now_ms){
+  CalibrationLockGuard_ guard;
+
   if(s_install_session_active){
     installation_session_service_(now_ms);
     return;
@@ -1070,6 +1131,8 @@ bool calibration_session_get_status(calibration_sample_status_t *out){
     return false;
   }
 
+  CalibrationLockGuard_ guard;
+
   memset(out, 0, sizeof(*out));
   out->session_active = s_session_active;
   out->stable = s_latest_stable;
@@ -1104,6 +1167,8 @@ bool calibration_session_get_status(calibration_sample_status_t *out){
  * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
  */
 bool calibration_session_accept_candidate(void){
+  CalibrationLockGuard_ guard;
+
   // Manual acceptance is retained for API compatibility. The rolling-window
   // service now stores valid face captures automatically.
   if(!s_session_active || !s_candidate_valid){
@@ -1123,6 +1188,7 @@ bool calibration_session_accept_candidate(void){
  * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
  */
 bool calibration_session_can_compute(void){
+  CalibrationLockGuard_ guard;
   return s_session_active && calibration_all_faces_valid_();
 }
 
@@ -1133,12 +1199,16 @@ bool calibration_session_can_compute(void){
  * Inputs: `out`.
  * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
  */
-static bool calibration_session_compute_internal_(calibration_record_t *out, bool latch_fault_on_error){
+static bool calibration_session_compute_internal_(calibration_record_t *out, bool *latch_fault_required){
+  if(latch_fault_required != nullptr){
+    *latch_fault_required = false;
+  }
+
   if(out == nullptr){
     return false;
   }
 
-  if(!calibration_session_can_compute()){
+  if(!s_session_active || !calibration_all_faces_valid_()){
     return false;
   }
 
@@ -1157,8 +1227,8 @@ static bool calibration_session_compute_internal_(calibration_record_t *out, boo
   if((fabsf(x_pos - x_neg) < 1.0f) ||
      (fabsf(y_pos - y_neg) < 1.0f) ||
      (fabsf(z_pos - z_neg) < 1.0f)){
-    if(latch_fault_on_error){
-      calibration_service_latch_fault();
+    if(latch_fault_required != nullptr){
+      *latch_fault_required = true;
     }
     return false;
   }
@@ -1184,8 +1254,8 @@ static bool calibration_session_compute_internal_(calibration_record_t *out, boo
   if(!calibration_gain_offset_plausible_(rec.sensor.gain_x, rec.sensor.offset_x_mg) ||
      !calibration_gain_offset_plausible_(rec.sensor.gain_y, rec.sensor.offset_y_mg) ||
      !calibration_gain_offset_plausible_(rec.sensor.gain_z, rec.sensor.offset_z_mg)){
-    if(latch_fault_on_error){
-      calibration_service_latch_fault();
+    if(latch_fault_required != nullptr){
+      *latch_fault_required = true;
     }
     return false;
   }
@@ -1203,7 +1273,8 @@ static bool calibration_session_compute_internal_(calibration_record_t *out, boo
  * Returns: `true` when computation succeeded and limits were acceptable.
  */
 bool calibration_session_compute(calibration_record_t *out){
-  return calibration_session_compute_internal_(out, false);
+  CalibrationLockGuard_ guard;
+  return calibration_session_compute_internal_(out, nullptr);
 }
 
 /**
@@ -1215,7 +1286,21 @@ bool calibration_session_compute(calibration_record_t *out){
  */
 bool calibration_session_save(calibration_record_t *out_saved){
   calibration_record_t rec = {};
-  if(!calibration_session_compute_internal_(&rec, true)){
+  bool computed = false;
+  bool latch_fault_required = false;
+
+  calibration_lock_();
+  if(s_session_active){
+    computed = calibration_session_compute_internal_(&rec, &latch_fault_required);
+  }
+  calibration_unlock_();
+
+  if(latch_fault_required){
+    calibration_service_latch_fault();
+    return false;
+  }
+
+  if(!computed){
     return false;
   }
 
@@ -1223,9 +1308,12 @@ bool calibration_session_save(calibration_record_t *out_saved){
     return false;
   }
 
+  calibration_lock_();
   s_active_cal = rec;
   s_active_loaded = true;
-  s_session_active = false;
+  calibration_session_reset_unlocked_();
+  calibration_unlock_();
+
   calibration_service_refresh_status();
 
   if(out_saved != nullptr){
@@ -1242,38 +1330,20 @@ bool calibration_installation_session_start(void){
     return false;
   }
 
-  calibration_session_cancel();
+  CalibrationLockGuard_ guard;
+  calibration_session_reset_unlocked_();
+  calibration_installation_session_reset_unlocked_();
   s_install_session_active = true;
-  s_install_candidate_valid = false;
-  s_install_candidate_mean = {};
-  s_install_candidate_stddev = {};
-  calibration_matrix_identity_(s_install_candidate_matrix);
-  s_install_candidate_quality = 999999.0f;
-  s_install_total_samples = 0u;
-  s_install_valid_windows = 0u;
-  s_install_update_count = 0u;
-  s_install_last_update_ms = 0u;
-  calibration_window_reset_();
-  s_last_sample_ms = 0u;
   return true;
 }
 
 void calibration_installation_session_cancel(void){
-  s_install_session_active = false;
-  s_install_candidate_valid = false;
-  s_install_candidate_mean = {};
-  s_install_candidate_stddev = {};
-  calibration_matrix_identity_(s_install_candidate_matrix);
-  s_install_candidate_quality = 999999.0f;
-  s_install_total_samples = 0u;
-  s_install_valid_windows = 0u;
-  s_install_update_count = 0u;
-  s_install_last_update_ms = 0u;
-  calibration_window_reset_();
-  s_last_sample_ms = 0u;
+  CalibrationLockGuard_ guard;
+  calibration_installation_session_reset_unlocked_();
 }
 
 bool calibration_installation_session_active(void){
+  CalibrationLockGuard_ guard;
   return s_install_session_active;
 }
 
@@ -1281,6 +1351,8 @@ bool calibration_installation_session_get_status(installation_calibration_status
   if(out == nullptr){
     return false;
   }
+
+  CalibrationLockGuard_ guard;
 
   memset(out, 0, sizeof(*out));
   out->session_active = s_install_session_active;
@@ -1308,34 +1380,46 @@ bool calibration_installation_session_get_status(installation_calibration_status
 }
 
 bool calibration_installation_session_save(calibration_record_t *out_saved){
-  if(!s_install_session_active || !s_install_candidate_valid){
-    return false;
-  }
-
   calibration_service_refresh_status();
-  if((s_status != CAL_STATUS_VALID) || !s_active_loaded){
-    return false;
-  }
 
   rtc_datetime_t now = {};
   if(!datetime_service_get(&now)){
     return false;
   }
 
-  calibration_record_t rec = s_active_cal;
-  rec.installation.valid = true;
-  rec.installation.timestamp = now;
-  rec.installation.mean_mg = s_install_candidate_mean;
-  rec.installation.stddev_mg = s_install_candidate_stddev;
-  memcpy(rec.installation.matrix, s_install_candidate_matrix, sizeof(rec.installation.matrix));
+  calibration_record_t rec = {};
+  bool can_save = false;
+
+  calibration_lock_();
+  if(s_install_session_active &&
+     s_install_candidate_valid &&
+     (s_status == CAL_STATUS_VALID) &&
+     s_active_loaded &&
+     s_active_cal.sensor.valid){
+    rec = s_active_cal;
+    rec.installation.valid = true;
+    rec.installation.timestamp = now;
+    rec.installation.mean_mg = s_install_candidate_mean;
+    rec.installation.stddev_mg = s_install_candidate_stddev;
+    memcpy(rec.installation.matrix, s_install_candidate_matrix, sizeof(rec.installation.matrix));
+    can_save = true;
+  }
+  calibration_unlock_();
+
+  if(!can_save){
+    return false;
+  }
 
   if(!calibration_store_save_latest(&rec)){
     return false;
   }
 
+  calibration_lock_();
   s_active_cal = rec;
   s_active_loaded = true;
-  s_install_session_active = false;
+  calibration_installation_session_reset_unlocked_();
+  calibration_unlock_();
+
   calibration_service_refresh_status();
 
   if(out_saved != nullptr){
