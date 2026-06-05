@@ -94,6 +94,7 @@ void createSetTimeScreen(lv_style_t &style_huge, lv_style_t &style_large);
 void createSetRegScreen(lv_style_t &style_huge, lv_style_t &style_large);
 void createSetWifiPwdScreen(lv_style_t &style_huge, lv_style_t &style_large);
 void createStandbyScreen(lv_style_t &style_huge);
+void createLowBatteryScreen(lv_style_t &style_huge);
 
 void wifi_btn_cb(lv_event_t * e);
 void save_date_cb(lv_event_t * e);
@@ -202,6 +203,7 @@ lv_obj_t *set_time_screen = NULL;
 lv_obj_t *set_reg_screen = NULL;
 lv_obj_t *set_wifi_pwd_screen = NULL;
 lv_obj_t *standby_screen = NULL;
+lv_obj_t *low_battery_screen = NULL;
 
 lv_obj_t *lbl_main_time = NULL;
 lv_obj_t *lbl_main_date = NULL;
@@ -568,6 +570,27 @@ void createStandbyScreen(lv_style_t &style_huge) {
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
 }
 
+/**
+ * Creates the full-screen low-battery notice shown before automatic shutdown.
+ *
+ * Inputs: `style_huge`.
+ * Returns: None.
+ */
+void createLowBatteryScreen(lv_style_t &style_huge) {
+    low_battery_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(low_battery_screen, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(low_battery_screen, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(low_battery_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *label = lv_label_create(low_battery_screen);
+    lv_label_set_text(label, "BATTERY LOW\nRECHARGE WITH USB");
+    lv_obj_add_style(label, &style_huge, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(0xFF0000), 0);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(label, 390);
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+}
+
 // =============================================================================
 // SCREEN: MENU
 // =============================================================================
@@ -898,6 +921,7 @@ lv_init();
     createSetRegScreen(style_huge, style_large);
     createSetWifiPwdScreen(style_huge, style_large);
     createStandbyScreen(style_huge);
+    createLowBatteryScreen(style_huge);
     
     // Initialize status manager
     statusManager.setLabel(lbl_status);
@@ -923,6 +947,16 @@ lv_init();
  */
 void syncUIToSystemState() {
     system_status_t st = state_task_get_status();
+
+    if((st.message_id == MSG_LOW_BATT) && (low_battery_screen != NULL)){
+        if(lv_scr_act() != low_battery_screen){
+            lv_scr_load(low_battery_screen);
+        }
+        if(btn_main_menu){
+            disable_button(btn_main_menu);
+        }
+        return;
+    }
 
     bool ready = (st.state == ST_READY);
     bool recording_like = (st.state == ST_RECORDING) || (st.state == ST_STARTING) || (st.state == ST_STOPPING);

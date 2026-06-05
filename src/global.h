@@ -17,6 +17,7 @@ static const uint32_t CFG_BOOT_TIMEOUT_MS      = 2000u;
 static const uint32_t CFG_STARTING_TIMEOUT_MS  = 1500u;
 static const uint32_t CFG_CLOSING_TIMEOUT_MS   = 1500u;
 static const uint32_t CFG_POWERDOWN_DELAY_MS   = 1000u;
+static const uint32_t CFG_LOW_BATTERY_NOTICE_MS = 10000u;
 static const uint32_t CFG_STATE_TASK_PERIOD_MS = 50u;
 static const uint32_t CFG_STATE_HOUSEKEEPING_PERIOD_TICKS = 20u;
 

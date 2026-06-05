@@ -106,7 +106,7 @@ A small Python script may be used to validate recorded files, packet structure, 
 
 Purpose:
 
-Confirm low-power battery protection requests shutdown when running on battery with no USB power.
+Confirm low-power battery protection requests shutdown when running on battery with no USB power and displays the recharge notice before power-down.
 
 Procedure:
 
@@ -117,6 +117,8 @@ Procedure:
 
 Expected result:
 
+- Recorder displays a black full-screen red notice: `BATTERY LOW` / `RECHARGE WITH USB`.
+- Notice remains visible for approximately 10 seconds before PMU shutdown is requested.
 - Recorder transitions to shutdown from battery low condition.
 - If recording is active, SD close path is used before shutdown.
 

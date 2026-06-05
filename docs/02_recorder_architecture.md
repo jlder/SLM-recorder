@@ -387,6 +387,9 @@ The Web delete action is implemented as an archive operation. Root-level recordi
 
 SD max-file-count is treated as a Web-maintenance condition when the recorder is not recording and SD free space is still above the recording-start threshold. It blocks recording start but keeps the high-level recorder in READY so MENU and START WIFI remain available for Web file maintenance. SD low-space is not a Web-maintenance condition because archiving files to `/processed` does not free SD memory; the operator must replace the SD card or free space outside the recorder.
 
+
+Low-battery shutdown uses a dedicated user notice path. When the PMU reports battery percentage at or below `PMU_BATT_LOW_THRESHOLD_PCT` and USB is not present, the state task requests shutdown from any state. If a recording is open, the SD close path is completed first. The UI then shows a black full-screen red notice, `BATTERY LOW` / `RECHARGE WITH USB`, for `CFG_LOW_BATTERY_NOTICE_MS` before PMU power-down is requested.
+
 Orange means a user-resolvable action or condition that can be cleared through the device workflow. Red is reserved for blocking conditions that cannot be cleared through the current device workflow. Therefore `SD FULL (FILES)` is orange because Web archive can clear the root-file-count condition, while `SD LOW` remains blocking because archiving does not free SD memory.
 
 ## 22. Project-local Board and LVGL Configuration

@@ -139,7 +139,8 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `CFG_BOOT_TIMEOUT_MS` | 2000 ms | BOOT timeout |
 | `CFG_STARTING_TIMEOUT_MS` | 1500 ms | STARTING/open timeout |
 | `CFG_CLOSING_TIMEOUT_MS` | 1500 ms | STOPPING/close timeout |
-| `CFG_POWERDOWN_DELAY_MS` | 1000 ms | delay before PMU shutdown request |
+| `CFG_POWERDOWN_DELAY_MS` | 1000 ms | normal delay before PMU shutdown request |
+| `CFG_LOW_BATTERY_NOTICE_MS` | 10000 ms | low-battery recharge notice duration before PMU shutdown |
 | `CFG_STATE_TASK_PERIOD_MS` | 50 ms | state/acquisition task period; supports 20 Hz recording |
 | `CFG_STATE_HOUSEKEEPING_PERIOD_TICKS` | 20 | housekeeping period divisor |
 | `CFG_RING_BUFFER_CAPACITY_ITEMS` | 128 | acquisition-to-SD buffer capacity |
@@ -200,7 +201,7 @@ Status:
 
 #### OP-PWR-006 — Stop on low-power condition
 
-When running on battery, with no USB power present, the recorder shall stop from any state when a low-power condition occurs.
+When running on battery, with no USB power present, the recorder shall stop from any state when a low-power condition occurs. Before PMU shutdown, the local display shall show a full-screen black low-battery notice with red text for 10 seconds: `BATTERY LOW` / `RECHARGE WITH USB`.
 
 If a recording file is open or recording is in progress, the recorder shall close the recording file before shutdown. If no recording file is open, the recorder shall transition directly to shutdown.
 
@@ -557,7 +558,7 @@ Status:
 
 #### OP-STOP-003 — Stop by low power
 
-Recording shall stop and the SD file shall close before shutdown when low-power condition occurs while running on battery with no USB power present.
+Recording shall stop and the SD file shall close before shutdown when a low-power condition occurs while running on battery with no USB power present. After the file is closed, the recorder shall show the 10-second `BATTERY LOW` / `RECHARGE WITH USB` notice before PMU shutdown.
 
 Status:
 
@@ -866,7 +867,7 @@ result: PASS
 | RTC invalid/fault | `ERR_RTC_INVALID` | `RTC ERROR` | no | RTC/date-time validation path |
 | PMU fault | `ERR_PMU_FAULT` | `PMU ERROR` | no | PMU/power status path |
 | Touch fault | `ERR_TOUCH_FAULT` | `TOUCH ERROR` | no | touch driver/service path |
-| Low battery | none | `LOW BATT` | device shutdown path | power/battery status consumed by `state_task` |
+| Low battery | none | `BATTERY LOW` / `RECHARGE WITH USB` full-screen notice | device shutdown path after 10-second notice | power/battery status consumed by `state_task` |
 | USB lost while READY | none | `USB LOST` / shutdown path | not applicable | USB loss edge consumed by `state_task` |
 | Shutdown requested | none | `SHUTDOWN` | not applicable | state transition to OFF |
 
