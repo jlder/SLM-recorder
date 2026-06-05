@@ -242,22 +242,29 @@ Current configuration:
 #define CALIBRATION_WINDOW_SAMPLE_COUNT    40u
 ```
 
-### 9.4 Raw and corrected acceleration paths
+### 9.4 Raw, sensor-corrected, and fully corrected acceleration paths
 
-The accelerometer driver exposes two logical paths:
-
-```text
-accel_read_xyz_raw()  -> uncorrected raw milli-g sample for calibration
-accel_read_xyz()      -> corrected sample for normal recorder operation
-```
-
-Calibration correction is:
+The accelerometer driver exposes three logical paths:
 
 ```text
-corrected = gain * raw + offset
+accel_read_xyz_raw()              -> uncorrected raw milli-g sample for six-face sensor calibration
+accel_read_xyz_sensor_corrected() -> gain/offset-corrected sample for installation calibration
+accel_read_xyz()                  -> full correction chain for normal recorder operation
 ```
 
-The driver applies gain/offset but does not compute or store calibration.
+The sensor correction is:
+
+```text
+sensor_corrected = gain * raw + offset
+```
+
+The full recording path then applies the installation rotation matrix:
+
+```text
+recorded = installation_matrix * sensor_corrected
+```
+
+The driver applies the active correction chain but does not compute or store calibration.
 
 ## 10. Settings and Date/Time Architecture
 
@@ -281,6 +288,8 @@ Setup-lock messages such as settings required, calibration required, and calibra
 ## 12. Performance and Timing Architecture
 
 The recorder sample-rate requirement is 20 Hz. Acceleration values are recorded as signed 16-bit integers.
+
+The QMI8658 accelerometer is configured for ±8 g range, 1000 Hz hardware output data rate, and hardware LPF mode 0. The 20 Hz recording rate is the application-level acquisition/recording cadence, so hardware sampling and filtering are configured above the recorded data rate.
 
 The acquisition path and SD-writing path are intentionally separated:
 
@@ -336,7 +345,7 @@ The implemented block sequence is:
 - Recording file lifecycle changes occur only in `sd_task`.
 - Raw SD/filesystem access is serialized through SD/storage modules.
 - Web file operations are authorized only when recording is not active.
-- Calibration sampling is serviced by `state_task`; Web polling only reads calibration status.
+- Calibration sampling is serviced by `state_task`; Web handlers own operator lifecycle actions such as start, cancel, status, and save. Shared calibration session state is protected by the calibration-service mutex so Web lifecycle actions and state-task sampling cannot observe partially updated session state.
 - Display brightness changes are owned by `ui_task`, which owns LVGL/display interaction.
 - Date/time cache access is protected inside `datetime_service`.
 - Settings and calibration persistence are owned by their respective store modules.
@@ -405,7 +414,7 @@ lv_conf.h
 
 `src/board/pin_config.h` owns the Waveshare ESP32-S3 AMOLED 2.06 pin mapping. `lv_conf.h` owns the LVGL 9.3.0 build configuration for this firmware.
 
-## Direct FT3168 Touch Driver
+## 23. Direct FT3168 Touch Driver
 
 The firmware accesses the FT3168 touch controller directly using the shared
 Wire/I2C bus. Arduino_DriveBus is not required. The driver performs a bounded
@@ -413,7 +422,7 @@ reset/init retry sequence at BOOT, then uses the FT3168 interrupt line and
 coordinate registers to report raw touch coordinates.
 
 
-## Software Watchdog
+## 24. Software Watchdog
 
 A lightweight software watchdog service records heartbeats from critical
 recorder tasks. The Arduino `.ino` loop acts as an independent checker so the
@@ -435,7 +444,7 @@ The SD layer uses two free-space thresholds. `SD_RECORD_START_MIN_FREE_MB` is th
 This hysteresis prevents a recording from being allowed just above the low-space limit and then immediately stopping with `SD LOW` after the first writes. During recording, the SD storage layer uses its cached free-space estimate to detect when the lower in-recording threshold has been crossed and the SD task then closes the file through the normal low-space close path.
 
 
-## Sensor and Installation Calibration Architecture
+## 25. Sensor and Installation Calibration Architecture
 
 The recorder uses two calibration layers in the acceleration path:
 
@@ -452,7 +461,7 @@ The 3 x 3 matrix is stored in NVS as the installation-calibration part of the ca
 
 Recording is allowed only when the sensor calibration is valid and the installation calibration exists.
 
-## SD-Owned Web Download Session
+## 26. SD-Owned Web Download Session
 
 Web file-management operations are authorized only when the recorder is in READY and Web support is enabled. Active recording, SD open, SD write, and SD close states retain priority over support file-management operations.
 
@@ -467,7 +476,7 @@ This avoids repeated open/seek/close cycles for each HTTP chunk while preserving
 
 While the SD state machine is in `SD_IDLE` and SD file-management is authorized, the SD task may use `SD_TASK_FILE_OP_PERIOD_MS` instead of `SD_TASK_PERIOD_MS` to improve Web file-management responsiveness. This shorter period is not used during SD boot, recording open, recording write, recording close, or SD error handling.
 
-## Web OTA Firmware Update
+## 27. Web OTA Firmware Update
 
 The firmware uses a project-local `partitions.csv` file for OTA-capable builds. The partition table provides two OTA application slots so a new application image can be written to the inactive slot while the current firmware continues running.
 

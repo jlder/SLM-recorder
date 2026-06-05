@@ -744,6 +744,10 @@ Status:
 
 - **Implemented and validated on recorded file `FCFAG_20260517_222418.bin`.**
 
+Hardware configuration note:
+
+- The QMI8658 accelerometer is configured at ±8 g range and 1000 Hz hardware output data rate with hardware LPF mode 0. The 20 Hz value above is the application-level acquisition/recording cadence.
+
 #### OP-PERF-002 — Acceleration coding
 
 Recorded acceleration values shall be coded as signed 16-bit integers.
@@ -885,7 +889,7 @@ Notes:
 |---:|---|---:|---|
 | `0x70` | Acceleration block | 13 bytes | implemented |
 | `0x71` | Status/close block | 13 bytes | implemented |
-| `0x72` | Calibration block | 184 bytes | implemented and validated |
+| `0x72` | Calibration block | 252 bytes | implemented and validated |
 
 All blocks start with:
 
@@ -931,19 +935,29 @@ Placement:
 |---:|---|---|---|
 | 0 | `uint8` | sync | `0x55` |
 | 1 | `uint8` | id | `0x72` |
-| 2 | `uint16` | size | block size, currently `184` |
+| 2 | `uint16` | size | block size, currently `252` |
 | 4 | `uint32` | calibration_version | calibration record version |
-| 8 | `uint16` | year | calibration year |
-| 10 | `uint8` | month | calibration month |
-| 11 | `uint8` | day | calibration day |
-| 12 | `uint8` | hour | calibration hour |
-| 13 | `uint8` | minute | calibration minute |
-| 14 | `uint8` | second | calibration second |
-| 15 | `float32[3]` | gain_x/y/z | calibration gains |
-| 27 | `float32[3]` | offset_x/y/z_mg | calibration offsets, milli-g |
+| 8 | `uint16` | year | sensor calibration year |
+| 10 | `uint8` | month | sensor calibration month |
+| 11 | `uint8` | day | sensor calibration day |
+| 12 | `uint8` | hour | sensor calibration hour |
+| 13 | `uint8` | minute | sensor calibration minute |
+| 14 | `uint8` | second | sensor calibration second |
+| 15 | `float32[3]` | gain_x/y/z | sensor calibration gains |
+| 27 | `float32[3]` | offset_x/y/z_mg | sensor calibration offsets, milli-g |
 | 39 | `float32[6][3]` | face_mean_mg | raw face mean values, milli-g |
 | 111 | `float32[6][3]` | face_stddev_mg | raw face standard deviations, milli-g |
-| 183 | `uint8` | checksum | checksum over bytes 0-182 |
+| 183 | `uint8` | installation_valid | `1` when installation calibration is valid, otherwise `0` |
+| 184 | `uint16` | installation_year | installation calibration year |
+| 186 | `uint8` | installation_month | installation calibration month |
+| 187 | `uint8` | installation_day | installation calibration day |
+| 188 | `uint8` | installation_hour | installation calibration hour |
+| 189 | `uint8` | installation_minute | installation calibration minute |
+| 190 | `uint8` | installation_second | installation calibration second |
+| 191 | `float32[3]` | installation_mean_mg | installation calibration mean gravity vector, milli-g |
+| 203 | `float32[3]` | installation_stddev_mg | installation calibration standard deviation vector, milli-g |
+| 215 | `float32[9]` | installation_matrix | row-major 3 x 3 installation rotation matrix |
+| 251 | `uint8` | checksum | checksum over bytes 0-250 |
 
 Face order:
 

@@ -377,11 +377,11 @@ Recorded file `FCFAG_20260517_222418.bin` validated the expected block sequence 
 
 Low-power shutdown is serviced globally after hardware housekeeping. When running on battery with no USB power present, a low-power condition transitions the recorder toward shutdown from any state. If recording is active or file opening is in progress, state_task requests SD close and uses the STOPPING path before OFF. If no file is open, the recorder transitions directly to OFF.
 
-## 20. RTC Synchronization During Recording
+## 19. RTC Synchronization During Recording
 
 The RTC/date-time cache is required before recording start to create the filename/timebase token and to check setup/calibration freshness. The cache continues to be refreshed during RECORDING so the active UI clock updates normally. Recording timestamps use the captured start time plus the monotonic ESP timer through `timebase`, so the RTC is not needed for each recorded sample. Periodic RTC/date-time cache refresh remains enabled during RECORDING to keep the active UI clock current; standby mode skips normal UI refresh.
 
-## 21. Display Standby Sub-State
+## 20. Display Standby Sub-State
 
 Display standby is not a high-level recorder state. It is a UI/display sub-state allowed only while the recorder remains in READY or RECORDING and the local UI is on the main display.
 
@@ -403,9 +403,7 @@ The UI does not enter standby from MENU, SETTINGS, or setting-edit pages. These 
 
 While `SD_WRITING` is active, the SD storage layer updates a cached free-space estimate after each successful write. If the cached estimate falls below `SD_RECORD_LOW_FREE_MB`, the write path reports `ERR_SD_SPACE_LOW`; `sd_task` then transitions through `SD_CLOSING` so the file is closed using the normal low-space close path.
 
-## 22. SD Low-Space / File-Count Maintenance
-
-## 22. SD Max-File-Count Maintenance
+## 21. SD Low-Space / File-Count Maintenance
 
 When SD max-file-count is detected while not recording and free space is still above `SD_RECORD_START_MIN_FREE_MB`, the condition blocks recording but does not force the high-level recorder into ERROR. READY remains active, MENU remains available, and Web file maintenance can be started. SD low-space remains a blocking SD condition because archiving files to `/processed` does not free SD memory.
 
@@ -413,7 +411,7 @@ When SD max-file-count is detected while not recording and free space is still a
 
 `SD FULL (FILES)` is orange/amber because the operator can resolve it through MENU -> START WIFI -> Web archive. `SD LOW` remains a blocking condition because archive moves files to `/processed` and does not free SD memory.
 
-## 23. SD Error Reclassification to File-Count Maintenance
+## 22. SD Error Reclassification to File-Count Maintenance
 
 During SD recovery, a previous SD error such as card removal can reclassify to
 `ERR_SD_FILES_FULL` after the SD card is reinserted and acknowledged. Because
@@ -423,7 +421,7 @@ file-count maintenance requires MENU/START WIFI access, state_task exits
 reduced, but Web file archive is available.
 
 
-## Installation Calibration State Behavior
+## 23. Installation Calibration State Behavior
 
 Installation calibration is controlled from the Web interface while the recorder is in READY and Web support is enabled. Starting an installation calibration requires a valid sensor calibration because the installation workflow uses sensor-corrected samples as its input.
 
@@ -433,7 +431,7 @@ Sensor calibration preview/result endpoints compute candidate gains and offsets 
 
 Saving the installation calibration stores the matrix in NVS as the installation-calibration part of the active calibration record and applies it to normal accelerometer reads. Recording remains blocked until both the sensor calibration and installation calibration are valid. Sensor calibration and installation calibration have independent validity and timestamp fields.
 
-## SD File-Management Timing and Download Behavior
+## 24. SD File-Management Timing and Download Behavior
 
 When the recorder is in READY and Web file-management is authorized, SD support operations are serviced from `SD_IDLE`. Recording states do not service Web/UI file-management operations.
 
@@ -456,7 +454,7 @@ Web downloads use a sequential SD-owned session. The Web task does not open SD f
 
 While a download session is active, the SD idle reprobe is skipped so the open download file handle is not invalidated by an SD reinitialization.
 
-## 24. Web OTA Firmware Update Behavior
+## 25. Web OTA Firmware Update Behavior
 
 Firmware update is available only through the Web interface. Since Web support is enabled from READY, firmware update is operationally separated from active recording.
 
