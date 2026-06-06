@@ -761,7 +761,6 @@ static void state_task_main(void *arg){
         } else if(sd_maintenance_needed){
           set_msg(sd_maintenance_msg_(sd_err));
         } else if((s_st.message_id == MSG_SETTINGS_LOCKED) ||
-                  (s_st.message_id == MSG_CALIBRATION_REQUIRED) ||
                   (s_st.message_id == MSG_ACCEL_CALIBRATION_REQUIRED) ||
                   (s_st.message_id == MSG_INSTALLATION_CALIBRATION_REQUIRED) ||
                   (s_st.message_id == MSG_CALIBRATION_FAULT) ||

@@ -33,13 +33,7 @@ static const row_t kTable[] = {
   { MSG_STOPPING, "STOPPING", UI_SEV_INFO, UI_COLOR_GREEN, true, false },
 
   // Transient / config
-  { MSG_OFF, "OFF", UI_SEV_INFO, UI_COLOR_GREEN, true, false },
-  { MSG_RETRY, "RETRY", UI_SEV_WARN, UI_COLOR_AMBER, true, true },
-  { MSG_WIFI_OFF, "WIFI OFF", UI_SEV_INFO, UI_COLOR_GREEN, true, false },
-  { MSG_REG_SAVED, "REG SAVED", UI_SEV_INFO, UI_COLOR_GREEN, true, false },
-  { MSG_PWD_SAVED, "PWD SAVED", UI_SEV_INFO, UI_COLOR_GREEN, true, false },
   { MSG_SETTINGS_LOCKED, "NEED SETTINGS", UI_SEV_WARN, UI_COLOR_AMBER, true, true },
-  { MSG_CALIBRATION_REQUIRED, "CAL REQUIRED", UI_SEV_WARN, UI_COLOR_AMBER, false, true },
   { MSG_ACCEL_CALIBRATION_REQUIRED, "ACC CAL REQ", UI_SEV_WARN, UI_COLOR_AMBER, false, true },
   { MSG_INSTALLATION_CALIBRATION_REQUIRED, "INST CAL REQ", UI_SEV_WARN, UI_COLOR_AMBER, false, true },
   { MSG_CALIBRATION_FAULT, "CAL FAULT", UI_SEV_ERROR, UI_COLOR_RED, false, true },
@@ -47,7 +41,6 @@ static const row_t kTable[] = {
   // Hardware errors
   { MSG_ACCEL_ERROR, "ACCEL ERR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
   { MSG_RTC_ERROR, "RTC ERROR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
-  { MSG_NO_RTC_DATE_TIME, "NO RTC", UI_SEV_WARN, UI_COLOR_AMBER, true, true },
   { MSG_PMU_ERROR, "PMU ERROR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
   { MSG_RECORD_FAIL, "REC FAIL", UI_SEV_ERROR, UI_COLOR_RED, true, true },
   { MSG_TOUCH_ERROR, "TOUCH ERROR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
@@ -57,15 +50,13 @@ static const row_t kTable[] = {
   // SD / storage
   { MSG_NO_SD, "NO SD", UI_SEV_WARN, UI_COLOR_AMBER, true, true },
   { MSG_SD_LOW_SPACE, "SD LOW", UI_SEV_WARN, UI_COLOR_AMBER, true, true },
-  { MSG_SD_FULL, "SD FULL", UI_SEV_ERROR, UI_COLOR_RED, true, true },
   { MSG_SD_FULL_FILES, "SD FULL (FILES)", UI_SEV_WARN, UI_COLOR_AMBER, false, true },
   { MSG_SD_ERROR, "SD ERROR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
   { MSG_SD_OK_CLR, "SD OK/CLR", UI_SEV_INFO, UI_COLOR_GREEN, true, false },
 
   // Power / shutdown
   { MSG_LOW_BATT, "LOW BATT", UI_SEV_WARN, UI_COLOR_AMBER, true, true },
-  { MSG_USB_LOST, "USB LOST", UI_SEV_WARN, UI_COLOR_AMBER, true, true },
-  { MSG_SHUTDOWN, "SHUTDOWN", UI_SEV_ERROR, UI_COLOR_RED, true, true },
+  { MSG_SHUTDOWN, "SHUTDOWN", UI_SEV_INFO, UI_COLOR_GREEN, true, false },
 
   // Fatal
   { MSG_FATAL, "GENERIC ERROR", UI_SEV_ERROR, UI_COLOR_RED, true, true },

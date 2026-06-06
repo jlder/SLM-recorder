@@ -28,14 +28,8 @@ typedef enum {
   MSG_STOPPING,
 
   // Transient / config
-  MSG_OFF,
   MSG_ERROR,
-  MSG_RETRY,
-  MSG_WIFI_OFF,
-  MSG_REG_SAVED,
-  MSG_PWD_SAVED,
   MSG_SETTINGS_LOCKED,
-  MSG_CALIBRATION_REQUIRED,
   MSG_ACCEL_CALIBRATION_REQUIRED,
   MSG_INSTALLATION_CALIBRATION_REQUIRED,
   MSG_CALIBRATION_FAULT,
@@ -43,8 +37,6 @@ typedef enum {
   // Hardware errors
   MSG_ACCEL_ERROR,
   MSG_RTC_ERROR,
-  // RTC not available for date/time stamping (recording uses monotonic token)
-  MSG_NO_RTC_DATE_TIME,
   MSG_PMU_ERROR,
   MSG_RECORD_FAIL,
   MSG_TOUCH_ERROR,
@@ -52,7 +44,6 @@ typedef enum {
   // SD / storage
   MSG_NO_SD,
   MSG_SD_ERROR,
-  MSG_SD_FULL,
   // SD file-count limit reached (refuse to start recording).
   MSG_SD_FULL_FILES,
   MSG_SD_LOW_SPACE,
@@ -61,7 +52,6 @@ typedef enum {
 
   // Power / shutdown
   MSG_LOW_BATT,
-  MSG_USB_LOST,
   MSG_SHUTDOWN,
 
   // Generic fatal

@@ -430,8 +430,7 @@ static bool settings_action_required_(msg_id_t msg){
  * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
  */
 static bool calibration_action_required_(msg_id_t msg){
-    return (msg == MSG_CALIBRATION_REQUIRED) ||
-           (msg == MSG_ACCEL_CALIBRATION_REQUIRED) ||
+    return (msg == MSG_ACCEL_CALIBRATION_REQUIRED) ||
            (msg == MSG_INSTALLATION_CALIBRATION_REQUIRED) ||
            (msg == MSG_CALIBRATION_FAULT);
 }
@@ -975,7 +974,6 @@ void syncUIToSystemState() {
     const bool menu_access_lock_ready =
         ready &&
         ((st.message_id == MSG_SETTINGS_LOCKED) ||
-         (st.message_id == MSG_CALIBRATION_REQUIRED) ||
          (st.message_id == MSG_ACCEL_CALIBRATION_REQUIRED) ||
          (st.message_id == MSG_INSTALLATION_CALIBRATION_REQUIRED) ||
          (st.message_id == MSG_CALIBRATION_FAULT) ||

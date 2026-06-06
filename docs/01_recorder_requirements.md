@@ -854,31 +854,71 @@ accel intervals:
 result: PASS
 ```
 
-## 7. Message and Error Triggering Logic
+## 7. Message and Error Display Policy
 
-| Condition / trigger | Error code | Display message | Recoverable by user | Triggering logic / source |
-|---|---|---|---|---|
-| Settings incomplete while READY | none | `NEED SETTINGS` | yes, by completing settings | `state_task` checks `settings_store` completeness |
-| Sensor calibration missing or expired while READY | none | `ACC CAL REQ` | yes, by MENU/Web sensor calibration | `calibration_service` status consumed by `state_task` |
-| Installation calibration missing while READY | none | `INST CAL REQ` | yes, by MENU/Web installation calibration | `calibration_service` installation validity consumed by `state_task` |
-| Calibration plausibility fault | `ERR_CALIBRATION_FAULT` | `CAL FAULT` | no direct clear; retry calibration or setup clear can clear stored state | `calibration_service` / `calibration_store` |
-| SD card missing | `ERR_SD_NO_CARD` | `NO SD`, then `SD OK/CLR` when recovered | yes | `sd_task` status / recovery path |
-| SD free space below recording-start threshold or below in-recording low-space threshold | `ERR_SD_SPACE_LOW` | `SD LOW` | no, because archive does not free SD memory | `sd_task` pre-open check or low-space during write |
-| SD file-count threshold reached | `ERR_SD_FILES_FULL` | `SD FULL (FILES)` in orange | yes, by Web file maintenance if SD free space is not low | `sd_task` status check; message does not force main page |
-| Unexpected SD I/O fault | `ERR_SD_FAULT` | `SD ERROR` | no | `sd_task` write/flush/open/close failure classification |
-| Accelerometer read failure | `ERR_ACCEL_NO_RESPONSE` | `ACCEL ERR` | no | `state_task` recording acquisition retries exhausted |
-| Ring-buffer overflow | `ERR_RINGBUFFER_OVERFLOW` | `REC FAIL` | no | `ring_buffer_push()` failure during recording |
-| RTC invalid/fault | `ERR_RTC_INVALID` | `RTC ERROR` | no | RTC/date-time validation path |
-| PMU fault | `ERR_PMU_FAULT` | `PMU ERROR` | no | PMU/power status path |
-| Touch fault | `ERR_TOUCH_FAULT` | `TOUCH ERROR` | no | touch driver/service path |
-| Low battery | none | `BATTERY LOW` / `RECHARGE WITH USB` full-screen notice | device shutdown path after 10-second notice | power/battery status consumed by `state_task` |
-| USB lost while READY | none | `USB LOST` / shutdown path | not applicable | USB loss edge consumed by `state_task` |
-| Shutdown requested | none | `SHUTDOWN` | not applicable | state transition to OFF |
+### 7.1 Display Message Table
+
+| Display message | Color | Type | Recoverable / operator action |
+|---|---|---|---|
+| `BOOT` | Green | startup | not an error |
+| `READY` | Green | normal operation | not an error |
+| `RECORDING` | Green | normal operation | not an error |
+| `STARTING` | Green | transient | not an error |
+| `STOPPING` | Green | transient | not an error |
+| `SHUTDOWN` | Green | shutdown | normal operator-requested shutdown transition; not an error |
+| `TOUCH TO ACTIVATE` | White | standby | yes, touch screen to activate recorder display |
+| `SD OK/CLR` | Green | SD recovered / clear prompt | yes, press clear after the SD condition is gone |
+| `NEED SETTINGS` | Amber | setup required | yes, perform date, time, registration, and password settings |
+| `ACC CAL REQ` | Amber | accelerometer calibration required | yes, perform password-protected Web accelerometer calibration menu (`START WIFI`) |
+| `INST CAL REQ` | Amber | installation calibration required | yes, perform password-protected Web installation calibration menu (`START WIFI`) |
+| `NO SD` | Amber | SD/storage warning | yes, insert SD card |
+| `SD LOW` | Amber | SD/storage warning | yes, insert an SD card with enough free space |
+| `SD FULL (FILES)` | Amber | SD file-count maintenance | yes, download and delete/move files using recorder Web interface (`START WIFI`) |
+| `LOW BATT` | Amber | power warning | yes, connect USB |
+| `BATTERY LOW` / `RECHARGE WITH USB` | Red | power too low | yes, connect USB; shown as a black full-screen shutdown notice for 10 seconds before PMU shutdown |
+| `CAL FAULT` | Red | calibration fault | possible, perform factory reset and perform new calibrations |
+| `ACCEL ERR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
+| `RTC ERROR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
+| `PMU ERROR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
+| `REC FAIL` | Red | recording failure | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
+| `TOUCH ERROR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
+| `ERROR` | Red | generic fallback error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
+| `SD ERROR` | Red | SD/storage fault | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
+| `GENERIC ERROR` | Red | fatal error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
+| `FATAL WDG/CLR` | Red | watchdog fault acknowledgement | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
+
+\* If the error persists after restart, report the problem to support.
+
+The `BATTERY LOW` / `RECHARGE WITH USB` notice is separate from the normal message table rendering. It is displayed as red bold text on a black full-screen background for 10 seconds before shutdown when startup or operation detects a low-battery shutdown condition without USB power.
+
+### 7.2 Error and Trigger Mapping
+
+| Condition / trigger | Error code | Display message | Triggering logic / source |
+|---|---|---|---|
+| Settings incomplete while READY | none | `NEED SETTINGS` | `state_task` checks `settings_store` completeness |
+| Sensor calibration missing or expired while READY | none | `ACC CAL REQ` | `calibration_service` status consumed by `state_task` |
+| Installation calibration missing while READY | none | `INST CAL REQ` | `calibration_service` installation validity consumed by `state_task` |
+| Calibration plausibility fault | `ERR_CALIBRATION_FAULT` | `CAL FAULT` | `calibration_service` / `calibration_store` |
+| SD card missing | `ERR_SD_NO_CARD` | `NO SD`, then `SD OK/CLR` when recovered | `sd_task` status / recovery path |
+| SD free space below recording-start threshold or below in-recording low-space threshold | `ERR_SD_SPACE_LOW` | `SD LOW` | `sd_task` pre-open check or low-space during write |
+| SD file-count threshold reached | `ERR_SD_FILES_FULL` | `SD FULL (FILES)` | `sd_task` status check; message allows Web maintenance |
+| Unexpected SD I/O fault | `ERR_SD_FAULT` | `SD ERROR` | `sd_task` write/flush/open/close failure classification |
+| Accelerometer read failure | `ERR_ACCEL_NO_RESPONSE` | `ACCEL ERR` | `state_task` recording acquisition retries exhausted |
+| Ring-buffer overflow | `ERR_RINGBUFFER_OVERFLOW` | `REC FAIL` | `ring_buffer_push()` failure during recording |
+| RTC invalid/fault | `ERR_RTC_INVALID` | `RTC ERROR` | RTC/date-time validation path |
+| PMU fault | `ERR_PMU_FAULT` | `PMU ERROR` | PMU/power status path |
+| Touch fault | `ERR_TOUCH_FAULT` | `TOUCH ERROR` | touch driver/service path |
+| Low battery warning | none | `LOW BATT` or dedicated shutdown notice | power/battery status consumed by `state_task` |
+| USB lost while READY | none | shutdown path, no dedicated display message | USB loss edge consumed by `state_task` |
+| Shutdown requested | none | `SHUTDOWN` | state transition to OFF |
+| Persistent watchdog fault at boot | watchdog NVS latch | `FATAL WDG/CLR` | startup watchdog-fault check |
 
 Notes:
 
+- Green messages are normal or confirmation states.
+- Amber messages indicate a recoverable setup, calibration, SD, or power condition.
+- Red messages indicate faults. The operator may try to stop/restart the recorder; if the error persists after restart, support action is required.
 - SD recoverable errors use a two-step recovery: the physical condition must be corrected, then the operator acknowledges `SD OK/CLR`.
-- Non-recoverable active errors remain latched until shutdown/service action or a later design adds a safe recovery path.
 - Setup-lock messages are not active errors; they keep the recorder in READY and allow MENU access.
 
 ## 8. Recording Block Definitions
