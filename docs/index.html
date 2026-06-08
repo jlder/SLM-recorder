@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SLM Recorder – Firmware Installer</title>
+  <script type="module" src="https://unpkg.com/esp-web-tools/dist/web/install-button.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 60px auto;
+      text-align: center;
+      color: #333;
+    }
+    h1 { color: #1a73e8; }
+    p  { line-height: 1.6; }
+    esp-web-install-button {
+      margin-top: 30px;
+      display: block;
+    }
+    .note {
+      margin-top: 30px;
+      font-size: 0.85em;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>SLM Recorder – Firmware Installer</h1>
+
+  <p>
+    Connect your WaveShare ESP32-S3 to your PC via USB,
+    then click the button below.<br>
+    Use <strong>Chrome</strong> or <strong>Edge</strong> browser.
+  </p>
+
+  <esp-web-install-button
+    manifest="manifest.json">
+  </esp-web-install-button>
+
+  <p class="note">
+    If the button does not appear, your browser does not support Web Serial.
+  </p>
+
+</body>
+</html>
