@@ -65,7 +65,17 @@
 
 // Accelerometer calibration
 #define CALIBRATION_PREFS_NAMESPACE        "slm-cal"
+// Version of the calibration metadata block written to recording files (0x72).
+// This is a file-format version, not an NVS storage-schema version.
 #define CALIBRATION_RECORD_VERSION         3u
+// NVS storage-schema versions for split calibration records.
+// IMPORTANT: if the packed NVS payload, key meaning, checksum coverage, or
+// interpretation of one of these stored records changes, bump the matching
+// storage version and update the load/reject/migration handling in
+// calibration_store.cpp. Do not change the storage layout without changing
+// the corresponding storage version.
+#define CALIBRATION_SENSOR_STORAGE_VERSION  1u
+#define CALIBRATION_INSTALL_STORAGE_VERSION 1u
 #define CALIBRATION_GRAVITY_MG             1000.0f
 #define CALIBRATION_VALIDITY_MONTHS        12u
 #define CALIBRATION_FACE_GRAVITY_TOL_PCT   10.0f

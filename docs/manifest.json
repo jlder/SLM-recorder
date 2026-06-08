@@ -4,7 +4,7 @@
   "builds": [{
     "chipFamily": "ESP32-S3",
     "parts": [{
-      "path": "https://github.com/jlder/SLM-recorder/blob/master/firmware/merged_binaries/SLM_recorder_20260607_v1_03.merged.bin",
+      "path": "https://github.com/jlder/SLM-recorder/blob/master/firmware/merged_binaries/SLM_recorder_20260607_v1_04.merged.bin",
       "offset": 0
     }]
   }]

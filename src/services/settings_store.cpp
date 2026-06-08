@@ -15,6 +15,13 @@
 
 Preferences prefs;
 
+// Settings storage currently uses independent scalar NVS keys in PREFS_NAMESPACE
+// (for example "registration" and "wifi_pwd"). Storage-maintenance rule:
+// if a future change alters a key name, value format, stored meaning, or
+// converts settings to a packed record, add/bump a dedicated
+// SETTINGS_STORAGE_VERSION in config.h and update the load/reject/migration
+// handling here. Do not make incompatible persistent settings changes silently.
+
 // Keep one local copy of the settings so getters and setters use the same data shape.
 static settings_t s_cache = {"", "", false, false};
 

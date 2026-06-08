@@ -3,7 +3,7 @@
 
 /**
  * @file src/services/calibration_store.cpp
- * @brief Persistent storage for the latest accelerometer and installation calibration.
+ * @brief Persistent storage for accelerometer and installation calibration.
  */
 
 #include "src/services/calibration_store.h"
@@ -15,9 +15,27 @@
 static Preferences s_cal_prefs;
 static bool s_cal_storage_ready = false;
 
-static const char *KEY_RECORD = "record";
+// Current split-storage keys.  Sensor and installation calibration are stored
+// independently so a future change to one format does not invalidate the other.
+//
+// Storage-maintenance rule:
+// - These keys and the packed record structures below define the persistent NVS
+//   calibration storage schema.
+// - Any incompatible change to a packed record layout, field meaning, checksum
+//   coverage, or key meaning must be accompanied by a matching bump of
+//   CALIBRATION_SENSOR_STORAGE_VERSION or CALIBRATION_INSTALL_STORAGE_VERSION
+//   in config.h.
+// - The load path shall then either reject the old version safely or explicitly
+//   migrate it. The recorder has not been released yet, so no historical
+//   migration is currently required.
+static const char *KEY_SENSOR = "sensor";
+static const char *KEY_INSTALL = "install";
 static const char *KEY_FAULT = "fault";
 
+// The following packed types are the on-flash NVS payload format. They are
+// intentionally separate from runtime calibration structs to avoid compiler
+// padding/bool-layout dependencies. If any packed type changes incompatibly,
+// bump the affected CALIBRATION_*_STORAGE_VERSION in config.h.
 typedef struct __attribute__((packed)) {
   float x_mg;
   float y_mg;
@@ -63,10 +81,14 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
   uint32_t version;
   calibration_store_sensor_t sensor;
+  uint32_t checksum;
+} calibration_store_sensor_record_t;
+
+typedef struct __attribute__((packed)) {
+  uint32_t version;
   calibration_store_installation_t installation;
   uint32_t checksum;
-} calibration_store_record_t;
-
+} calibration_store_installation_record_t;
 
 static void datetime_to_store_(calibration_store_datetime_t *out, const rtc_datetime_t *in){
   if((out == nullptr) || (in == nullptr)){
@@ -110,99 +132,207 @@ static void vec_from_store_(calibration_vec_t *out, const calibration_store_vec_
   out->z_mg = in->z_mg;
 }
 
-static void record_to_store_(calibration_store_record_t *out, const calibration_record_t *in){
+static void sensor_to_store_(calibration_store_sensor_t *out, const sensor_calibration_t *in){
   if((out == nullptr) || (in == nullptr)){
     return;
   }
 
   memset(out, 0, sizeof(*out));
-  out->version = (uint32_t)CALIBRATION_RECORD_VERSION;
-
-  out->sensor.valid = in->sensor.valid ? 1u : 0u;
-  datetime_to_store_(&out->sensor.timestamp, &in->sensor.timestamp);
-  out->sensor.gravity_mg = in->sensor.gravity_mg;
-  out->sensor.gain_x = in->sensor.gain_x;
-  out->sensor.gain_y = in->sensor.gain_y;
-  out->sensor.gain_z = in->sensor.gain_z;
-  out->sensor.offset_x_mg = in->sensor.offset_x_mg;
-  out->sensor.offset_y_mg = in->sensor.offset_y_mg;
-  out->sensor.offset_z_mg = in->sensor.offset_z_mg;
+  out->valid = in->valid ? 1u : 0u;
+  datetime_to_store_(&out->timestamp, &in->timestamp);
+  out->gravity_mg = in->gravity_mg;
+  out->gain_x = in->gain_x;
+  out->gain_y = in->gain_y;
+  out->gain_z = in->gain_z;
+  out->offset_x_mg = in->offset_x_mg;
+  out->offset_y_mg = in->offset_y_mg;
+  out->offset_z_mg = in->offset_z_mg;
   for(uint32_t i = 0u; i < (uint32_t)CAL_FACE_COUNT; ++i){
-    out->sensor.face[i].valid = in->sensor.face[i].valid ? 1u : 0u;
-    vec_to_store_(&out->sensor.face[i].mean_mg, &in->sensor.face[i].mean_mg);
-    vec_to_store_(&out->sensor.face[i].stddev_mg, &in->sensor.face[i].stddev_mg);
+    out->face[i].valid = in->face[i].valid ? 1u : 0u;
+    vec_to_store_(&out->face[i].mean_mg, &in->face[i].mean_mg);
+    vec_to_store_(&out->face[i].stddev_mg, &in->face[i].stddev_mg);
   }
-
-  out->installation.valid = in->installation.valid ? 1u : 0u;
-  datetime_to_store_(&out->installation.timestamp, &in->installation.timestamp);
-  vec_to_store_(&out->installation.mean_mg, &in->installation.mean_mg);
-  vec_to_store_(&out->installation.stddev_mg, &in->installation.stddev_mg);
-  memcpy(out->installation.matrix, in->installation.matrix, sizeof(out->installation.matrix));
 }
 
-static void record_from_store_(calibration_record_t *out, const calibration_store_record_t *in){
+static void sensor_from_store_(sensor_calibration_t *out, const calibration_store_sensor_t *in){
   if((out == nullptr) || (in == nullptr)){
     return;
   }
 
   memset(out, 0, sizeof(*out));
-  out->version = in->version;
-
-  out->sensor.valid = (in->sensor.valid != 0u);
-  datetime_from_store_(&out->sensor.timestamp, &in->sensor.timestamp);
-  out->sensor.gravity_mg = in->sensor.gravity_mg;
-  out->sensor.gain_x = in->sensor.gain_x;
-  out->sensor.gain_y = in->sensor.gain_y;
-  out->sensor.gain_z = in->sensor.gain_z;
-  out->sensor.offset_x_mg = in->sensor.offset_x_mg;
-  out->sensor.offset_y_mg = in->sensor.offset_y_mg;
-  out->sensor.offset_z_mg = in->sensor.offset_z_mg;
+  out->valid = (in->valid != 0u);
+  datetime_from_store_(&out->timestamp, &in->timestamp);
+  out->gravity_mg = in->gravity_mg;
+  out->gain_x = in->gain_x;
+  out->gain_y = in->gain_y;
+  out->gain_z = in->gain_z;
+  out->offset_x_mg = in->offset_x_mg;
+  out->offset_y_mg = in->offset_y_mg;
+  out->offset_z_mg = in->offset_z_mg;
   for(uint32_t i = 0u; i < (uint32_t)CAL_FACE_COUNT; ++i){
-    out->sensor.face[i].valid = (in->sensor.face[i].valid != 0u);
-    vec_from_store_(&out->sensor.face[i].mean_mg, &in->sensor.face[i].mean_mg);
-    vec_from_store_(&out->sensor.face[i].stddev_mg, &in->sensor.face[i].stddev_mg);
+    out->face[i].valid = (in->face[i].valid != 0u);
+    vec_from_store_(&out->face[i].mean_mg, &in->face[i].mean_mg);
+    vec_from_store_(&out->face[i].stddev_mg, &in->face[i].stddev_mg);
+  }
+}
+
+static void installation_to_store_(calibration_store_installation_t *out,
+                                   const installation_calibration_t *in){
+  if((out == nullptr) || (in == nullptr)){
+    return;
   }
 
-  out->installation.valid = (in->installation.valid != 0u);
-  datetime_from_store_(&out->installation.timestamp, &in->installation.timestamp);
-  vec_from_store_(&out->installation.mean_mg, &in->installation.mean_mg);
-  vec_from_store_(&out->installation.stddev_mg, &in->installation.stddev_mg);
-  memcpy(out->installation.matrix, in->installation.matrix, sizeof(out->installation.matrix));
-  out->checksum = in->checksum;
+  memset(out, 0, sizeof(*out));
+  out->valid = in->valid ? 1u : 0u;
+  datetime_to_store_(&out->timestamp, &in->timestamp);
+  vec_to_store_(&out->mean_mg, &in->mean_mg);
+  vec_to_store_(&out->stddev_mg, &in->stddev_mg);
+  memcpy(out->matrix, in->matrix, sizeof(out->matrix));
+}
+
+static void installation_from_store_(installation_calibration_t *out,
+                                     const calibration_store_installation_t *in){
+  if((out == nullptr) || (in == nullptr)){
+    return;
+  }
+
+  memset(out, 0, sizeof(*out));
+  out->valid = (in->valid != 0u);
+  datetime_from_store_(&out->timestamp, &in->timestamp);
+  vec_from_store_(&out->mean_mg, &in->mean_mg);
+  vec_from_store_(&out->stddev_mg, &in->stddev_mg);
+  memcpy(out->matrix, in->matrix, sizeof(out->matrix));
 }
 
 /**
- * Compute a simple additive checksum over the explicit persistent byte format,
- * excluding the checksum field. This avoids depending on calibration_record_t
- * compiler padding or C++ bool representation.
+ * Compute a simple additive checksum over an explicit packed persistent byte
+ * format, excluding the checksum field. This avoids depending on runtime C++
+ * structure padding or bool representation.
  */
-static uint32_t calibration_checksum_(const calibration_store_record_t *rec){
-  if(rec == nullptr){
+static uint32_t checksum_bytes_(const void *data, size_t len){
+  if(data == nullptr){
     return 0u;
   }
 
-  calibration_store_record_t tmp = *rec;
-  tmp.checksum = 0u;
-
-  const uint8_t *bytes = (const uint8_t *)&tmp;
+  const uint8_t *bytes = (const uint8_t *)data;
   uint32_t sum = 0u;
-  for(size_t i = 0u; i < sizeof(tmp); ++i){
+  for(size_t i = 0u; i < len; ++i){
     sum += (uint32_t)bytes[i];
   }
   return sum;
 }
 
-static bool calibration_record_structurally_valid_(const calibration_store_record_t *rec){
+static uint32_t sensor_record_checksum_(const calibration_store_sensor_record_t *rec){
+  if(rec == nullptr){
+    return 0u;
+  }
+
+  calibration_store_sensor_record_t tmp = *rec;
+  tmp.checksum = 0u;
+  return checksum_bytes_(&tmp, sizeof(tmp));
+}
+
+static uint32_t installation_record_checksum_(const calibration_store_installation_record_t *rec){
+  if(rec == nullptr){
+    return 0u;
+  }
+
+  calibration_store_installation_record_t tmp = *rec;
+  tmp.checksum = 0u;
+  return checksum_bytes_(&tmp, sizeof(tmp));
+}
+
+static bool sensor_record_valid_(const calibration_store_sensor_record_t *rec){
   if(rec == nullptr){
     return false;
   }
-  if(rec->version != (uint32_t)CALIBRATION_RECORD_VERSION){
+  if(rec->version != (uint32_t)CALIBRATION_SENSOR_STORAGE_VERSION){
     return false;
   }
   if(rec->sensor.valid == 0u){
     return false;
   }
-  return (rec->checksum == calibration_checksum_(rec));
+  return (rec->checksum == sensor_record_checksum_(rec));
+}
+
+static bool installation_record_valid_(const calibration_store_installation_record_t *rec){
+  if(rec == nullptr){
+    return false;
+  }
+  if(rec->version != (uint32_t)CALIBRATION_INSTALL_STORAGE_VERSION){
+    return false;
+  }
+  if(rec->installation.valid == 0u){
+    return false;
+  }
+  return (rec->checksum == installation_record_checksum_(rec));
+}
+
+static bool calibration_store_save_sensor_(const sensor_calibration_t *sensor){
+  if((sensor == nullptr) || !sensor->valid || !s_cal_storage_ready){
+    return false;
+  }
+
+  calibration_store_sensor_record_t stored = {};
+  stored.version = (uint32_t)CALIBRATION_SENSOR_STORAGE_VERSION;
+  sensor_to_store_(&stored.sensor, sensor);
+  stored.sensor.valid = 1u;
+  stored.checksum = sensor_record_checksum_(&stored);
+
+  const size_t n = s_cal_prefs.putBytes(KEY_SENSOR, &stored, sizeof(stored));
+  return (n == sizeof(stored));
+}
+
+static bool calibration_store_save_installation_(const installation_calibration_t *installation){
+  if((installation == nullptr) || !installation->valid || !s_cal_storage_ready){
+    return false;
+  }
+
+  calibration_store_installation_record_t stored = {};
+  stored.version = (uint32_t)CALIBRATION_INSTALL_STORAGE_VERSION;
+  installation_to_store_(&stored.installation, installation);
+  stored.installation.valid = 1u;
+  stored.checksum = installation_record_checksum_(&stored);
+
+  const size_t n = s_cal_prefs.putBytes(KEY_INSTALL, &stored, sizeof(stored));
+  return (n == sizeof(stored));
+}
+
+
+static bool calibration_store_load_sensor_(sensor_calibration_t *out){
+  if((out == nullptr) || !s_cal_storage_ready || !s_cal_prefs.isKey(KEY_SENSOR)){
+    return false;
+  }
+
+  calibration_store_sensor_record_t stored = {};
+  const size_t n = s_cal_prefs.getBytes(KEY_SENSOR, &stored, sizeof(stored));
+  if(n != sizeof(stored)){
+    return false;
+  }
+  if(!sensor_record_valid_(&stored)){
+    return false;
+  }
+
+  sensor_from_store_(out, &stored.sensor);
+  return true;
+}
+
+static bool calibration_store_load_installation_(installation_calibration_t *out){
+  if((out == nullptr) || !s_cal_storage_ready || !s_cal_prefs.isKey(KEY_INSTALL)){
+    return false;
+  }
+
+  calibration_store_installation_record_t stored = {};
+  const size_t n = s_cal_prefs.getBytes(KEY_INSTALL, &stored, sizeof(stored));
+  if(n != sizeof(stored)){
+    return false;
+  }
+  if(!installation_record_valid_(&stored)){
+    return false;
+  }
+
+  installation_from_store_(out, &stored.installation);
+  return true;
 }
 
 bool calibration_store_init(void){
@@ -215,42 +345,40 @@ bool calibration_store_load(calibration_record_t *out){
     return false;
   }
 
-  if(!s_cal_prefs.isKey(KEY_RECORD)){
+  memset(out, 0, sizeof(*out));
+  out->version = (uint32_t)CALIBRATION_RECORD_VERSION;
+
+  if(!calibration_store_load_sensor_(&out->sensor)){
     return false;
   }
 
-  calibration_store_record_t stored = {};
-  const size_t n = s_cal_prefs.getBytes(KEY_RECORD, &stored, sizeof(stored));
-  if(n != sizeof(stored)){
-    return false;
-  }
-
-  if(!calibration_record_structurally_valid_(&stored)){
-    return false;
-  }
-
-  record_from_store_(out, &stored);
+  // Installation calibration is independent. Missing/invalid installation
+  // calibration shall not invalidate an otherwise valid sensor calibration.
+  (void)calibration_store_load_installation_(&out->installation);
   return true;
 }
 
 bool calibration_store_save_latest(const calibration_record_t *rec){
-  if((rec == nullptr) || !s_cal_storage_ready){
+  if((rec == nullptr) || !s_cal_storage_ready || !rec->sensor.valid){
     return false;
   }
 
-  calibration_store_record_t stored = {};
-  record_to_store_(&stored, rec);
-  stored.version = (uint32_t)CALIBRATION_RECORD_VERSION;
-  stored.sensor.valid = 1u;
-  stored.checksum = 0u;
-  stored.checksum = calibration_checksum_(&stored);
-
-  const size_t n = s_cal_prefs.putBytes(KEY_RECORD, &stored, sizeof(stored));
-  if(n != sizeof(stored)){
+  if(!calibration_store_save_sensor_(&rec->sensor)){
     return false;
   }
 
-  // A successful calibration clears any previous calibration fault latch.
+  if(rec->installation.valid){
+    if(!calibration_store_save_installation_(&rec->installation)){
+      return false;
+    }
+  }
+
+  // If this save contains only a new accelerometer calibration, leave any
+  // existing installation calibration record untouched. The installation matrix
+  // represents the physical mounting orientation and can remain valid across a
+  // sensor recalibration.
+
+  // A successful calibration write clears any previous calibration fault latch.
   (void)calibration_store_fault_set(false);
   return true;
 }
