@@ -32,7 +32,11 @@
 // This task owns WiFi/AP and HTTP server lifecycle.
 
 static AsyncWebServer s_server(WEB_SERVER_PORT);
-static bool s_enabled = false;
+// s_enabled_requested is written by other tasks and polled by web_task_loop.
+// It is volatile to prevent compiler caching of the single request flag.
+// WiFi/AP/HTTP server state remains owned by web_task_loop.  s_started is
+// only ever read/written inside web_task_loop, so it does not need volatile.
+static volatile bool s_enabled_requested = false;
 static bool s_started = false;
 static volatile bool s_ota_active = false;
 static volatile bool s_ota_ok = false;
@@ -1129,6 +1133,12 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
  * Starts the WiFi access point and web server using the configured AP address,
  * SSID, password, and registered routes.
  *
+ * The AP/IP stack is given a short settling time before starting the HTTP
+ * server.  This robustness measure reduces observed cases where the SoftAP is
+ * joinable but HTTP is not reachable immediately after Web enable.  The code
+ * polls WiFi.softAPIP() until the configured AP address is visible, with a
+ * hard timeout as a safety net.
+ *
  * Inputs: None.
  * Returns: None.
  */
@@ -1142,10 +1152,29 @@ static void start_ap_and_server(){
   String ssid = make_ssid();
   String pwd  = make_password();
 
+  bool ap_ok = false;
   if(pwd.length() == 0){
-    WiFi.softAP(ssid.c_str());
+    ap_ok = WiFi.softAP(ssid.c_str());
   } else {
-    WiFi.softAP(ssid.c_str(), pwd.c_str());
+    ap_ok = WiFi.softAP(ssid.c_str(), pwd.c_str());
+  }
+
+  if(!ap_ok){
+    WiFi.mode(WIFI_OFF);
+    s_started = false;
+    return;
+  }
+
+  // Give the AP/IP stack time to settle before binding the HTTP server.
+  // Poll until softAPIP() returns the configured address, or give up after
+  // AP_START_TIMEOUT_MS and proceed anyway.  This reduces the observed window
+  // where the AP is joinable but HTTP is not immediately reachable.
+  static const uint32_t AP_START_TIMEOUT_MS = 3000u;
+  static const uint32_t AP_START_POLL_MS    = 10u;
+  const uint32_t t0 = (uint32_t)millis();
+  while(WiFi.softAPIP() != s_ap_ip){
+    if(((uint32_t)millis() - t0) >= AP_START_TIMEOUT_MS){ break; }
+    vTaskDelay(pdMS_TO_TICKS(AP_START_POLL_MS));
   }
 
   s_server.begin();
@@ -1155,6 +1184,12 @@ static void start_ap_and_server(){
 /**
  * Stops the web server, releases SD web access, disconnects the access point,
  * and turns the ESP WiFi mode off.
+ *
+ * The original delay(20) after softAPdisconnect() was too short for the
+ * ESP-IDF event loop to complete AP teardown.  Toggling WiFi off on a
+ * partially-torn-down interface corrupts driver state and worsens the
+ * start-up race on the next enable.  Replaced with vTaskDelay(200) which
+ * yields the scheduler correctly inside a FreeRTOS task context.
  *
  * Inputs: None.
  * Returns: None.
@@ -1166,23 +1201,30 @@ static void stop_ap_and_server(){
   s_web_client_locked = false;
   s_cal_client_authorized = false;
   WiFi.softAPdisconnect(true);
-  delay(20);
+  vTaskDelay(pdMS_TO_TICKS(200));   // was delay(20) — yield while driver tears down
   WiFi.mode(WIFI_OFF);
   s_started = false;
 }
 /**
- * Updates web task set enabled state and applies the change to the owning
- * module or hardware interface.
+ * Signals the desired enabled state to the web task.
+ *
+ * This function is called from foreign tasks (ui_task, state_task) on any
+ * core.  It ONLY updates the shared flags; it never touches the WiFi driver
+ * or HTTP server directly.  web_task_loop() is the sole owner of the
+ * start_ap_and_server() / stop_ap_and_server() lifecycle and will act on the
+ * flag change within one loop tick (~200 ms).
+ *
+ * sd_files_set_authorized() is safe to call from any task (it writes a single
+ * bool), so it is kept here to maintain the existing authorization semantics.
  *
  * Inputs: `enabled`.
  * Returns: None.
  */
 void web_task_set_enabled(bool enabled){
-  s_enabled = enabled;
-  sd_files_set_authorized(s_enabled);
-  if(!s_enabled){
-    stop_ap_and_server();
-  }
+  s_enabled_requested = enabled;
+  sd_files_set_authorized(enabled);
+  // Do NOT call stop_ap_and_server() here.  WiFi/AP/HTTP lifecycle is owned
+  // exclusively by web_task_loop() to avoid cross-task races on the driver.
 }
 
 /**
@@ -1192,7 +1234,7 @@ void web_task_set_enabled(bool enabled){
  * Inputs: None.
  * Returns: `true` when the web interface should be active; otherwise `false`.
  */
-bool web_task_is_enabled(void){ return s_enabled; }
+bool web_task_is_enabled(void){ return s_enabled_requested; }
 
 /**
  * Web task loop starts or stops the WiFi access point and web server according
@@ -1204,10 +1246,10 @@ bool web_task_is_enabled(void){ return s_enabled; }
 static void web_task_loop(void *arg){
   (void)arg;
   for(;;){
-    if(s_enabled && !s_started){
+    if(s_enabled_requested && !s_started){
       start_ap_and_server();
     }
-    if(!s_enabled && s_started){
+    if(!s_enabled_requested && s_started){
       stop_ap_and_server();
     }
     if(s_ota_reboot_pending){
@@ -1240,4 +1282,3 @@ void web_task_init(void){
   }
 
 }
-

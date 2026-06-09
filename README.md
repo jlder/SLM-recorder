@@ -90,7 +90,12 @@ Do not rely on copies of these files in `Documents/Arduino/libraries`.
 
 After uploading firmware from the Arduino IDE, perform a full device restart before formal testing. This avoids occasional transient startup issues after the IDE upload/reset sequence.
 
-Alternatively, it is possible to install the binary file located in the docs/firmware folder (path defined in manifest.json) using the GitHub web interface: https://github.com/jlder/SLM-recorder
+Alternatively
+
+- For first application installation, it is possible to install the binary file located in the docs/firmware folder (path defined in manifest.json) using the GitHub web interface: https://jlder.github.io/SLM-recorder/. When connected, the device should be visible under: USB JTAG/ serial debug.
+- When application has been installed once, following updates can be performed using OTA (Device WIFI ON, http://192.168.4.1 , select firmware update). Software releases are in the firmware folder.
+
+/!\ in both cases it is recommended to use Chrome in incognito mode to avoid using cache with outdated information.
 
 ## 6. First Run / Setup
 
