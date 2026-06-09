@@ -188,12 +188,16 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         }
         .cal-menu-item { margin-bottom: 10px; text-align: center; }
         .cal-menu-item .small { margin-top: 3px; }
-        .last-cal-title {
-            grid-column: 1 / -1;
+        .last-cal-heading {
             text-align: center;
             font-weight: bold;
             color: #2c3e50;
-            margin: 4px 0 -2px;
+            margin: 5px 0 2px;
+            line-height: 1.15;
+        }
+        .last-cal-date {
+            text-align: center;
+            line-height: 1.2;
         }
         .cal-actions {
             display: grid;
@@ -291,13 +295,15 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 <div class="button-grid maintenance-grid">
                     <div class="cal-menu-item">
                         <button class="btn btn-primary" onclick="openAccelCal()">Recorder Calibration</button>
-                        <div class="last-cal-title">Last Calibration</div>
-                        <div class="small mono" id="sensorCalDate">-</div>
+                        <div class="last-cal-heading"><div>Last Recorder</div><div>Calibration</div></div>
+                        <div class="small mono last-cal-date" id="sensorCalDate">-</div>
+                        <div class="small mono last-cal-date" id="sensorCalTime">-</div>
                     </div>
                     <div class="cal-menu-item">
                         <button class="btn btn-primary" onclick="openInstallCal()">Installation Calibration</button>
-                        <div class="last-cal-title">&nbsp;</div>
-                        <div class="small mono" id="installationCalDate">-</div>
+                        <div class="last-cal-heading"><div>Last Installation</div><div>Calibration</div></div>
+                        <div class="small mono last-cal-date" id="installationCalDate">-</div>
+                        <div class="small mono last-cal-date" id="installationCalTime">-</div>
                     </div>
                     <button class="btn btn-primary" onclick="openOtaPage()">Firmware Update</button>
                     <button class="btn btn-return" onclick="showHome()">Return</button>
@@ -652,8 +658,12 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     document.getElementById('calTopStatus').textContent = data.recording_allowed ? 'ready' : (data.sensor_valid ? 'install required' : data.status);
                     const sensorDateText = data.sensor_valid ? fmtDate(data.sensor_date) : '-';
                     const installDateText = data.installation_valid ? fmtDate(data.installation_date) : '-';
-                    document.getElementById('sensorCalDate').textContent = sensorDateText;
-                    document.getElementById('installationCalDate').textContent = installDateText;
+                    const sensorParts = data.sensor_valid ? fmtDateParts(data.sensor_date) : {date:'-', time:'-'};
+                    const installParts = data.installation_valid ? fmtDateParts(data.installation_date) : {date:'-', time:'-'};
+                    document.getElementById('sensorCalDate').textContent = sensorParts.date;
+                    document.getElementById('sensorCalTime').textContent = sensorParts.time;
+                    document.getElementById('installationCalDate').textContent = installParts.date;
+                    document.getElementById('installationCalTime').textContent = installParts.time;
                     const accelStatus = data.sensor_valid ? ('valid since ' + sensorDateText) : data.status;
                     const installStatus = data.installation_valid ? ('valid since ' + installDateText) : 'missing';
                     document.getElementById('calStatus').textContent = accelStatus;
@@ -717,14 +727,21 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             return names.indexOf(name);
         }
 
-        function fmtDate(dt) {
-            if (!dt || !dt.year || !dt.month || !dt.day) return '-';
+        function fmtDateParts(dt) {
+            if (!dt || !dt.year || !dt.month || !dt.day) return { date: '-', time: '-' };
             const pad2 = function(v) { return String(v).padStart(2, '0'); };
-            let out = String(dt.year) + '-' + pad2(dt.month) + '-' + pad2(dt.day);
+            const date = String(dt.year) + '-' + pad2(dt.month) + '-' + pad2(dt.day);
+            let time = '-';
             if (dt.hour !== undefined && dt.min !== undefined && dt.sec !== undefined) {
-                out += ' ' + pad2(dt.hour) + ':' + pad2(dt.min) + ':' + pad2(dt.sec);
+                time = pad2(dt.hour) + ':' + pad2(dt.min) + ':' + pad2(dt.sec);
             }
-            return out;
+            return { date: date, time: time };
+        }
+
+        function fmtDate(dt) {
+            const parts = fmtDateParts(dt);
+            if (parts.date === '-') return '-';
+            return (parts.time === '-') ? parts.date : (parts.date + ' ' + parts.time);
         }
 
         function fmtNoise(v) {
