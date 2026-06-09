@@ -13,6 +13,7 @@
 #include "config.h"
 #include <Arduino.h>
 #include <stdio.h>
+#include <string.h>
 
 #include <WiFi.h>
 #include <new>
@@ -591,7 +592,8 @@ static void register_routes_once(){
         s_ota_reboot_pending = true;
       } else {
         const char *reason = (s_ota_error[0] != '\0') ? s_ota_error : "ota_failed";
-        request->send(500, "text/plain", reason);
+        const int code = (strcmp(reason, "maintenance_auth_required") == 0) ? 403 : 500;
+        request->send(code, "text/plain", reason);
       }
 
       s_ota_active = false;
@@ -602,12 +604,16 @@ static void register_routes_once(){
        uint8_t *data,
        size_t len,
        bool final){
-      (void)request;
 
       if(index == 0u){
         s_ota_ok = false;
         s_ota_active = false;
         s_ota_error[0] = '\0';
+
+        if(!cal_client_authorized_(request)){
+          ota_set_error_("maintenance_auth_required");
+          return;
+        }
 
         if(!ota_usb_allowed_()){
           ota_set_error_("usb_required");

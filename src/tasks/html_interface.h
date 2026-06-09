@@ -31,93 +31,135 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             font-family: Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            padding: 20px;
+            padding: 10px;
+            font-size: 16px;
         }
         .container {
-            max-width: 1200px;
+            max-width: 1000px;
             margin: 0 auto;
             background: white;
-            border-radius: 10px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.12);
             overflow: hidden;
         }
         .header {
             background: #2c3e50;
             color: white;
-            padding: 20px;
+            padding: 12px;
             text-align: center;
         }
+        .header h1 { font-size: 20px; line-height: 1.2; }
         .tabs {
             background: #34495e;
-            padding: 10px;
-            text-align: center;
+            padding: 6px;
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            flex-wrap: wrap;
         }
         .tab-btn {
-            padding: 10px 18px;
-            margin: 3px;
+            padding: 8px 10px;
             border: none;
             border-radius: 5px;
             cursor: pointer;
             font-weight: bold;
             background: #ecf0f1;
             color: #2c3e50;
+            min-height: 38px;
         }
         .tab-btn.active { background: #3498db; color: white; }
         .info-bar {
             background: #34495e;
             color: white;
-            padding: 15px 20px;
+            padding: 8px 10px;
             display: flex;
             justify-content: space-around;
             flex-wrap: wrap;
+            gap: 4px 10px;
         }
-        .info-item { font-size: 14px; padding: 4px; }
-        .info-value { font-weight: bold; margin-left: 5px; }
+        .info-item { font-size: 13px; padding: 2px; }
+        .info-value { font-weight: bold; margin-left: 4px; }
         .controls {
-            padding: 20px;
+            padding: 10px;
             background: #ecf0f1;
             text-align: center;
         }
-        .section { padding: 20px; }
+        .section { padding: 12px; }
+        h2 { font-size: 18px; margin: 2px 0 8px; }
+        p { margin: 6px 0; line-height: 1.35; }
         .hidden { display: none; }
         .btn {
-            padding: 10px 20px;
-            margin: 5px;
+            padding: 7px 10px;
+            margin: 2px;
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: bold;
+            min-height: 34px;
         }
         .btn-primary { background: #3498db; color: white; }
         .btn-danger { background: #e74c3c; color: white; }
         .btn-warning { background: #f39c12; color: white; }
         .btn-success { background: #27ae60; color: white; }
-        .btn:disabled { background: #bdc3c7; cursor: not-allowed; }
-        .file-table, .cal-table {
+        .btn:disabled { background: #bdc3c7; color: #666; cursor: not-allowed; }
+        .btn-return { background: #27ae60; color: white; }
+        input[type="password"], input[type="file"] {
+            max-width: 100%;
+            min-height: 40px;
+            font-size: 16px;
+        }
+        .file-list { margin-top: 8px; }
+        .file-item {
+            border-bottom: 1px solid #ecf0f1;
+            padding: 8px 10px;
+        }
+        .file-item:hover { background: #f8f9fa; }
+        .file-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+            align-items: center;
+            min-height: 34px;
+        }
+        .file-name {
+            font-family: Consolas, monospace;
+            font-size: 14px;
+            overflow-wrap: anywhere;
+        }
+        .file-size { font-size: 13px; color: #555; }
+        .file-btn {
+            width: 96px;
+            min-height: 32px;
+            padding: 6px 8px;
+            margin: 1px 0;
+            font-size: 13px;
+        }
+        .cal-table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 10px;
+            margin-top: 8px;
         }
-        .file-table th, .cal-table th {
+        .cal-table th {
             background: #2c3e50;
             color: white;
-            padding: 12px;
+            padding: 8px;
             text-align: left;
+            font-size: 13px;
         }
-        .file-table td, .cal-table td {
-            padding: 12px;
+        .cal-table td {
+            padding: 8px;
             border-bottom: 1px solid #ecf0f1;
+            font-size: 13px;
         }
-        .file-table tr:hover, .cal-table tr:hover { background: #f8f9fa; }
-        .loading { text-align: center; padding: 40px; color: #7f8c8d; }
+        .loading { text-align: center; padding: 24px; color: #7f8c8d; }
         .status-recording { color: #2ecc71; font-weight: bold; }
         .card {
             background: #f8f9fa;
             border: 1px solid #dfe6e9;
             border-radius: 8px;
-            padding: 15px;
-            margin: 10px 0;
+            padding: 10px;
+            margin: 8px 0;
         }
         .ok { color: #27ae60; font-weight: bold; }
         .warn { color: #f39c12; font-weight: bold; }
@@ -125,100 +167,166 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         .mono { font-family: Consolas, monospace; }
         .small { font-size: 13px; color: #555; }
         .face-active { background: #d6eaff !important; }
+
+        .section-title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            padding-bottom: 0;
+        }
+        .return-btn { min-width: 82px; }
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(120px, 180px));
+            gap: 8px;
+            margin: 8px 0;
+            justify-content: center;
+        }
+        .main-menu-grid .btn, .maintenance-grid .btn {
+            min-height: 42px;
+        }
+        .cal-menu-item { margin-bottom: 10px; text-align: center; }
+        .cal-menu-item .small { margin-top: 3px; }
+        .last-cal-title {
+            grid-column: 1 / -1;
+            text-align: center;
+            font-weight: bold;
+            color: #2c3e50;
+            margin: 4px 0 -2px;
+        }
+        .cal-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(100px, 140px));
+            gap: 6px;
+            justify-content: center;
+            text-align: initial;
+            margin: 8px auto;
+        }
+        .cal-actions .btn, .button-grid .btn {
+            width: 100%;
+            margin: 0;
+        }
+        .workflow-card { font-size: 13px; }
+        .workflow-card p { line-height: 1.3; }
         .candidate {
-            font-size: 18px;
-            margin: 10px 0;
+            font-size: 16px;
+            margin: 8px 0;
         }
         pre {
             white-space: pre-wrap;
             background: #2c3e50;
             color: #ecf0f1;
-            padding: 10px;
+            padding: 8px;
             border-radius: 5px;
-            max-height: 180px;
+            max-height: 160px;
             overflow: auto;
+            font-size: 13px;
+        }
+        @media (max-width: 600px) {
+            body { padding: 6px; font-size: 15px; }
+            .container { border-radius: 6px; }
+            .header { padding: 10px 8px; }
+            .header h1 { font-size: 18px; }
+            .tab-btn { flex: 1 1 30%; padding: 8px 6px; font-size: 13px; }
+            .section { padding: 10px; }
+            .controls { padding: 8px; }
+            .controls .btn, .card > .btn { width: 100%; }
+            .cal-actions .btn, .button-grid .btn { width: 100%; }
+            .return-btn { width: auto !important; }
+            .card { padding: 9px; }
+            .file-item { padding: 7px 8px; }
+            .file-name { font-size: 13px; }
+            .file-btn { width: 88px; font-size: 12px; }
+            .cal-table { display: block; overflow-x: auto; white-space: nowrap; }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>SLM Recorder</h1>
+            <h1 id="pageTitle">SLM Recorder</h1>
             <span id="statusBadge"></span>
         </div>
 
-        <div class="tabs">
-            <button id="tabFilesBtn" class="tab-btn active" onclick="showTab('files')">Files</button>
-            <button id="tabCalBtn" class="tab-btn" onclick="showTab('cal')">Calibration</button>
-            <button id="tabOtaBtn" class="tab-btn" onclick="showTab('ota')">Firmware Update</button>
+        <div id="homeSection" class="section">
+            <h2>Main Menu</h2>
+            <div class="button-grid main-menu-grid">
+                <button class="btn btn-primary" onclick="openFilesPage()">File Management</button>
+                <button class="btn btn-primary" onclick="openMaintenancePage()">Maintenance</button>
+            </div>
         </div>
 
-        <div class="info-bar">
-            <span class="info-item">SD Card: <span class="info-value" id="sdSize">-</span></span>
-            <span class="info-item">Free: <span class="info-value" id="sdFree">-</span></span>
-            <span class="info-item">Files: <span class="info-value" id="fileCount">-</span></span>
-            <span class="info-item">Battery: <span class="info-value" id="battery">-</span></span>
-            <span class="info-item">Calibration: <span class="info-value" id="calTopStatus">-</span></span>
-        </div>
+        <div id="filesSection" class="hidden">
+            <div class="info-bar">
+                <span class="info-item">SD Card: <span class="info-value" id="sdSize">-</span></span>
+                <span class="info-item">Free: <span class="info-value" id="sdFree">-</span></span>
+                <span class="info-item">Files: <span class="info-value" id="fileCount">-</span></span>
+                <span class="info-item">Battery: <span class="info-value" id="battery">-</span></span>
+                <span class="info-item">Calibration: <span class="info-value" id="calTopStatus">-</span></span>
+            </div>
 
-        <div id="filesSection">
-            <div class="controls">
+            <div class="controls compact-controls cal-actions">
                 <button class="btn btn-primary" onclick="refreshFiles()">Refresh</button>
+                <button class="btn btn-return" onclick="showHome()">Return</button>
             </div>
             <div id="fileListContainer">
                 <div class="loading">Loading files...</div>
             </div>
         </div>
 
-        <div id="calSection" class="hidden section">
+        <div id="maintenanceSection" class="hidden section">
             <div id="calAuthPanel" class="card">
-                <h2>Calibration Access</h2>
-                <p><b>Calibration is a maintenance activity.</b> Enter the recorder registration to unlock accelerometer and installation calibration.</p>
+                <h2>Maintenance Access</h2>
+                <p><b>Maintenance is restricted.</b> Enter the recorder registration to unlock calibration and firmware update functions.</p>
                 <input type="password" id="calPassword" placeholder="Registration" class="mono" style="padding:10px; margin:5px;">
-                <button class="btn btn-warning" onclick="calUnlock()">Unlock Calibration</button>
+                <div class="button-grid two-button-grid">
+                    <button class="btn btn-primary" onclick="calUnlock()">Unlock Maintenance</button>
+                    <button class="btn btn-return" onclick="showHome()">Return</button>
+                </div>
                 <div id="calAuthStatus" class="small">Locked.</div>
             </div>
 
             <div id="calMenuPanel" class="hidden">
-                <h2>Calibration Menu</h2>
-                <div class="card">
-                    <button class="btn btn-primary" onclick="openAccelCal()">Accelerometer Calibration</button>
-                    <span class="small">Last calibration: <span id="sensorCalDate" class="mono">-</span></span>
-                </div>
-                <div class="card">
-                    <button class="btn btn-primary" onclick="openInstallCal()">Installation Calibration</button>
-                    <span class="small">Last calibration: <span id="installationCalDate" class="mono">-</span></span>
+                <div class="button-grid maintenance-grid">
+                    <div class="cal-menu-item">
+                        <button class="btn btn-primary" onclick="openAccelCal()">Recorder Calibration</button>
+                        <div class="last-cal-title">Last Calibration</div>
+                        <div class="small mono" id="sensorCalDate">-</div>
+                    </div>
+                    <div class="cal-menu-item">
+                        <button class="btn btn-primary" onclick="openInstallCal()">Installation Calibration</button>
+                        <div class="last-cal-title">&nbsp;</div>
+                        <div class="small mono" id="installationCalDate">-</div>
+                    </div>
+                    <button class="btn btn-primary" onclick="openOtaPage()">Firmware Update</button>
+                    <button class="btn btn-return" onclick="showHome()">Return</button>
                 </div>
             </div>
+        </div>
 
-            <div id="accelCalPage" class="hidden">
-                <button class="btn btn-primary" onclick="showCalMenu()">Back to Calibration Menu</button>
-                <h2>Accelerometer Calibration</h2>
-            <div class="card">
+        <div id="accelCalPage" class="hidden section">
+            <div class="card workflow-card">
                 <p><b>Workflow:</b> Start calibration, place the recorder still on each of its six faces, and wait for each face to show OK. The recorder automatically keeps the best capture for each face. It is good practice to leave the recorder on a given face until the last best update is more than 10 seconds old. Save calibration when all six faces values are satisfactory.</p>
             </div>
 
-            <div class="controls">
-                <button class="btn btn-success" id="btnStart" onclick="calStart()">Start</button>
-                <button class="btn btn-success" id="btnSave" onclick="calSave()">Save</button>
-                <button class="btn btn-danger" id="btnCancel" onclick="calCancel()">Cancel</button>
+            <div class="controls cal-actions">
+                <button class="btn btn-primary" id="btnStart" onclick="calStart()">Start</button>
+                <button class="btn btn-primary" id="btnSave" onclick="calSave()">Save</button>
+                <button class="btn btn-primary" id="btnCancel" onclick="calCancel()">Cancel</button>
+                <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
             </div>
 
             <div class="card">
                 <div>Status: <span id="calStatus" class="mono">-</span></div>
-                <div>Session: <span id="calSession" class="mono">-</span></div>
-                <div>Current face: <span id="calCurrentFace" class="mono">-</span></div>
                 <div>Samples processed: <span id="calSamplesProcessed" class="mono">0</span></div>
                 <div>Lowest stddev: <span id="calLowestNoise" class="mono">-</span></div>
-                <div>Updates: <span id="calTotalUpdates" class="mono">0</span></div>
                 <div>Last best update: <span id="calLastBestUpdate" class="mono">-</span></div>
                 <div>Faces: <span id="calFaceSummary" class="mono">+X — | -X — | +Y — | -Y — | +Z — | -Z —</span></div>
                 <div class="candidate"><span id="calCandidate" class="warn">Start calibration and place the recorder on a face.</span></div>
             </div>
 
             <div class="card">
-                <b>Calibration:</b> <span id="calWorkflowStatus" class="mono">Ready</span>
-                <div>NVS date: <span id="nvsDate" class="mono">-</span></div>
                 <table class="cal-table">
                     <thead>
                         <tr>
@@ -237,35 +345,29 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 </table>
                 <pre id="calLog" class="hidden">Ready.</pre>
             </div>
+        </div>
 
-            </div>
-
-            <div id="installCalPage" class="hidden">
-                <button class="btn btn-primary" onclick="showCalMenu()">Back to Calibration Menu</button>
-                <h2>Installation Calibration</h2>
-            <div class="card">
+        <div id="installCalPage" class="hidden section">
+            <div class="card workflow-card">
                 <p><b>Workflow:</b> Put the glider in its flight-level attitude with wings leveled, following the AMM procedure. Sensor calibration must already be valid before attempting installation calibration. Click Start, leave the glider still. It is good practice to wait until the last best update is more than 10 seconds old. Save calibration when noise is satisfactory.</p>
             </div>
-            <div class="controls">
-                <button class="btn btn-success" id="btnInstallStart" onclick="installStart()">Start Installation</button>
-                <button class="btn btn-success" id="btnInstallSave" onclick="installSave()">Save Installation</button>
-                <button class="btn btn-danger" id="btnInstallCancel" onclick="installCancel()">Cancel Installation</button>
+            <div class="controls cal-actions">
+                <button class="btn btn-primary" id="btnInstallStart" onclick="installStart()">Start</button>
+                <button class="btn btn-primary" id="btnInstallSave" onclick="installSave()">Save</button>
+                <button class="btn btn-primary" id="btnInstallCancel" onclick="installCancel()">Cancel</button>
+                <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
             </div>
             <div class="card">
                 <div>Status: <span id="installStatus" class="mono">-</span></div>
-                <div>Session: <span id="installSession" class="mono">-</span></div>
                 <div>Samples processed: <span id="installTotalSamples" class="mono">0</span></div>
                 <div>Lowest noise: <span id="installBestNoise" class="mono">-</span></div>
-                <div>Updates: <span id="installUpdates" class="mono">0</span></div>
                 <div>Last best update: <span id="installLastUpdate" class="mono">-</span></div>
                 <pre id="installMatrix">Matrix will appear after a stable candidate is found.</pre>
-            </div>
             </div>
         </div>
 
         <div id="otaSection" class="hidden section">
-            <h2>Firmware Update</h2>
-            <div class="card">
+            <div class="card workflow-card">
                 <p><b>USB power is required for firmware update.</b></p>
                 <p class="small">Upload only the Arduino application <span class="mono">.bin</span> file, typically <span class="mono">SLM_recorder.ino.bin</span>. Do not upload the merged binary.</p>
                 <p class="small">The recorder will restart automatically after a successful update.</p>
@@ -273,7 +375,10 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
 
             <div class="card">
                 <input type="file" id="otaFile" accept=".bin">
-                <button class="btn btn-warning" id="btnOtaUpload" onclick="otaUpload()">Upload Firmware</button>
+                <div class="controls cal-actions">
+                    <button class="btn btn-primary" id="btnOtaUpload" onclick="otaUpload()">Upload Firmware</button>
+                    <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
+                </div>
                 <div id="otaStatus" class="small">Ready.</div>
             </div>
         </div>
@@ -288,87 +393,103 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         let calLastBestLocalUpdates = 0;
         let calLastBestLocalFace = -1;
 
-        function showTab(name) {
-            const files = document.getElementById('filesSection');
-            const cal = document.getElementById('calSection');
-            const ota = document.getElementById('otaSection');
-            document.getElementById('tabFilesBtn').classList.remove('active');
-            document.getElementById('tabCalBtn').classList.remove('active');
-            document.getElementById('tabOtaBtn').classList.remove('active');
-
-            if (name === 'cal') {
-                files.classList.add('hidden');
-                ota.classList.add('hidden');
-                cal.classList.remove('hidden');
-                document.getElementById('tabCalBtn').classList.add('active');
-                calStatus();
-                if (calAuth) showCalMenu();
-                else showCalLocked();
-            } else if (name === 'ota') {
-                files.classList.add('hidden');
-                cal.classList.add('hidden');
-                ota.classList.remove('hidden');
-                document.getElementById('tabOtaBtn').classList.add('active');
-                stopCalPolling();
-            } else {
-                cal.classList.add('hidden');
-                ota.classList.add('hidden');
-                files.classList.remove('hidden');
-                document.getElementById('tabFilesBtn').classList.add('active');
-                stopCalPolling();
-                refreshFiles();
-            }
+        function setPageTitle(title) {
+            document.getElementById('pageTitle').textContent = title;
         }
 
-        function showCalLocked() {
-            calView = 'locked';
-            stopCalPolling();
-            document.getElementById('calAuthPanel').classList.remove('hidden');
-            document.getElementById('calMenuPanel').classList.add('hidden');
+        function hideAllPages() {
+            document.getElementById('homeSection').classList.add('hidden');
+            document.getElementById('filesSection').classList.add('hidden');
+            document.getElementById('maintenanceSection').classList.add('hidden');
             document.getElementById('accelCalPage').classList.add('hidden');
             document.getElementById('installCalPage').classList.add('hidden');
+            document.getElementById('otaSection').classList.add('hidden');
+        }
+
+        function showHome() {
+            setPageTitle('SLM Recorder');
+            stopCalPolling();
+            hideAllPages();
+            document.getElementById('homeSection').classList.remove('hidden');
+            updateStatus();
+        }
+
+        function openFilesPage() {
+            setPageTitle('SLM File Management');
+            stopCalPolling();
+            hideAllPages();
+            document.getElementById('filesSection').classList.remove('hidden');
+            refreshFiles();
+        }
+
+        function openMaintenancePage() {
+            setPageTitle('SLM Maintenance');
+            stopCalPolling();
+            hideAllPages();
+            document.getElementById('maintenanceSection').classList.remove('hidden');
+            if (calAuth) showMaintenanceMenu();
+            else showMaintenanceLocked();
+        }
+
+        function showMaintenanceLocked() {
+            setPageTitle('SLM Maintenance');
+            calView = 'locked';
+            stopCalPolling();
+            hideAllPages();
+            document.getElementById('maintenanceSection').classList.remove('hidden');
+            document.getElementById('calAuthPanel').classList.remove('hidden');
+            document.getElementById('calMenuPanel').classList.add('hidden');
             resetAccelCalUi();
             resetInstallCalUi();
         }
 
-        function showCalMenu() {
+        function showMaintenanceMenu() {
+            setPageTitle('SLM Maintenance');
             calView = 'menu';
             stopCalPolling();
+            hideAllPages();
+            document.getElementById('maintenanceSection').classList.remove('hidden');
             document.getElementById('calAuthPanel').classList.add('hidden');
             document.getElementById('calMenuPanel').classList.remove('hidden');
-            document.getElementById('accelCalPage').classList.add('hidden');
-            document.getElementById('installCalPage').classList.add('hidden');
             resetAccelCalUi();
             resetInstallCalUi();
             calStatus();
         }
 
         function openAccelCal() {
+            setPageTitle('SLM Recorder Calibration');
+            if (!calAuth) { showMaintenanceLocked(); return; }
             calView = 'accel';
             stopCalPolling();
             resetAccelCalUi();
             resetInstallCalUi();
-            document.getElementById('calAuthPanel').classList.add('hidden');
-            document.getElementById('calMenuPanel').classList.add('hidden');
+            hideAllPages();
             document.getElementById('accelCalPage').classList.remove('hidden');
-            document.getElementById('installCalPage').classList.add('hidden');
             calStatus();
             startCalPolling();
             calSample();
         }
 
         function openInstallCal() {
+            setPageTitle('SLM Installation Calibration');
+            if (!calAuth) { showMaintenanceLocked(); return; }
             calView = 'install';
             stopCalPolling();
             resetAccelCalUi();
             resetInstallCalUi();
-            document.getElementById('calAuthPanel').classList.add('hidden');
-            document.getElementById('calMenuPanel').classList.add('hidden');
-            document.getElementById('accelCalPage').classList.add('hidden');
+            hideAllPages();
             document.getElementById('installCalPage').classList.remove('hidden');
             calStatus();
             startCalPolling();
             installSample();
+        }
+
+        function openOtaPage() {
+            setPageTitle('SLM Firmware Update');
+            if (!calAuth) { showMaintenanceLocked(); return; }
+            stopCalPolling();
+            hideAllPages();
+            document.getElementById('otaSection').classList.remove('hidden');
         }
 
         function calUnlock() {
@@ -381,7 +502,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     if (res.ok && res.json && res.json.ok) {
                         calAuth = true;
                         status.textContent = 'Unlocked.';
-                        showCalMenu();
+                        showMaintenanceMenu();
                     } else {
                         calAuth = false;
                         status.textContent = 'Wrong registration or calibration access denied.';
@@ -408,7 +529,6 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             if (saved) {
                 save.disabled = true;
                 cand.innerHTML = '<span class="ok">calibration saved</span>';
-                document.getElementById('calWorkflowStatus').textContent = 'Done';
                 stopCalPolling();
             } else {
                 save.disabled = false;
@@ -418,7 +538,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         function handleCalibrationAuthError(res) {
             if (res && res.status === 403 && res.json && res.json.reason === 'calibration_auth_required') {
                 calAuth = false;
-                showCalLocked();
+                showMaintenanceLocked();
             }
         }
 
@@ -446,6 +566,15 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 });
         }
 
+        function escapeHtml(text) {
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function displayFiles(files) {
             const container = document.getElementById('fileListContainer');
             document.getElementById('fileCount').textContent = files.length;
@@ -455,23 +584,26 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 return;
             }
 
-            let html = '<table class="file-table"><thead><tr>';
-            html += '<th>Filename</th><th>Size kB</th><th>Actions</th>';
-            html += '</tr></thead><tbody>';
-
+            let html = '<div class="file-list">';
             files.forEach(file => {
+                const name = String(file.name || '');
+                const displayName = name.replace(/\.bin$/i, '');
+                const safeName = escapeHtml(displayName);
+                const jsName = JSON.stringify(name);
                 const sizeKb = Math.round((file.size || 0) / 1000);
-                html += `<tr>
-                    <td>${file.name}</td>
-                    <td>${sizeKb}</td>
-                    <td>
-                        <button class="btn btn-primary" onclick="downloadFile('${file.name}')">Download</button>
-                        <button class="btn btn-danger" onclick="deleteFile('${file.name}')">Delete</button>
-                    </td>
-                </tr>`;
-            });
 
-            html += '</tbody></table>';
+                html += `<div class="file-item">
+                    <div class="file-row">
+                        <div class="file-name">${safeName}</div>
+                        <button class="btn btn-primary file-btn" onclick='downloadFile(${jsName})'>Download</button>
+                    </div>
+                    <div class="file-row">
+                        <div class="file-size">Size: ${sizeKb} kB</div>
+                        <button class="btn btn-primary file-btn" onclick='deleteFile(${jsName})'>Archive</button>
+                    </div>
+                </div>`;
+            });
+            html += '</div>';
             container.innerHTML = html;
         }
 
@@ -480,7 +612,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         }
 
         function deleteFile(filename) {
-            if (!confirm('Delete ' + filename + '?')) return;
+            if (!confirm('Archive ' + filename + '?')) return;
             fetch('/api/delete?file=' + encodeURIComponent(filename), { method: 'POST' })
                 .then(r => r.json())
                 .then(data => {
@@ -522,13 +654,10 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     const installDateText = data.installation_valid ? fmtDate(data.installation_date) : '-';
                     document.getElementById('sensorCalDate').textContent = sensorDateText;
                     document.getElementById('installationCalDate').textContent = installDateText;
-                    if (calView === 'accel') document.getElementById('nvsDate').textContent = sensorDateText;
                     const accelStatus = data.sensor_valid ? ('valid since ' + sensorDateText) : data.status;
                     const installStatus = data.installation_valid ? ('valid since ' + installDateText) : 'missing';
                     document.getElementById('calStatus').textContent = accelStatus;
-                    document.getElementById('calSession').textContent = data.session_active ? 'sampling' : 'not started';
                     document.getElementById('installStatus').textContent = installStatus;
-                    document.getElementById('installSession').textContent = data.installation_session_active ? 'sampling' : 'not started';
                 })
                 .catch(err => console.error(err));
         }
@@ -552,38 +681,35 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
 
         function resetAccelCalUi() {
             document.getElementById('calStatus').textContent = '-';
-            document.getElementById('calSession').textContent = '-';
-            document.getElementById('calCurrentFace').textContent = '-';
             document.getElementById('calSamplesProcessed').textContent = '0';
             document.getElementById('calLowestNoise').textContent = '-';
-            document.getElementById('calTotalUpdates').textContent = '0';
             document.getElementById('calLastBestUpdate').textContent = '-';
             document.getElementById('calFaceSummary').innerHTML = '+X — | -X — | +Y — | -Y — | +Z — | -Z —';
             calLastBestLocalMs = 0;
             calLastBestLocalUpdates = 0;
             calLastBestLocalFace = -1;
             document.getElementById('calCandidate').textContent = 'Start calibration and place the recorder on a face.';
-            document.getElementById('calWorkflowStatus').textContent = 'Ready';
-            document.getElementById('nvsDate').textContent = '-';
             for (let i = 0; i < 3; i++) {
                 document.getElementById('resGain' + i).textContent = '-';
                 document.getElementById('resOffset' + i).textContent = '-';
                 document.getElementById('nvsGain' + i).textContent = '-';
                 document.getElementById('nvsOffset' + i).textContent = '-';
             }
+            document.getElementById('btnStart').disabled = false;
             document.getElementById('btnSave').disabled = true;
+            document.getElementById('btnCancel').disabled = true;
             logCal('Ready.');
         }
 
         function resetInstallCalUi() {
             document.getElementById('installStatus').textContent = '-';
-            document.getElementById('installSession').textContent = '-';
             document.getElementById('installTotalSamples').textContent = '0';
             document.getElementById('installBestNoise').textContent = '-';
-            document.getElementById('installUpdates').textContent = '0';
             document.getElementById('installLastUpdate').textContent = '-';
             document.getElementById('installMatrix').textContent = 'Matrix will appear after a stable candidate is found.';
+            document.getElementById('btnInstallStart').disabled = false;
             document.getElementById('btnInstallSave').disabled = true;
+            document.getElementById('btnInstallCancel').disabled = true;
         }
 
         function faceIndexFromName(name) {
@@ -612,10 +738,10 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             for (let i = 0; i < names.length; i++) {
                 const ok = !!(faceValid && faceValid[i]);
                 const text = names[i] + ' ' + (ok ? 'OK' : '—');
-                if (ok) {
-                    parts.push('<span class="ok">' + text + '</span>');
-                } else if (i === activeIdx) {
+                if (i === activeIdx) {
                     parts.push('<span class="warn">' + text + '</span>');
+                } else if (ok) {
+                    parts.push('<span class="ok">' + text + '</span>');
                 } else {
                     parts.push('<span>' + text + '</span>');
                 }
@@ -624,12 +750,8 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         }
 
         function updateResultTable(data) {
-            let workflow = 'Ready';
-            if (data.active && data.done) workflow = 'Done';
-            else if (data.active) workflow = 'Active';
-            document.getElementById('calWorkflowStatus').textContent = workflow;
-            document.getElementById('nvsDate').textContent = data.nvs_result_available ? fmtDate(data.nvs_date) : '-';
-
+            document.getElementById('btnStart').disabled = !!data.active;
+            document.getElementById('btnCancel').disabled = !data.active;
             document.getElementById('btnSave').disabled = !data.result_available;
 
             for (let i = 0; i < 3; i++) {
@@ -664,14 +786,11 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                         cand.textContent = 'Start calibration and place the recorder on a face.';
                     }
 
-                    document.getElementById('calSession').textContent = data.active ? 'sampling' : 'not started';
                     const currentFaceName = data.current_face_valid ? data.current_face : (data.candidate_valid ? data.candidate_face : '-');
-                    document.getElementById('calCurrentFace').textContent = currentFaceName;
                     document.getElementById('calSamplesProcessed').textContent = data.samples || 0;
                     const activeIdx = currentFaceName !== '-' ? faceIndexFromName(currentFaceName) : -1;
                     const activeUpdates = (activeIdx >= 0 && data.face_updates) ? (data.face_updates[activeIdx] || 0) : 0;
                     const activeAge = (activeIdx >= 0 && data.face_last_update_age_ms) ? data.face_last_update_age_ms[activeIdx] : null;
-                    document.getElementById('calTotalUpdates').textContent = activeUpdates;
                     document.getElementById('calLowestNoise').textContent = activeIdx >= 0 ? fmtNoise(data.face_quality && data.face_quality[activeIdx]) : '-';
                     if (activeIdx < 0 || activeUpdates === 0) {
                         calLastBestLocalMs = 0;
@@ -693,6 +812,8 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
 
         function calStart() {
             setCalSavedUi(false);
+            document.getElementById('btnStart').disabled = true;
+            document.getElementById('btnCancel').disabled = false;
             postJson('/api/cal/start')
                 .then(res => {
                     logCal(prettyJson(res.json));
@@ -713,6 +834,8 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             postJson('/api/cal/cancel')
                 .then(res => {
                     setCalSavedUi(false);
+                    document.getElementById('btnStart').disabled = false;
+                    document.getElementById('btnCancel').disabled = true;
                     logCal(prettyJson(res.json));
                     calStatus();
                     calSample();
@@ -778,10 +901,8 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     handleCalibrationAuthError(res);
                     const data = res.json;
                     if (!data.ok) return;
-                    document.getElementById('installSession').textContent = data.active ? 'sampling' : 'not started';
                     document.getElementById('installTotalSamples').textContent = data.total_samples || 0;
                     document.getElementById('installBestNoise').textContent = data.candidate_valid ? fmtNoise(data.quality_mg) : '-';
-                    document.getElementById('installUpdates').textContent = data.update_count || 0;
                     document.getElementById('installLastUpdate').textContent = (data.update_count || 0) > 0 ? fmtAge(data.last_update_age_ms) : '-';
                     document.getElementById('installStatus').textContent = data.stored_valid ? ('valid since ' + fmtDate(data.stored_date)) : 'missing';
                     if (data.candidate_valid) {
@@ -791,13 +912,17 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     } else {
                         document.getElementById('installMatrix').textContent = 'Waiting for stable level-flight attitude.';
                     }
+                    document.getElementById('btnInstallStart').disabled = !!data.active;
+                    document.getElementById('btnInstallCancel').disabled = !data.active;
                     document.getElementById('btnInstallSave').disabled = !data.candidate_valid;
                 })
                 .catch(err => console.error(err));
         }
 
         function installStart() {
+            document.getElementById('btnInstallStart').disabled = false;
             document.getElementById('btnInstallSave').disabled = true;
+            document.getElementById('btnInstallCancel').disabled = true;
             postJson('/api/install/start')
                 .then(res => {
                     document.getElementById('installMatrix').textContent = 'Waiting for stable level-flight attitude.';
@@ -810,6 +935,8 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         function installCancel() {
             postJson('/api/install/cancel')
                 .then(res => {
+                    document.getElementById('btnInstallStart').disabled = false;
+                    document.getElementById('btnInstallCancel').disabled = true;
                     document.getElementById('installMatrix').textContent = 'Waiting for stable level-flight attitude.';
                     calStatus();
                     installSample();
@@ -871,6 +998,13 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
 
             xhr.onload = function() {
                 status.textContent = xhr.responseText || 'Upload complete.';
+                if (xhr.status === 403) {
+                    calAuth = false;
+                    status.textContent = 'Maintenance authorization required.';
+                    button.disabled = false;
+                    showMaintenanceLocked();
+                    return;
+                }
                 if (xhr.status < 200 || xhr.status >= 300) {
                     button.disabled = false;
                 }
@@ -888,7 +1022,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         setInterval(updateStatus, 5000);
         setInterval(calStatus, 5000);
 
-        refreshFiles();
+        showHome();
     </script>
 </body>
 </html>
