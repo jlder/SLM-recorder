@@ -27,6 +27,7 @@
 #include "src/services/sd_files.h" // authorization gate for file ops
 #include "src/services/task_helpers.h"
 #include "src/services/calibration_service.h"
+#include "src/services/watchdog_service.h"
 
 #include "src/tasks/sd_task.h"
 // Webserver must ONLY be enabled in READY (State Task enforces this).
@@ -1179,10 +1180,12 @@ static void start_ap_and_server(){
   static const uint32_t AP_START_POLL_MS    = 10u;
   const uint32_t t0 = (uint32_t)millis();
   while(WiFi.softAPIP() != s_ap_ip){
+    watchdog_kick(WD_WEB);
     if(((uint32_t)millis() - t0) >= AP_START_TIMEOUT_MS){ break; }
     vTaskDelay(pdMS_TO_TICKS(AP_START_POLL_MS));
   }
 
+  watchdog_kick(WD_WEB);
   s_server.begin();
   s_started = true;
 }
@@ -1252,11 +1255,16 @@ bool web_task_is_enabled(void){ return s_enabled_requested; }
 static void web_task_loop(void *arg){
   (void)arg;
   for(;;){
+    watchdog_set_required(WD_WEB, s_enabled_requested || s_started);
+    watchdog_kick(WD_WEB);
+
     if(s_enabled_requested && !s_started){
       start_ap_and_server();
+      watchdog_kick(WD_WEB);
     }
     if(!s_enabled_requested && s_started){
       stop_ap_and_server();
+      watchdog_kick(WD_WEB);
     }
     if(s_ota_reboot_pending){
       vTaskDelay(pdMS_TO_TICKS(500));

@@ -18,6 +18,7 @@ typedef enum {
   WD_STATE = 0,
   WD_SD,
   WD_RECORD,
+  WD_WEB,
   WD_COUNT
 } watchdog_source_t;
 

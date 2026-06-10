@@ -44,17 +44,152 @@ static uint32_t watchdog_now_ms_(void){
 }
 
 /**
- * Stores the persistent watchdog fault flag in NVS.
+ * Returns a short printable name for a watchdog source.
  *
- * Inputs: None.
+ * Inputs: `source`.
+ * Returns: Constant source name string.
+ */
+static const char *watchdog_source_name_(watchdog_source_t source){
+  switch(source){
+    case WD_STATE:  return "state";
+    case WD_SD:     return "sd";
+    case WD_RECORD: return "record";
+    case WD_WEB:    return "web";
+    default:        return "unknown";
+  }
+}
+
+/**
+ * Stores persistent watchdog fault details in NVS.
+ *
+ * Inputs: `source`, `age_ms`, `ages_ms`, `st`.
  * Returns: None.
  */
-static void watchdog_persistent_fault_set_(void){
+static void watchdog_persistent_fault_set_(watchdog_source_t source,
+                                           uint32_t age_ms,
+                                           const uint32_t ages_ms[WD_COUNT],
+                                           const system_status_t *st){
   if(!s_prefs_open){
     return;
   }
 
   (void)s_prefs.putBool(WATCHDOG_PREFS_KEY, true);
+  (void)s_prefs.putUChar("src", (uint8_t)source);
+  (void)s_prefs.putUInt("age", age_ms);
+
+  if(ages_ms != nullptr){
+    (void)s_prefs.putUInt("age_st", ages_ms[WD_STATE]);
+    (void)s_prefs.putUInt("age_sd", ages_ms[WD_SD]);
+    (void)s_prefs.putUInt("age_rec", ages_ms[WD_RECORD]);
+    (void)s_prefs.putUInt("age_web", ages_ms[WD_WEB]);
+  }
+
+  if(st != nullptr){
+    (void)s_prefs.putUInt("state", (uint32_t)st->state);
+    (void)s_prefs.putInt("err", (int32_t)st->last_error);
+    (void)s_prefs.putBool("web", st->wifi_active);
+    (void)s_prefs.putBool("usb", st->usb_present_valid && st->usb_present);
+    (void)s_prefs.putBool("sd", st->sd_present);
+  }
+
+  (void)s_prefs.putUInt("heap", (uint32_t)ESP.getFreeHeap());
+  (void)s_prefs.putUInt("minheap", (uint32_t)ESP.getMinFreeHeap());
+}
+
+/**
+ * Prints a watchdog fault diagnostic snapshot to Serial.
+ *
+ * Inputs: `prefix`, `source`, `age_ms`, `ages_ms`, `st`.
+ * Returns: None.
+ */
+static void watchdog_print_fault_(const char *prefix,
+                                  watchdog_source_t source,
+                                  uint32_t age_ms,
+                                  const uint32_t ages_ms[WD_COUNT],
+                                  const system_status_t *st){
+  Serial.print(prefix != nullptr ? prefix : "WATCHDOG");
+  Serial.print(": source=");
+  Serial.print(watchdog_source_name_(source));
+  Serial.print(" age_ms=");
+  Serial.print((unsigned long)age_ms);
+
+  if(ages_ms != nullptr){
+    Serial.print(" ages_ms[state,sd,record,web]=[");
+    Serial.print((unsigned long)ages_ms[WD_STATE]);
+    Serial.print(",");
+    Serial.print((unsigned long)ages_ms[WD_SD]);
+    Serial.print(",");
+    Serial.print((unsigned long)ages_ms[WD_RECORD]);
+    Serial.print(",");
+    Serial.print((unsigned long)ages_ms[WD_WEB]);
+    Serial.print("]");
+  }
+
+  if(st != nullptr){
+    Serial.print(" recorder_state=");
+    Serial.print((unsigned long)st->state);
+    Serial.print(" last_error=");
+    Serial.print((long)st->last_error);
+    Serial.print(" web=");
+    Serial.print(st->wifi_active ? "on" : "off");
+    Serial.print(" usb=");
+    Serial.print((st->usb_present_valid && st->usb_present) ? "on" : "off");
+    Serial.print(" sd=");
+    Serial.print(st->sd_present ? "present" : "missing");
+  }
+
+  Serial.print(" heap=");
+  Serial.print((unsigned long)ESP.getFreeHeap());
+  Serial.print(" min_heap=");
+  Serial.println((unsigned long)ESP.getMinFreeHeap());
+  Serial.flush();
+}
+
+/**
+ * Prints the persistent watchdog fault details from the previous shutdown.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+static void watchdog_print_persistent_fault_(void){
+  if(!s_prefs_open || !s_prefs.getBool(WATCHDOG_PREFS_KEY, false)){
+    return;
+  }
+
+  const watchdog_source_t source = (watchdog_source_t)s_prefs.getUChar("src", (uint8_t)WD_COUNT);
+  uint32_t ages_ms[WD_COUNT] = {};
+  ages_ms[WD_STATE] = s_prefs.getUInt("age_st", 0u);
+  ages_ms[WD_SD] = s_prefs.getUInt("age_sd", 0u);
+  ages_ms[WD_RECORD] = s_prefs.getUInt("age_rec", 0u);
+  ages_ms[WD_WEB] = s_prefs.getUInt("age_web", 0u);
+
+  Serial.print("WATCHDOG: previous fault source=");
+  Serial.print(watchdog_source_name_(source));
+  Serial.print(" age_ms=");
+  Serial.print((unsigned long)s_prefs.getUInt("age", 0u));
+  Serial.print(" ages_ms[state,sd,record,web]=[");
+  Serial.print((unsigned long)ages_ms[WD_STATE]);
+  Serial.print(",");
+  Serial.print((unsigned long)ages_ms[WD_SD]);
+  Serial.print(",");
+  Serial.print((unsigned long)ages_ms[WD_RECORD]);
+  Serial.print(",");
+  Serial.print((unsigned long)ages_ms[WD_WEB]);
+  Serial.print("] recorder_state=");
+  Serial.print((unsigned long)s_prefs.getUInt("state", 0u));
+  Serial.print(" last_error=");
+  Serial.print((long)s_prefs.getInt("err", 0));
+  Serial.print(" web=");
+  Serial.print(s_prefs.getBool("web", false) ? "on" : "off");
+  Serial.print(" usb=");
+  Serial.print(s_prefs.getBool("usb", false) ? "on" : "off");
+  Serial.print(" sd=");
+  Serial.print(s_prefs.getBool("sd", false) ? "present" : "missing");
+  Serial.print(" heap=");
+  Serial.print((unsigned long)s_prefs.getUInt("heap", 0u));
+  Serial.print(" min_heap=");
+  Serial.println((unsigned long)s_prefs.getUInt("minheap", 0u));
+  Serial.flush();
 }
 
 /**
@@ -80,10 +215,12 @@ void watchdog_service_init(void){
   s_wd[WD_STATE].required = true;
   s_wd[WD_SD].required = true;
   s_wd[WD_RECORD].required = false;
+  s_wd[WD_WEB].required = false;
   s_fault_handling = false;
   portEXIT_CRITICAL(&s_wd_mux);
 
   s_prefs_open = s_prefs.begin(WATCHDOG_PREFS_NAMESPACE, false);
+  watchdog_print_persistent_fault_();
 }
 
 void watchdog_kick(watchdog_source_t source){
@@ -106,9 +243,12 @@ void watchdog_set_required(watchdog_source_t source, bool required){
   const uint32_t now = watchdog_now_ms_();
 
   portENTER_CRITICAL(&s_wd_mux);
+  const bool was_required = s_wd[source].required;
   s_wd[source].required = required;
-  if(required){
-    // Enabling a source starts a fresh timeout window.
+  if(required && !was_required){
+    // Enabling a source starts a fresh timeout window.  Repeated calls with
+    // required=true must not refresh the heartbeat, otherwise the monitored
+    // source could never time out.
     s_wd[source].last_ms = now;
   }
   portEXIT_CRITICAL(&s_wd_mux);
@@ -128,6 +268,19 @@ void watchdog_persistent_fault_clear(void){
   }
 
   (void)s_prefs.remove(WATCHDOG_PREFS_KEY);
+  (void)s_prefs.remove("src");
+  (void)s_prefs.remove("age");
+  (void)s_prefs.remove("age_st");
+  (void)s_prefs.remove("age_sd");
+  (void)s_prefs.remove("age_rec");
+  (void)s_prefs.remove("age_web");
+  (void)s_prefs.remove("state");
+  (void)s_prefs.remove("err");
+  (void)s_prefs.remove("web");
+  (void)s_prefs.remove("usb");
+  (void)s_prefs.remove("sd");
+  (void)s_prefs.remove("heap");
+  (void)s_prefs.remove("minheap");
 }
 
 void watchdog_service_check(void){
@@ -137,12 +290,17 @@ void watchdog_service_check(void){
 
   const uint32_t now = watchdog_now_ms_();
   bool timeout = false;
+  watchdog_source_t failed_source = WD_COUNT;
+  uint32_t failed_age_ms = 0u;
+  uint32_t ages_ms[WD_COUNT] = {};
 
   portENTER_CRITICAL(&s_wd_mux);
   for(uint8_t i = 0u; i < (uint8_t)WD_COUNT; ++i){
-    if(s_wd[i].required && ((now - s_wd[i].last_ms) > (uint32_t)WATCHDOG_TIMEOUT_MS)){
+    ages_ms[i] = now - s_wd[i].last_ms;
+    if((!timeout) && s_wd[i].required && (ages_ms[i] > (uint32_t)WATCHDOG_TIMEOUT_MS)){
       timeout = true;
-      break;
+      failed_source = (watchdog_source_t)i;
+      failed_age_ms = ages_ms[i];
     }
   }
   portEXIT_CRITICAL(&s_wd_mux);
@@ -152,9 +310,10 @@ void watchdog_service_check(void){
   }
 
   s_fault_handling = true;
-  watchdog_persistent_fault_set_();
 
   const system_status_t st = state_task_get_status();
+  watchdog_persistent_fault_set_(failed_source, failed_age_ms, ages_ms, &st);
+  watchdog_print_fault_("WATCHDOG: timeout", failed_source, failed_age_ms, ages_ms, &st);
   const bool recording_related =
       (st.state == ST_RECORDING) ||
       (st.state == ST_STARTING) ||

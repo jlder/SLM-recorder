@@ -33,6 +33,7 @@
 
 static volatile bool s_touch_ready = false;
 static volatile bool s_touch_irq_pending = false;
+static bool s_touch_irq_attached = false;
 
 /**
  * Touch interrupt thunk records that the FT3168 interrupt line has indicated
@@ -129,7 +130,10 @@ bool touch_drv_init(void) {
   Wire.setClock(CFG_I2C_CLOCK_HZ);
 
   pinMode(TP_INT, INPUT_PULLUP);
-  detachInterrupt(digitalPinToInterrupt(TP_INT));
+  if(s_touch_irq_attached){
+    detachInterrupt(digitalPinToInterrupt(TP_INT));
+    s_touch_irq_attached = false;
+  }
 
   bool ok = false;
   for(uint8_t attempt = 0u; attempt < (uint8_t)TOUCH_INIT_ATTEMPTS; ++attempt){
@@ -143,6 +147,7 @@ bool touch_drv_init(void) {
   if(ok){
     s_touch_ready = true;
     attachInterrupt(digitalPinToInterrupt(TP_INT), TouchInterruptThunk, FALLING);
+    s_touch_irq_attached = true;
   }
 
   return ok;
