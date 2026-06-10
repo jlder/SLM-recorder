@@ -294,13 +294,13 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             <div id="calMenuPanel" class="hidden">
                 <div class="button-grid maintenance-grid">
                     <div class="cal-menu-item">
-                        <button class="btn btn-primary" onclick="openAccelCal()">Recorder Calibration</button>
+                        <button class="btn btn-primary" id="btnMenuRecorderCal" onclick="openAccelCal()">Recorder Calibration</button>
                         <div class="last-cal-heading"><div>Last Recorder</div><div>Calibration</div></div>
                         <div class="small mono last-cal-date" id="sensorCalDate">-</div>
                         <div class="small mono last-cal-date" id="sensorCalTime">-</div>
                     </div>
                     <div class="cal-menu-item">
-                        <button class="btn btn-primary" onclick="openInstallCal()">Installation Calibration</button>
+                        <button class="btn btn-primary" id="btnMenuInstallCal" onclick="openInstallCal()">Installation Calibration</button>
                         <div class="last-cal-heading"><div>Last Installation</div><div>Calibration</div></div>
                         <div class="small mono last-cal-date" id="installationCalDate">-</div>
                         <div class="small mono last-cal-date" id="installationCalTime">-</div>
@@ -651,6 +651,20 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 });
         }
 
+        function setButtonWarning(id, warning) {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            btn.classList.toggle('btn-warning', !!warning);
+            btn.classList.toggle('btn-primary', !warning);
+        }
+
+        function updateMaintenanceButtonState(data) {
+            // Match the device UI convention: a button leading to a required
+            // configuration/calibration action is amber instead of blue.
+            setButtonWarning('btnMenuRecorderCal', !(data && data.sensor_valid));
+            setButtonWarning('btnMenuInstallCal', !(data && data.installation_valid));
+        }
+
         function calStatus() {
             fetch('/api/cal/status')
                 .then(r => r.json())
@@ -664,6 +678,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     document.getElementById('sensorCalTime').textContent = sensorParts.time;
                     document.getElementById('installationCalDate').textContent = installParts.date;
                     document.getElementById('installationCalTime').textContent = installParts.time;
+                    updateMaintenanceButtonState(data);
                     const accelStatus = data.sensor_valid ? ('valid since ' + sensorDateText) : data.status;
                     const installStatus = data.installation_valid ? ('valid since ' + installDateText) : 'missing';
                     document.getElementById('calStatus').textContent = accelStatus;
