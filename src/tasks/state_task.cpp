@@ -74,7 +74,7 @@ static uint32_t s_state_tick = 0u;
 // Set when power-long is requested during recording.  The recorder first
 // closes the SD file through ST_STOPPING, then continues to ST_OFF.
 static bool s_shutdown_after_stop_requested = false;
-// Persistent watchdog fault acknowledgement gate.  When set, startup
+// Persistent watchdog fault acknowledgement latch.  When set, startup
 // waits for Power/Clear before normal BOOT checks continue.
 static bool s_watchdog_ack_pending = false;
 // Settings persistence is owned by settings_store. The State task only reads.
@@ -577,11 +577,13 @@ static void state_task_main(void *arg){
 
     if(s_watchdog_ack_pending){
       set_msg(MSG_FATAL_WDG_CLR);
+
       if(test_power_button(POWER_CLEAR_HOLD_MS) == true){
         watchdog_persistent_fault_clear();
         s_watchdog_ack_pending = false;
         state_set(ST_BOOT);
       }
+
       publish_status_snapshot_();
       continue;
     }

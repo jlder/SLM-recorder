@@ -257,7 +257,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             <h2>Main Menu</h2>
             <div class="button-grid main-menu-grid">
                 <button class="btn btn-primary" onclick="openFilesPage()">File Management</button>
-                <button class="btn btn-primary" onclick="openMaintenancePage()">Maintenance</button>
+                <button class="btn btn-primary" id="btnHomeMaintenance" onclick="openMaintenancePage()">Maintenance</button>
             </div>
         </div>
 
@@ -285,10 +285,15 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 <p><b>Maintenance is restricted.</b> Enter the recorder registration to unlock calibration and firmware update functions.</p>
                 <input type="password" id="calPassword" placeholder="Registration" class="mono" style="padding:10px; margin:5px;">
                 <div class="button-grid two-button-grid">
-                    <button class="btn btn-primary" onclick="calUnlock()">Unlock Maintenance</button>
+                    <button class="btn btn-primary" id="btnMaintenanceUnlock" onclick="calUnlock()">Unlock Maintenance</button>
                     <button class="btn btn-return" onclick="showHome()">Return</button>
                 </div>
                 <div id="calAuthStatus" class="small">Locked.</div>
+            </div>
+
+            <div id="watchdogDiagPanel" class="card">
+                <h2>Watchdog Diagnostic</h2>
+                <div id="watchdogDiagText" class="small mono">Loading...</div>
             </div>
 
             <div id="calMenuPanel" class="hidden">
@@ -418,6 +423,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             hideAllPages();
             document.getElementById('homeSection').classList.remove('hidden');
             updateStatus();
+            calStatus();
         }
 
         function openFilesPage() {
@@ -447,6 +453,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             document.getElementById('calMenuPanel').classList.add('hidden');
             resetAccelCalUi();
             resetInstallCalUi();
+            updateWatchdogDiag();
         }
 
         function showMaintenanceMenu() {
@@ -460,6 +467,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             resetAccelCalUi();
             resetInstallCalUi();
             calStatus();
+            updateWatchdogDiag();
         }
 
         function openAccelCal() {
@@ -661,8 +669,49 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         function updateMaintenanceButtonState(data) {
             // Match the device UI convention: a button leading to a required
             // configuration/calibration action is amber instead of blue.
+            const calRequired = !(data && data.sensor_valid && data.installation_valid);
+            setButtonWarning('btnHomeMaintenance', calRequired);
+            setButtonWarning('btnMaintenanceUnlock', calRequired);
             setButtonWarning('btnMenuRecorderCal', !(data && data.sensor_valid));
             setButtonWarning('btnMenuInstallCal', !(data && data.installation_valid));
+        }
+
+        function fmtBool(v) {
+            return v ? 'yes' : 'no';
+        }
+
+        function updateWatchdogDiag() {
+            fetch('/api/watchdog')
+                .then(r => r.json())
+                .then(data => {
+                    const panel = document.getElementById('watchdogDiagPanel');
+                    const text = document.getElementById('watchdogDiagText');
+                    if (!panel || !text) return;
+                    panel.classList.remove('hidden');
+                    if (!data || !data.available) {
+                        text.innerHTML = 'Last watchdog fault: none';
+                        return;
+                    }
+
+                    const status = data.active ? 'active / not acknowledged' : 'acknowledged';
+                    text.innerHTML =
+                        'Status: ' + escapeHtml(status) + '<br>' +
+                        'Source: ' + escapeHtml(data.source || 'unknown') + '<br>' +
+                        'Failed age: ' + escapeHtml(fmtAge(data.age_ms)) + '<br>' +
+                        'Ages [state, sd, record, web]: ' +
+                        escapeHtml(fmtAge(data.age_state_ms)) + ', ' +
+                        escapeHtml(fmtAge(data.age_sd_ms)) + ', ' +
+                        escapeHtml(fmtAge(data.age_record_ms)) + ', ' +
+                        escapeHtml(fmtAge(data.age_web_ms)) + '<br>' +
+                        'Recorder state: ' + escapeHtml(data.recorder_state) +
+                        ', last error: ' + escapeHtml(data.last_error) + '<br>' +
+                        'Web: ' + escapeHtml(fmtBool(data.web_active)) +
+                        ', USB: ' + escapeHtml(fmtBool(data.usb_present)) +
+                        ', SD: ' + escapeHtml(fmtBool(data.sd_present)) + '<br>' +
+                        'Heap: ' + escapeHtml(data.heap) +
+                        ', min heap: ' + escapeHtml(data.min_heap);
+                })
+                .catch(err => console.error(err));
         }
 
         function calStatus() {

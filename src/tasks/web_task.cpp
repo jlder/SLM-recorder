@@ -673,6 +673,48 @@ static void register_routes_once(){
     request->send(200, "application/json", buf);
   });
 
+  s_server.on("/api/watchdog", HTTP_GET, [](AsyncWebServerRequest *request){
+    watchdog_fault_info_t info = {};
+    if(!watchdog_get_fault_info(&info)){
+      request->send(200, "application/json", "{\"available\":false}");
+      return;
+    }
+
+    String out = "{";
+    out += "\"available\":true";
+    out += ",\"active\":";
+    out += info.active ? "true" : "false";
+    out += ",\"source\":\"";
+    out += watchdog_source_name(info.source);
+    out += "\"";
+    out += ",\"age_ms\":";
+    out += String((unsigned long)info.age_ms);
+    out += ",\"age_state_ms\":";
+    out += String((unsigned long)info.ages_ms[WD_STATE]);
+    out += ",\"age_sd_ms\":";
+    out += String((unsigned long)info.ages_ms[WD_SD]);
+    out += ",\"age_record_ms\":";
+    out += String((unsigned long)info.ages_ms[WD_RECORD]);
+    out += ",\"age_web_ms\":";
+    out += String((unsigned long)info.ages_ms[WD_WEB]);
+    out += ",\"recorder_state\":";
+    out += String((unsigned long)info.recorder_state);
+    out += ",\"last_error\":";
+    out += String((long)info.last_error);
+    out += ",\"web_active\":";
+    out += info.web_active ? "true" : "false";
+    out += ",\"usb_present\":";
+    out += info.usb_present ? "true" : "false";
+    out += ",\"sd_present\":";
+    out += info.sd_present ? "true" : "false";
+    out += ",\"heap\":";
+    out += String((unsigned long)info.heap);
+    out += ",\"min_heap\":";
+    out += String((unsigned long)info.min_heap);
+    out += "}";
+    request->send(200, "application/json", out);
+  });
+
   s_server.on("/api/info", HTTP_GET, [](AsyncWebServerRequest *request){
     const bool present = (sd_error_get() != ERR_SD_NO_CARD);
     uint64_t sd_total_bytes = 0u;
@@ -715,24 +757,28 @@ static void register_routes_once(){
     request->send(200, "application/json", out);
 });
 
-  // Raw view for debugging: returns the SD task JSON array directly
+  // Sequential download context.  The SD task opens the file once in
+  // sd_files_download_begin(), then the HTTP chunk callback reads the next
+  // sequential bytes with sd_files_download_read().
 struct WebDownloadCtx {
   String   path;
   uint32_t size;
+  uint32_t sent;
   bool     released;
 
   WebDownloadCtx(const String& p, uint32_t s)
-      : path(p), size(s), released(false) {}
+      : path(p), size(s), sent(0u), released(false) {}
 
   /**
-   * Releases the Web SD busy flag once for this download context.
+   * Close the active sequential download and release the Web SD busy flag.
    *
    * Inputs: None.
    * Returns: None.
    */
-  void release_busy_once(void) {
+  void release_once(void) {
     if (!released) {
       released = true;
+      (void)sd_files_download_end();
       web_sd_end();
     }
   }
@@ -768,58 +814,60 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
       path = String("/") + path;
     }
 
-    uint32_t file_size = 0u;
-    if (!sd_files_get_file_size(path.c_str(), &file_size)) {
-      web_sd_end();
-      request->send(404, "text/plain", "not found");
-      return;
-    }
-
     const int slash = file.lastIndexOf('/');
     if (slash >= 0) {
       file = file.substring(slash + 1);
     }
 
+    uint32_t file_size = 0u;
+    if (!sd_files_download_begin(path.c_str(), &file_size)) {
+      web_sd_end();
+      request->send(404, "text/plain", "not found");
+      return;
+    }
+
     WebDownloadCtx *ctx = new (std::nothrow) WebDownloadCtx(path, file_size);
     if (ctx == nullptr) {
+      (void)sd_files_download_end();
       web_sd_end();
       request->send(500, "text/plain", "oom");
       return;
     }
 
-    AsyncWebServerResponse *response = request->beginChunkedResponse(
+    AsyncWebServerResponse *response = request->beginResponse(
       content_type_from_name(file),
+      (size_t)file_size,
       [ctx](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-        // End of stream.  Cleanup is centralized in request->onDisconnect()
-        // so aborted transfers and completed transfers use the same path.
-        if (index >= ctx->size) {
+        (void)index;
+
+        // End of stream.  Close the sequential download immediately; the
+        // disconnect hook below still owns deletion of the context object.
+        if (ctx->sent >= ctx->size) {
+          ctx->release_once();
           return 0;
         }
 
-        const uint32_t remain  = ctx->size - (uint32_t)index;
+        const uint32_t remain  = ctx->size - ctx->sent;
         const uint32_t to_read = (remain < (uint32_t)maxLen)
                                    ? remain
                                    : (uint32_t)maxLen;
 
         uint32_t got = 0u;
-        const bool ok = sd_files_read(ctx->path.c_str(),
-                                      (uint32_t)index,
-                                      to_read,
-                                      buffer,
-                                      &got);
+        const bool ok = sd_files_download_read(buffer, to_read, &got);
 
         if ((!ok) || (got == 0u)) {
-          // Signal end-of-stream/read failure.  The disconnect hook owns
-          // cleanup to avoid double delete paths.
+          // Signal end-of-stream/read failure and release the open file now.
+          ctx->release_once();
           return 0;
         }
 
+        ctx->sent += got;
         return (size_t)got;
       });
 
     if (response == nullptr) {
+      ctx->release_once();
       delete ctx;
-      web_sd_end();
       request->send(500, "text/plain", "response_alloc");
       return;
     }
@@ -828,7 +876,7 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     // for aborted client transfers.  web_sd_try_begin() also has a stale-lock
     // timeout as a final recovery guard.
     request->onDisconnect([ctx]() {
-      ctx->release_busy_once();
+      ctx->release_once();
       delete ctx;
     });
 

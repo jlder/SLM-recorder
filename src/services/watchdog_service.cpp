@@ -74,6 +74,7 @@ static void watchdog_persistent_fault_set_(watchdog_source_t source,
   }
 
   (void)s_prefs.putBool(WATCHDOG_PREFS_KEY, true);
+  (void)s_prefs.putBool("valid", true);
   (void)s_prefs.putUChar("src", (uint8_t)source);
   (void)s_prefs.putUInt("age", age_ms);
 
@@ -267,20 +268,40 @@ void watchdog_persistent_fault_clear(void){
     return;
   }
 
+  // Clear only the active fault latch.  Keep the diagnostic snapshot so the
+  // Web maintenance page can still show the watchdog cause after the operator
+  // has acknowledged the message on the device UI.
   (void)s_prefs.remove(WATCHDOG_PREFS_KEY);
-  (void)s_prefs.remove("src");
-  (void)s_prefs.remove("age");
-  (void)s_prefs.remove("age_st");
-  (void)s_prefs.remove("age_sd");
-  (void)s_prefs.remove("age_rec");
-  (void)s_prefs.remove("age_web");
-  (void)s_prefs.remove("state");
-  (void)s_prefs.remove("err");
-  (void)s_prefs.remove("web");
-  (void)s_prefs.remove("usb");
-  (void)s_prefs.remove("sd");
-  (void)s_prefs.remove("heap");
-  (void)s_prefs.remove("minheap");
+}
+
+bool watchdog_get_fault_info(watchdog_fault_info_t *info){
+  if((info == nullptr) || !s_prefs_open){
+    return false;
+  }
+
+  if(!s_prefs.getBool("valid", false)){
+    return false;
+  }
+
+  info->active = s_prefs.getBool(WATCHDOG_PREFS_KEY, false);
+  info->source = (watchdog_source_t)s_prefs.getUChar("src", (uint8_t)WD_COUNT);
+  info->age_ms = s_prefs.getUInt("age", 0u);
+  info->ages_ms[WD_STATE] = s_prefs.getUInt("age_st", 0u);
+  info->ages_ms[WD_SD] = s_prefs.getUInt("age_sd", 0u);
+  info->ages_ms[WD_RECORD] = s_prefs.getUInt("age_rec", 0u);
+  info->ages_ms[WD_WEB] = s_prefs.getUInt("age_web", 0u);
+  info->recorder_state = s_prefs.getUInt("state", 0u);
+  info->last_error = s_prefs.getInt("err", 0);
+  info->web_active = s_prefs.getBool("web", false);
+  info->usb_present = s_prefs.getBool("usb", false);
+  info->sd_present = s_prefs.getBool("sd", false);
+  info->heap = s_prefs.getUInt("heap", 0u);
+  info->min_heap = s_prefs.getUInt("minheap", 0u);
+  return true;
+}
+
+const char *watchdog_source_name(watchdog_source_t source){
+  return watchdog_source_name_(source);
 }
 
 void watchdog_service_check(void){
