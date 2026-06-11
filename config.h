@@ -94,7 +94,7 @@
 // Hardware version identifies the recorder hardware/prototype revision.
 // Software version is incremented during prototype development and before release.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.07"
+#define RECORDER_SOFTWARE_VERSION      "1.08"
 #define RECORDER_VERSION_TEXT          "sw ver " RECORDER_SOFTWARE_VERSION "\nhw ver " RECORDER_HARDWARE_VERSION
 
 // Storage / SD

@@ -166,7 +166,27 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         .bad { color: #e74c3c; font-weight: bold; }
         .mono { font-family: Consolas, monospace; }
         .small { font-size: 13px; color: #555; }
-        .face-active { background: #d6eaff !important; }
+        .face-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(58px, 1fr));
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .face-chip {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 7px;
+            border: 1px solid #dfe6e9;
+            border-radius: 5px;
+            background: #fff;
+            color: #111;
+            font-weight: bold;
+        }
+        .face-chip-warn { color: #f39c12; border-color: #f39c12; }
+        .face-chip-ok { color: #27ae60; border-color: #27ae60; }
+        .face-chip-active { border-width: 4px; padding: 2px 4px; }
 
         .section-title-row {
             display: flex;
@@ -243,6 +263,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             .file-name { font-size: 13px; }
             .file-btn { width: 88px; font-size: 12px; }
             .cal-table { display: block; overflow-x: auto; white-space: nowrap; }
+            .face-summary-grid { grid-template-columns: repeat(2, minmax(58px, 1fr)); }
         }
     </style>
 </head>
@@ -333,8 +354,8 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 <div>Samples processed: <span id="calSamplesProcessed" class="mono">0</span></div>
                 <div>Lowest stddev: <span id="calLowestNoise" class="mono">-</span></div>
                 <div>Last best update: <span id="calLastBestUpdate" class="mono">-</span></div>
-                <div>Faces: <span id="calFaceSummary" class="mono">+X — | -X — | +Y — | -Y — | +Z — | -Z —</span></div>
-                <div class="candidate"><span id="calCandidate" class="warn">Start calibration and place the recorder on a face.</span></div>
+                <div>Faces:</div>
+                <div id="calFaceSummary" class="mono face-summary-grid"></div>
             </div>
 
             <div class="card">
@@ -758,11 +779,10 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             document.getElementById('calSamplesProcessed').textContent = '0';
             document.getElementById('calLowestNoise').textContent = '-';
             document.getElementById('calLastBestUpdate').textContent = '-';
-            document.getElementById('calFaceSummary').innerHTML = '+X — | -X — | +Y — | -Y — | +Z — | -Z —';
+            updateFaceSummary(null, -1, false);
             calLastBestLocalMs = 0;
             calLastBestLocalUpdates = 0;
             calLastBestLocalFace = -1;
-            document.getElementById('calCandidate').textContent = 'Start calibration and place the recorder on a face.';
             for (let i = 0; i < 3; i++) {
                 document.getElementById('resGain' + i).textContent = '-';
                 document.getElementById('resOffset' + i).textContent = '-';
@@ -813,21 +833,29 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             return Number(v).toFixed(2) + ' mg';
         }
 
-        function updateFaceSummary(faceValid, activeIdx) {
+        function updateFaceSummary(faceValid, activeIdx, active) {
             const names = ['+X', '-X', '+Y', '-Y', '+Z', '-Z'];
             const parts = [];
             for (let i = 0; i < names.length; i++) {
-                const ok = !!(faceValid && faceValid[i]);
-                const text = names[i] + ' ' + (ok ? 'OK' : '—');
-                if (i === activeIdx) {
-                    parts.push('<span class="warn">' + text + '</span>');
-                } else if (ok) {
-                    parts.push('<span class="ok">' + text + '</span>');
-                } else {
-                    parts.push('<span>' + text + '</span>');
+                const ok = !!(active && faceValid && faceValid[i]);
+                const isActive = !!active && (i === activeIdx);
+                const result = ok ? 'OK' : '—';
+                let cls = 'face-chip';
+                if (ok) {
+                    cls += ' face-chip-ok';
                 }
+                if (isActive && !ok) {
+                    cls += ' face-chip-warn';
+                }
+                if (isActive) {
+                    cls += ' face-chip-active';
+                }
+                parts.push('<div class="' + cls + '">' +
+                           '<span class="face-name">' + names[i] + '</span>' +
+                           '<span class="face-result">' + result + '</span>' +
+                           '</div>');
             }
-            document.getElementById('calFaceSummary').innerHTML = parts.join(' | ');
+            document.getElementById('calFaceSummary').innerHTML = parts.join('');
         }
 
         function updateResultTable(data) {
@@ -858,15 +886,6 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                         return;
                     }
 
-                    const cand = document.getElementById('calCandidate');
-                    if (data.active && data.candidate_valid) {
-                        cand.innerHTML = '<span class="ok">Sampling ' + data.candidate_face + '. Leave still to improve, or rotate to another face.</span>';
-                    } else if (data.active) {
-                        cand.innerHTML = '<span class="warn">Waiting for a stable face.</span>';
-                    } else {
-                        cand.textContent = 'Start calibration and place the recorder on a face.';
-                    }
-
                     const currentFaceName = data.current_face_valid ? data.current_face : (data.candidate_valid ? data.candidate_face : '-');
                     document.getElementById('calSamplesProcessed').textContent = data.samples || 0;
                     const activeIdx = currentFaceName !== '-' ? faceIndexFromName(currentFaceName) : -1;
@@ -885,7 +904,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     }
                     document.getElementById('calLastBestUpdate').textContent = activeUpdates > 0 ? fmtAgeFromLocal(calLastBestLocalMs) : '-';
 
-                    updateFaceSummary(data.face_valid, activeIdx);
+                    updateFaceSummary(data.face_valid, activeIdx, !!data.active);
                     updateResultTable(data);
                 })
                 .catch(err => logCal('sample error: ' + err));
