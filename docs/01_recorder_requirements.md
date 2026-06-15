@@ -73,8 +73,8 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_DIMMED` | 60 | standby display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_VERSION_TEXT` | `ver 1.00/1.00` | main display version text |
+| `RECORDER_SOFTWARE_VERSION` | `1.08` | version text displayed on device |
+| `RECORDER_VERSION_TEXT` | `sw ver 1.08` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
 
@@ -93,10 +93,13 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | Configuration | Current value | Requirement use |
 |---|---:|---|
 | `CALIBRATION_PREFS_NAMESPACE` | `slm-cal` | calibration NVS namespace |
-| `CALIBRATION_RECORD_VERSION` | 3 | calibration record version |
+| `CALIBRATION_RECORD_VERSION` | 3 | calibration record version written in file block `0x72` |
+| `CALIBRATION_SENSOR_STORAGE_VERSION` | 1 | sensor-calibration NVS storage schema version |
+| `CALIBRATION_INSTALL_STORAGE_VERSION` | 1 | installation-calibration NVS storage schema version |
 | `CALIBRATION_GRAVITY_MG` | 1000 mg | calibration reference gravity |
 | `CALIBRATION_VALIDITY_MONTHS` | 12 months | calibration expiration |
 | `CALIBRATION_FACE_GRAVITY_TOL_PCT` | 10% | face-axis gravity tolerance |
+| `INSTALLATION_GRAVITY_TOL_PCT` | 10% | installation-calibration gravity magnitude tolerance |
 | `CALIBRATION_SAMPLE_PERIOD_MS` | 50 ms | calibration sampling period |
 | `CALIBRATION_WINDOW_SAMPLE_COUNT` | 40 samples | calibration stability window |
 | `CALIBRATION_STABILITY_STDDEV_MAX_MG` | 1.5 mg | calibration stability threshold |
@@ -112,7 +115,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `PACKET_TYPE_ACCEL` | `0x70` | acceleration block identifier |
 | `PACKET_TYPE_STATUS` | `0x71` | status/close block identifier |
 | `PACKET_TYPE_CALIBRATION` | `0x72` | calibration block identifier |
-| `FILENAME_MAX_LENGTH` | 64 | maximum generated filename length |
+| `FILENAME_MAX_LENGTH` | 64 | maximum generated daily filename/prefix length |
 
 ### 3.6 SD/storage
 
@@ -153,6 +156,10 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `PMU_USB_MAX_RETRIES` | 3 | PMU USB status read retries |
 | `TOUCH_READ_MAX_RETRIES` | 3 | touch read retries |
 | `RTC_READ_MAX_RETRIES` | 3 | RTC read retries |
+| `WATCHDOG_TIMEOUT_MS` | 3000 ms | software watchdog timeout |
+| `WATCHDOG_CHECK_PERIOD_MS` | 1000 ms | watchdog checker period |
+| `WATCHDOG_PREFS_NAMESPACE` | `slm-fault` | watchdog persistent-fault NVS namespace |
+| `WATCHDOG_PREFS_KEY` | `wdg` | watchdog persistent-fault NVS key |
 
 
 ## 4. Operational Requirements
@@ -361,7 +368,9 @@ When START WIFI is selected, the recorder shall run a Web server at:
 http://192.168.4.1/
 ```
 
-The Web server shall support file management, recorder calibration, and firmware update from a remote device connected to the recorder WiFi access point.
+The Web server shall support file management, recorder calibration, firmware update, and a lightweight `/diag` health-check endpoint from a remote device connected to the recorder WiFi access point.
+
+The Web listener shall be created, route-registered, and started once. Web ON/OFF shall control the WiFi access point and application-side access, but shall not call `AsyncWebServer::end()` during normal Web OFF. This is an implementation constraint of the selected AsyncWebServer/AsyncTCP stack: port-80 dispatch is not reliable after an `AsyncWebServer::end()` / later `begin()` lifecycle when HTTP traffic has occurred, even though AP, DHCP, and lower TCP layers remain functional.
 
 Calibration access shall be protected because calibration is a maintenance/mechanical activity and not an everyday pilot action. The calibration menu and calibration action endpoints shall require the operator to enter the recorder registration string as the calibration password.
 
@@ -376,6 +385,8 @@ Status:
 #### OP-WEB-002 — Web unavailable during recording
 
 Web/file-management support shall not interfere with active recording.
+
+The persistent HTTP listener may remain allocated internally, but Web access is not operator-available during recording because the access point is off and SD file-management authorization is disabled.
 
 Status:
 
@@ -456,6 +467,16 @@ Status:
 
 - **Implemented.**
 
+#### OP-SET-006 — Settings before calibration/Web access
+
+When settings are incomplete, the recorder shall display `NEED SETTINGS` in preference to calibration-required messages.
+
+The START WIFI action shall be disabled while required settings are incomplete because the WiFi password is one of the required settings. The operator shall complete SETTINGS before Web calibration can be started.
+
+Status:
+
+- **Implemented.**
+
 ### 4.5 Calibration
 
 #### OP-CAL-001 — Calibration required before recording
@@ -498,7 +519,7 @@ Status:
 
 #### OP-CAL-005 — Calibration review and save
 
-The operator shall be able to review current calibration results and stored NVS calibration values before saving the new calibration. The accelerometer page shall use a simplified live progress area showing validity status with NVS date when valid, session state, current face, samples processed on that face, lowest stddev for that face, current-face update count, time since the last best update, and a compact six-face completion summary. The accelerometer workflow text shall instruct the operator to start calibration, place the recorder still on each of its six faces, wait for each face to show OK, leave the recorder on a given face until the last best update is more than 10 seconds old when practical, and save calibration when all six face values are satisfactory. The face summary shall show unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. The installation page shall show validity status with NVS date when valid, session state, samples processed, lowest noise, update count, time since the last best update, and the candidate or stored installation matrix. The installation workflow text shall direct the operator to put the glider in flight-level attitude with wings leveled following the AMM procedure, confirm sensor calibration is already valid, start calibration, leave the glider still, wait until the last best update is more than 10 seconds old when practical, and save calibration when noise is satisfactory.
+The operator shall be able to review current calibration results and stored NVS calibration values before saving the accepted calibration. The accelerometer page shall use a simplified live progress area showing validity status with NVS date when valid, session state, current face, samples processed on that face, lowest stddev for that face, current-face update count, time since the last best update, and a compact six-face completion summary. The accelerometer workflow text shall instruct the operator to start calibration, place the recorder still on each of its six faces, wait for each face to show OK, leave the recorder on a given face until the last best update is more than 10 seconds old when practical, and save calibration when all six face values are satisfactory. The face summary shall show unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. The installation page shall show validity status with NVS date when valid, session state, samples processed, lowest noise, update count, time since the last best update, and the candidate or stored installation matrix. The installation workflow text shall direct the operator to put the glider in flight-level attitude with wings leveled following the AMM procedure, confirm sensor calibration is already valid, start calibration, leave the glider still, wait until the last best update is more than 10 seconds old when practical, and save calibration when noise is satisfactory.
 
 Status:
 
@@ -506,7 +527,7 @@ Status:
 
 #### OP-CAL-006 — Calibration fault recovery
 
-If calibration fails plausibility checks, the recorder shall not overwrite the previous valid calibration. The operator shall be able to retry calibration before rejecting the recorder.
+If calibration fails plausibility checks, the recorder shall retain the stored valid calibration. The operator shall be able to retry calibration before rejecting the recorder.
 
 Status:
 
@@ -643,7 +664,7 @@ The page shall allow the operator to:
 
 - visualize/list files on SD;
 - download files from SD;
-- archive files to `/processed` when delete is requested.
+- archive root recording files to `/processed` when delete is requested.
 
 Web file management shall be accessible when recording is not active, including when recording is blocked by SD max-file-count maintenance while SD free space is still available.
 
@@ -673,6 +694,24 @@ Example:
 ```
 
 The file shall be removed from the active root-file list only after the move succeeds.
+
+#### OP-SD-007 — Daily recording file policy
+
+For a given registration and UTC/local RTC date token, the recorder shall store all recording sessions of that day in one root-level daily recording file.
+
+The daily filename pattern shall be:
+
+```text
+/REGISTRATION_YYYYMMDD_N.bin
+```
+
+where `N` is the number of recording sessions that have been started in that daily file.
+
+On the first session of the day, `N` shall be `1`. For each subsequent session on the same day, the recorder shall rename the existing matching daily file from `_N.bin` to `_(N+1).bin`, then open it in append mode and write the session data to the end of the same file.
+
+If more than one root file matches the same registration/date daily prefix, the recorder shall treat this as an SD fault rather than guessing which file should be appended.
+
+Files that do not match the daily filename pattern shall not be selected for append/rename matching.
 
 Status:
 
@@ -782,6 +821,38 @@ Status:
 
 - **Implemented.**
 
+### 4.11 Software Watchdog
+
+#### OP-WDG-001 — Software watchdog supervision
+
+The recorder shall monitor critical task progress using software watchdog
+heartbeats.
+
+Monitored sources:
+
+```text
+state_task: required continuously
+sd_task:    required continuously
+recording:  required only while RECORDING
+```
+
+Each required source shall refresh its heartbeat before `WATCHDOG_TIMEOUT_MS`
+expires. The watchdog check is performed from the Arduino `.ino` loop every
+`WATCHDOG_CHECK_PERIOD_MS`.
+
+If a watchdog timeout occurs, the recorder shall:
+
+1. store a persistent watchdog fault flag in NVS;
+2. if recording is active, request a controlled SD close;
+3. wait up to `WATCHDOG_TIMEOUT_MS` for the close to complete;
+4. request PMU shutdown.
+
+On startup, after the UI and state-task local services are initialized, the
+recorder shall display `FATAL WDG/CLR` in red before normal BOOT checks
+continue. Pressing the power/clear button shall clear the persistent watchdog
+flag and allow normal BOOT checks to continue. The watchdog fault is an operator acknowledgement latch, not
+a permanent recording block.
+
 ## 5. Requirement Implementation Allocation
 
 | Operational requirement | Primary code allocation | Validation candidates |
@@ -824,6 +895,7 @@ Status:
 | OP-SD-004 | `sd_task`, `sd_storage` | VAL-SD-003 |
 | OP-SD-005 | `web_task`, `sd_files`, `sd_storage` | VAL-WIFI-001 |
 | OP-SD-006 | `web_task`, `sd_files`, `sd_storage` | Web file archive validation |
+| OP-SD-007 | `record_format`, `sd_task`, `sd_storage` | daily recording file validation |
 | OP-FILE-001 | `record_format`, `state_task`, `sd_task`, `ring_buffer` | output file inspection |
 | OP-FILE-002 | `record_format`, `sd_task` | output file inspection |
 | OP-FILE-003 | `record_format`, `sd_task`, `calibration_service` | output file inspection |
@@ -832,6 +904,7 @@ Status:
 | OP-PERF-002 | `record_format` | output file inspection |
 | OP-PERF-003 | `ring_buffer`, `state_task`, `sd_task`, FreeRTOS core allocation | VAL-PERF-002 |
 | OP-MSG-001 | `state_task`, `error_manager`, `ui_message` | message/error validation |
+| OP-WDG-001 | `watchdog_service`, `SLM_recorder.ino`, `state_task`, `sd_task` | watchdog source review and manual fault review |
 
 ## 6. Recorded-File Validation Evidence
 
@@ -873,10 +946,10 @@ result: PASS
 | `INST CAL REQ` | Amber | installation calibration required | yes, perform password-protected Web installation calibration menu (`START WIFI`) |
 | `NO SD` | Amber | SD/storage warning | yes, insert SD card |
 | `SD LOW` | Amber | SD/storage warning | yes, insert an SD card with enough free space |
-| `SD FULL (FILES)` | Amber | SD file-count maintenance | yes, download and delete/move files using recorder Web interface (`START WIFI`) |
+| `SD FULL (FILES)` | Amber | SD file-count maintenance | yes, download and archive root files using recorder Web interface (`START WIFI`) |
 | `LOW BATT` | Amber | power warning | yes, connect USB |
 | `BATTERY LOW` / `RECHARGE WITH USB` | Red | power too low | yes, connect USB; shown as a black full-screen shutdown notice for 10 seconds before PMU shutdown |
-| `CAL FAULT` | Red | calibration fault | possible, perform factory reset and perform new calibrations |
+| `CAL FAULT` | Red | calibration fault | possible, perform factory reset and perform calibrations |
 | `ACCEL ERR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
 | `RTC ERROR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
 | `PMU ERROR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
@@ -1023,9 +1096,23 @@ Notes:
 - `gravity_mg` is not stored because the reference value is fixed by the calibration algorithm/configuration.
 - `face_valid` is not stored because recording can only start after all six faces have been captured and a valid calibration has been saved.
 
-### 8.5 Expected File Sequence
+### 8.5 Recording File Naming and Session Sequence
 
-A normal file sequence is:
+Recording files use a daily-file policy. `record_format` builds the daily prefix from registration and date only:
+
+```text
+/REGISTRATION_YYYYMMDD
+```
+
+`sd_storage` appends the session suffix and extension. The first session of the day uses:
+
+```text
+/REGISTRATION_YYYYMMDD_1.bin
+```
+
+For each subsequent recording session on the same day, the existing file is renamed to the next suffix, for example `_2.bin`, and opened in append mode. The suffix is the daily session count.
+
+Each session appended to the daily file has the normal session block sequence:
 
 ```text
 0x72 calibration block
@@ -1044,48 +1131,9 @@ Items to continue monitoring:
 | Item | Status |
 |---|---|
 | Final acceptance tolerance for 20 Hz timing/jitter | validation method exists; acceptance tolerance can still be formalized |
-| Continued recorded-file validation after binary format changes | required after each block-format change |
+| Recorded-file validation for binary format revisions | required for each block-format revision |
+| Daily recording file behavior | validate first session creates `_1.bin`; second same-day session renames/appends to `_2.bin`; non-daily-pattern files are ignored for append/rename matching |
 
 
-#### OP-SET-006 — Settings before calibration/Web access
-
-When settings are incomplete, the recorder shall display `NEED SETTINGS` in preference to calibration-required messages.
-
-The START WIFI action shall be disabled while required settings are incomplete because the WiFi password is one of the required settings. The operator shall complete SETTINGS before Web calibration can be started.
-
-Status:
-
-- **Implemented.**
 
 
-## OP-WDG-001 — Software watchdog supervision
-
-The recorder shall monitor critical task progress using software watchdog
-heartbeats.
-
-Monitored sources:
-
-```text
-state_task: required continuously
-sd_task:    required continuously
-recording:  required only while RECORDING
-```
-
-Each required source shall refresh its heartbeat before `WATCHDOG_TIMEOUT_MS`
-expires. The watchdog check is performed from the Arduino `.ino` loop every
-`WATCHDOG_CHECK_PERIOD_MS`.
-
-If a watchdog timeout occurs, the recorder shall:
-
-1. store a persistent watchdog fault flag in NVS;
-2. if recording is active, request a controlled SD close;
-3. wait up to `WATCHDOG_TIMEOUT_MS` for the close to complete;
-4. request PMU shutdown.
-
-On startup, after the UI and state-task local services are initialized, the
-recorder shall display `FATAL WDG/CLR` in red before normal BOOT checks
-continue. Pressing the power/clear button shall clear the persistent watchdog
-flag and allow normal BOOT checks to continue. The watchdog fault is an operator acknowledgement latch, not
-a permanent recording block.
-
-The 0x72 calibration block shall include the active sensor calibration coefficients and the active installation calibration matrix so each recording file carries the corrections used to generate recorded acceleration samples. The persistent calibration record shall store sensor calibration and installation calibration with independent validity and timestamp fields. The calibration NVS checksum shall be calculated over an explicit packed storage representation, not over runtime C++ struct padding.

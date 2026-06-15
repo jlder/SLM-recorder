@@ -125,9 +125,12 @@ The Web interface supports:
 
 - SD file listing;
 - file download;
-- file delete/archive (delete moves the files to the /processed folder);
+- file archive through the Delete button (the file is moved to `/processed`);
 - calibration;
-- firmware update (the firmware can be updated only when USB power is connected to the device. The firmware releases are available in the firmware folder of the project)
+- firmware update (the firmware can be updated only when USB power is connected to the device. The firmware releases are available in the firmware folder of the project);
+- a lightweight health-check endpoint at `http://192.168.4.1/diag`.
+
+Implementation note: the HTTP listener is created, route-registered, and started once. START WIFI / BACK only start and stop the ESP32 access point and Web-side application activity. The firmware intentionally does not call `AsyncWebServer::end()` during normal Web OFF because the selected AsyncWebServer/AsyncTCP stack does not provide a reliable stop/restart lifecycle for port-80 dispatch after HTTP traffic.
 
 ## 8. SD Card Behavior
 
@@ -138,6 +141,14 @@ Recording requires:
 - root recording file count below the configured limit;
 - valid settings;
 - valid calibration.
+
+Recording files use a daily-file policy. The first recording session of a day creates a file named:
+
+```text
+/REGISTRATION_YYYYMMDD_1.bin
+```
+
+For each subsequent session on the same day, the existing daily file is renamed to the next session count, for example `_2.bin`, and the session data is appended to that same file. The suffix is the number of recording sessions contained in the daily file.
 
 Important SD conditions:
 

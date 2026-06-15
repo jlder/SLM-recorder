@@ -9,7 +9,7 @@ firmware release.
 | ESPAsync WebServer | ESP32Async / me-no-dev lineage | LGPL-3.0 | 3.11.0 | https://github.com/ESP32Async/ESPAsyncWebServer |
 | GFX Library for Arduino / Arduino_GFX | Moon On Our Nation; includes Adafruit-derived code | BSD-2-Clause | 1.6.0 | https://github.com/moononournation/Arduino_GFX |
 | SensorLib | Lewis He | MIT | 0.3.1 | https://github.com/lewisxhe/SensorLib |
-| XPowersLib / XPowerLib | Lewis He | MIT | 0.3.3 | https://github.com/lewisxhe/XPowersLib |
+| XPowersLib / XPowerLib | Lewis He | MIT | 0.3.0 | https://github.com/lewisxhe/XPowersLib |
 | LVGL | LVGL project / Gabor Kiss-Vamosi | MIT | 9.3.0 | https://github.com/lvgl/lvgl |
 
 ## Release Notes

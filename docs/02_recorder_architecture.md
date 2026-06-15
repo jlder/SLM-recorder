@@ -9,7 +9,7 @@ Copyright (c) 2026 AgingGliders
 
 This document captures the recorder software architecture and operating concept.
 
-It combines the previous scope/operational-concept material and the architecture material into one document so that:
+This document defines the recorder software architecture and operating concept so that:
 
 - requirements remain in `01_recorder_requirements.md`;
 - architecture and scope decisions remain here;
@@ -150,7 +150,7 @@ flowchart LR
 | `sd_storage` | Owns raw SD/MMC and filesystem operations |
 | `sd_files` | Provides authorized support file-management access for Web operations |
 | `ring_buffer` | Buffers formatted recording blocks between acquisition and SD writing |
-| `record_format` | Builds recording data/status/calibration records |
+| `record_format` | Builds recording data/status/calibration records and the daily recording filename prefix |
 | `settings_store` | Stores and loads required user settings in NVS |
 | `datetime_service` | Provides shared date/time cache and RTC synchronization |
 | `calibration_store` | Stores latest valid calibration and calibration-fault latch in NVS |
@@ -202,9 +202,11 @@ The UI does not independently create recorder-core error messages.
 
 ### 8.4 `web_task`
 
-`web_task` owns WiFi/AP/server lifecycle and Web endpoints.
+`web_task` owns WiFi/AP lifecycle and Web endpoints. The `AsyncWebServer` object is allocated once, routes are registered once, and the listener is started once. Web ON/OFF controls the ESP32 access point and application-side cleanup/authorization, not the lifetime of the HTTP listener.
 
-The Web page is support presentation. Calibration backend logic resides in `calibration_service`; Web handlers request actions and display backend state. Firmware update upload handling resides in `web_task` and uses the ESP32 Arduino `Update` API.
+This server-once lifecycle is intentional. The selected AsyncWebServer/AsyncTCP stack does not provide a reliable port-80 stop/restart lifecycle after HTTP traffic, so the listener remains alive while Web access is controlled by the AP lifecycle.
+
+The Web page is support presentation. Calibration backend logic resides in `calibration_service`; Web handlers request actions and display backend state. Firmware update upload handling resides in `web_task` and uses the ESP32 Arduino `Update` API. A permanent `/diag` route provides a lightweight Web/AP health check.
 
 Calibration Web access is intentionally gated because calibration is a maintenance/mechanical activity. The operator must unlock calibration using the recorder registration string. After authorization, the Web UI shows a calibration menu with separate Accelerometer Calibration and Installation Calibration entries and the last saved date for each calibration type. Calibration action/sample/save endpoints require the same per-client calibration authorization.
 
@@ -217,7 +219,7 @@ Calibration Web access is intentionally gated because calibration is a maintenan
 - latest valid calibration record;
 - calibration-fault latch.
 
-Only the latest valid calibration is stored in NVS. Calibration history is recovered from recording files because each recording now includes calibration block `0x72`.
+Only the latest valid calibration is stored in NVS. Each recording file contains calibration block `0x72`, which provides the calibration record associated with that recording.
 
 ### 9.2 Calibration session ownership
 
@@ -368,7 +370,9 @@ Wake conditions are touch, power/clear button press, record button press, USB in
 
 ## 18. WiFi Support Power Rule
 
-WiFi/AP support is user-selected from MENU. The AP/server are stopped when the operator presses the menu BACK button to return to the main page, or when state_task disables Web support during state transitions such as recording.
+WiFi/AP support is user-selected from MENU. The AP is stopped when the operator presses the menu BACK button to return to the main page, or when `state_task` disables Web support during state transitions such as recording.
+
+The HTTP listener is not stopped in normal operation. It remains allocated and started once because the tested AsyncWebServer/AsyncTCP stack does not reliably recover port-80 dispatch after `AsyncWebServer::end()` has been called following real HTTP traffic. When Web support is OFF, the listener is not exposed to the operator because the AP is down and SD file-management authorization is disabled.
 
 The UI loop runs standby/wake selection before `lv_timer_handler()` so the standby screen is flushed immediately and the normal UI is not shown dimmed as an intermediate frame.
 
@@ -391,6 +395,14 @@ Standby is intentionally not entered from MENU, SETTINGS, or setting-edit pages 
 ## 20. SD Archive Behavior
 
 The Web delete action is implemented as an archive operation. Root-level recording files are moved to `/processed`; the folder is created if needed, and destination name collisions are resolved with a numeric suffix. The normal Web file list remains root-file oriented, so processed files are hidden from the active file list.
+
+### 11.5 Daily recording file policy
+
+Recording files are grouped by registration and date. `record_format` builds the date-only prefix `/REGISTRATION_YYYYMMDD`. `sd_storage` owns the filesystem policy that turns this prefix into `/REGISTRATION_YYYYMMDD_N.bin`.
+
+The first session of a day creates `_1.bin`. If another session starts on the same day, the existing daily file is renamed to the next suffix and then opened in append mode. The suffix therefore records how many sessions have been started in that daily file.
+
+Only files matching the daily filename pattern are selected for append/rename matching. Files with any other recording-file naming pattern are left unchanged.
 
 ## 21. SD Maintenance While READY
 
@@ -476,7 +488,20 @@ This avoids repeated open/seek/close cycles for each HTTP chunk while preserving
 
 While the SD state machine is in `SD_IDLE` and SD file-management is authorized, the SD task may use `SD_TASK_FILE_OP_PERIOD_MS` instead of `SD_TASK_PERIOD_MS` to improve Web file-management responsiveness. This shorter period is not used during SD boot, recording open, recording write, recording close, or SD error handling.
 
-## 27. Web OTA Firmware Update
+## 27. Web Listener Lifecycle
+
+The Web listener uses a server-once lifecycle:
+
+1. `web_task_init()` allocates the `AsyncWebServer` object and registers routes.
+2. The first Web ON starts the AP and calls `s_server->begin()`.
+3. Later Web ON cycles start only the AP because the listener remains alive.
+4. Web OFF performs application cleanup, aborts/ends support operations, clears locks/authorization, and stops the AP. It does not call `s_server->end()` and does not delete/recreate the server.
+
+This is an implementation constraint of the selected AsyncWebServer/AsyncTCP stack. The port-80 AsyncWebServer listener is treated as a process-lifetime object, while externally visible access is controlled through the AP lifecycle.
+
+The `/diag` route is kept as a permanent health endpoint. It reports basic Web/AP state such as cycle count, heap, AP IP address, station count, Web request flag, and listener-started flag.
+
+## 28. Web OTA Firmware Update
 
 The firmware uses a project-local `partitions.csv` file for OTA-capable builds. The partition table provides two OTA application slots so a new application image can be written to the inactive slot while the current firmware continues running.
 

@@ -107,8 +107,9 @@ Public API functions are preferably grouped near the end of the `.cpp` file. Thi
 
 - State-machine behavior should be explicit and easy to review.
 - Deep helper chains should be avoided unless they reduce duplication or centralize an important rule.
-- Helpers should represent a clear concept, such as state ownership, error classification, path normalization, or repeated validation.
-- Disabled legacy code should not remain in source files as `#if 0` blocks. Historical code belongs in version control history, not in the active baseline.
+- Helpers should represent a clear concept, such as state ownership, error classification, path normalization, repeated validation, or a scoped cleanup rule.
+- A helper that only forwards to one other function or returns one other function value should normally be removed unless it protects an ownership boundary, hides a platform dependency, or documents an intentional policy.
+- Disabled obsolete code should not remain in source files as `#if 0` blocks. Superseded code belongs in version control history, not in the active baseline.
 
 ## 11. Comment Rules
 
@@ -123,6 +124,7 @@ Public API functions are preferably grouped near the end of the `.cpp` file. Thi
 For each controlled baseline review, reviewers should check that:
 
 - public interfaces are documented;
+- no unjustified unused public APIs, private helpers, types, variables, or macros remain;
 - module ownership is clear;
 - private helpers and state are not exposed unnecessarily;
 - task ownership rules are respected;
@@ -138,6 +140,6 @@ A deviation from this standard is acceptable when it preserves working prototype
 
 ## Implementation Documentation Consistency
 
-State-machine behavior that affects recorder operation shall be reflected in the documentation set when changed. In particular, changes to recording start, recording stop, SD error handling, low-space handling, and fatal/recoverable error behavior should update the behavior review, requirements outline, and architecture documents.
+Documentation shall reflect recorder operation. Recording start, recording stop, SD error handling, low-space handling, and fatal/recoverable error behavior shall be consistent across the behavior review, requirements outline, and architecture documents.
 
 Source comments should describe the implemented behavior without introducing formal requirement identifiers until the project decides to maintain formal traceability.

@@ -17,9 +17,9 @@ The focus is the implemented behavior of:
 - recording start/stop/error/shutdown behavior;
 - SD recording and recovery behavior.
 
-## 2. Review Method
+## 2. Implementation Sources
 
-Behavior was reviewed from the current implementation, primarily:
+This behavior description is based on the implemented source files:
 
 - `src/tasks/state_task.cpp`;
 - `src/tasks/sd_task.cpp`;
@@ -27,9 +27,10 @@ Behavior was reviewed from the current implementation, primarily:
 - `src/services/error_manager.cpp`;
 - `src/services/ring_buffer.cpp`;
 - `src/services/record_format.cpp`;
-- `src/drivers/accel_driver.cpp`.
+- `src/drivers/accel_driver.cpp`;
+- `src/tasks/web_task.cpp`, for Web/AP lifecycle behavior that affects READY support functions.
 
-This document should be updated whenever state-machine behavior changes.
+Maintain this document together with the source files when state-machine behavior is revised.
 
 ## 3. `state_task` Overview
 
@@ -61,7 +62,7 @@ Each state-task loop performs recurring housekeeping, including:
 - date/time service synchronization when appropriate;
 - calibration session service call.
 
-Calibration sampling is no longer driven by Web polling. While a calibration session is active, `state_task` calls:
+Calibration sampling is driven by `state_task`. While a calibration session is active, `state_task` calls:
 
 ```cpp
 calibration_session_service(now);
@@ -74,7 +75,7 @@ This lets calibration sampling run at the configured 50 ms period.
 Purpose:
 
 - initialize required hardware/services after power-up;
-- permit READY with settings/calibration locks rather than failing boot for missing setup data;
+- permit READY with settings/calibration locks for missing setup data;
 - monitor SD boot/recovery status.
 
 Entry/recurring behavior:
@@ -118,6 +119,7 @@ Entry actions:
 Recurring actions:
 
 - evaluates settings completeness;
+- authorizes Web SD file-management only when READY and Web support is enabled;
 - refreshes calibration status;
 - displays setup-lock messages when needed;
 - handles WiFi state indirectly through UI/Web task control;
@@ -288,13 +290,15 @@ General responsibilities:
 
 ### 13.1 Before open
 
-Before opening a new recording file, SD task verifies:
+Before opening a recording file, SD task verifies:
 
 - SD card presence;
 - file-count limit;
 - free-space threshold.
 
 If any check fails, SD task raises the corresponding SD error and the high-level state machine transitions to error handling.
+
+For file opening, SD task requests a daily prefix from `record_format` using the registration and recording-start date. It then calls `sd_open_record_daily()`. The SD storage layer creates `_1.bin` for the first session of the day or renames the existing same-day file to the next `_N.bin` suffix and appends the session data.
 
 ### 13.2 During writing
 
@@ -333,7 +337,7 @@ Calibration session behavior:
 10. Stored/NVS values are not used for this selection decision.
 11. A valid face capture does not reset the rolling window. The service continues evaluating overlapping windows until the operator moves the recorder, the window becomes unstable, or the session ends.
 12. Once all six faces are captured, gains/offsets are computed and displayed.
-13. Web Save stores the new calibration in NVS and clears any calibration fault latch.
+13. Web Save stores the accepted calibration in NVS and clears any calibration fault latch.
 
 Calibration Web display behavior:
 
@@ -342,16 +346,14 @@ Calibration Web display behavior:
 - states are intentionally simple: `ACTIVE` for the currently detected/sampled face, `OK` for captured faces, and `—` for missing faces;
 - result area: `Calibration: Ready / Active / Done`, NVS date, and `Axis | Gain | NVS Gain | Offset | NVS Offset`.
 
-## 15. Follow-up Items
+## 15. Open Validation Items
 
-No closed or PMU-managed items are listed here.
-
-Current follow-up items:
+The following validation items remain open for the controlled baseline:
 
 | Item | Status |
 |---|---|
 | Final acceptance tolerance for 20 Hz sample-rate and jitter validation | needs defined acceptance criteria |
-| Continued recorded-file validation after format changes | validate on hardware after each binary format change |
+| Recorded-file validation after any block-format revision | validate on hardware after each binary format revision |
 
 
 
@@ -431,7 +433,15 @@ Sensor calibration preview/result endpoints compute candidate gains and offsets 
 
 Saving the installation calibration stores the matrix in NVS as the installation-calibration part of the active calibration record and applies it to normal accelerometer reads. Recording remains blocked until both the sensor calibration and installation calibration are valid. Sensor calibration and installation calibration have independent validity and timestamp fields.
 
-## 24. SD File-Management Timing and Download Behavior
+## 24. Web/AP Lifecycle Behavior
+
+`web_task` uses a server-once lifecycle. The `AsyncWebServer` object and route table are created once, and `s_server->begin()` is called only for the first Web ON cycle. Later Web ON cycles only restart the AP.
+
+On Web OFF, `web_task` performs Web-side cleanup, ends any SD download session, clears Web locks, aborts any active OTA state, and stops the AP. It intentionally does not call `AsyncWebServer::end()` and does not delete/recreate the server. The port-80 AsyncWebServer listener is treated as a process-lifetime object because the selected AsyncWebServer/AsyncTCP stack does not provide a reliable stop/restart lifecycle for that listener after HTTP traffic.
+
+The permanent `/diag` route is used as a lightweight health check during validation and troubleshooting.
+
+## 25. SD File-Management Timing and Download Behavior
 
 When the recorder is in READY and Web file-management is authorized, SD support operations are serviced from `SD_IDLE`. Recording states do not service Web/UI file-management operations.
 
@@ -454,7 +464,7 @@ Web downloads use a sequential SD-owned session. The Web task does not open SD f
 
 While a download session is active, the SD idle reprobe is skipped so the open download file handle is not invalidated by an SD reinitialization.
 
-## 25. Web OTA Firmware Update Behavior
+## 26. Web OTA Firmware Update Behavior
 
 Firmware update is available only through the Web interface. Since Web support is enabled from READY, firmware update is operationally separated from active recording.
 

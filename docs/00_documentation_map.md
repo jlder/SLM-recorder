@@ -62,7 +62,7 @@ To avoid duplication and drift:
 | Requirement-to-code mapping | `01_recorder_requirements.md` |
 | Message/error triggering logic | `01_recorder_requirements.md` |
 | Binary recording block layouts | `01_recorder_requirements.md` |
-| Software scope and operational concept | `02_recorder_architecture.md` |
+| Software scope, operational concept, and Web/AP lifecycle rationale | `02_recorder_architecture.md` |
 | Module ownership and architecture rationale | `02_recorder_architecture.md` |
 | Detailed state-machine behavior | `03_state_machine_behavior_review.md` |
 | Coding rules | `04_lightweight_software_coding_standard.md` |
@@ -76,4 +76,5 @@ When a behavior changes:
 2. update architecture allocation in `02_recorder_architecture.md` if ownership or data flow changes;
 3. update `03_state_machine_behavior_review.md` if state behavior changes;
 4. update recording block definitions in `01_recorder_requirements.md` if recorded-file layout changes;
-5. update `05_lightweight_validation_strategy.md` if validation evidence or procedure changes.
+5. update `05_lightweight_validation_strategy.md` if validation evidence or procedure changes;
+6. update `README.md` if the operator build/install/use workflow changes.
