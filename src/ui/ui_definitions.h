@@ -30,5 +30,4 @@
 #define FONT_HUGE             &lv_font_montserrat_48
 #define FONT_LARGE            &lv_font_montserrat_36
 #define FONT_MEDIUM           &lv_font_montserrat_32
-#define FONT_NORMAL           &lv_font_montserrat_24
 #define FONT_SMALL            &lv_font_montserrat_18

@@ -77,14 +77,6 @@ typedef struct __attribute__((packed)) {
  */
 void record_format_build_block(record_block_t *out, int32_t ts_ms, const accel_sample_t *sample);
 /**
- * @brief Record filename.
- *
- * Inputs: `out`, `out_sz`, `registration`, `datetime_token`.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
- */
-bool record_filename(char *out, size_t out_sz, const char *registration, const char *datetime_token);
-
-/**
  * Build the daily recording filename prefix from registration and date.
  *
  * The returned prefix includes the leading slash and the date, but it does not

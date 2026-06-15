@@ -65,23 +65,6 @@ void record_format_build_block(record_block_t *out, int32_t ts_ms, const accel_s
 }
 
 /**
- * Builds the recording filename from registration and date/time token while
- * respecting the configured buffer size.
- *
- * Inputs: `out`, `out_sz`, `registration`, `datetime_token`.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
- */
-bool record_filename(char *out, size_t out_sz, const char *registration, const char *datetime_token){
-  if(!out||out_sz<8) return false;
-  const char *reg = (registration && registration[0]) ? registration : "NOREG";
-  const char *tok = (datetime_token && datetime_token[0]) ? datetime_token : "00000000_000000";
-  // Prototype compatibility: SD_MMC.open() expects a leading '/'
-  // and the prototype uses a lowercase '.bin' extension.
-  int n = snprintf(out,out_sz,"/%s_%s.bin", reg, tok);
-  return (n>0) && ((size_t)n < out_sz);
-}
-
-/**
  * Builds the daily recording filename prefix from registration and the date
  * portion of the compact recording-start timestamp.
  *

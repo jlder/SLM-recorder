@@ -85,17 +85,6 @@ static void sd_remaining_bytes_update(uint32_t written_bytes){
 }
 
 /**
- * Updates sd remaining bytes set state and applies the change to the owning
- * module or hardware interface.
- *
- * Inputs: `value`.
- * Returns: None.
- */
-static void sd_remaining_bytes_set(uint64_t value){
-  s_remaining_bytes = value;
-}
-
-/**
  * Updates sd state set state and applies the change to the owning module or
  * hardware interface.
  *

@@ -497,37 +497,6 @@ error_code_t sd_close_record(void) {
 }
 
 /**
- * Performs sd storage read for SD storage, recording files, or SD-backed web
- * file management while preserving SD ownership rules.
- *
- * Inputs: `path`, `offset`, `len`, `out`, `out_len`.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
- */
-bool sd_storage_read(const char *path, uint32_t offset, uint32_t len, uint8_t *out, uint32_t *out_len) {
-  if(sd_check_present() != ERR_NONE) return false;
-  if(!path || !out || !out_len) return false;
-
-  char tmp[SD_STORAGE_PATH_MAX];
-  const char *p = sd_norm_sdmmc_path_(path, tmp, sizeof(tmp));
-  if(!p) return false;
-
-  File f = SD_MMC.open(p, FILE_READ);
-  if(!f) return false;
-
-  if(offset > 0u){
-    if(!f.seek(offset)){
-      f.close();
-      return false;
-    }
-  }
-
-  const size_t r = f.read(out, len);
-  f.close();
-  *out_len = (uint32_t)r;
-  return true;
-}
-
-/**
  * Begin an SD-owned sequential download session.  The file is opened once and
  * later consumed by sd_storage_download_read().
  *
@@ -608,17 +577,6 @@ void sd_storage_download_end(void) {
   s_download_size = 0u;
   s_download_offset = 0u;
 }
-
-/**
- * Return whether an SD-owned download file handle is currently open.
- *
- * Inputs: None.
- * Returns: `true` when a download session is active.
- */
-bool sd_storage_download_active(void) {
-  return (bool)s_download_file;
-}
-
 
 static bool sd_path_is_root_file_(const char *p){
   if((p == nullptr) || (p[0] != '/') || (p[1] == '\0')){
@@ -907,22 +865,6 @@ error_code_t sd_open_record_daily(const char *prefix){
 
 
 /**
- * Performs sd storage delete for SD storage, recording files, or SD-backed web
- * file management while preserving SD ownership rules.
- *
- * Inputs: `path`.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
- */
-bool sd_storage_delete(const char *path) {
-  if(sd_check_present() != ERR_NONE) return false;
-  if(!path) return false;
-  char tmp[SD_STORAGE_PATH_MAX];
-  const char *p = sd_norm_sdmmc_path_(path, tmp, sizeof(tmp));
-  if(!p) return false;
-  return SD_MMC.remove(p);
-}
-
-/**
  * Archive a root-level file by moving it into /processed.  Name collisions are
  * resolved by appending _N before the extension.
  *
@@ -988,55 +930,6 @@ bool sd_storage_archive_to_processed(const char *path) {
   }
 
   return false;
-}
-
-/**
- * Performs sd storage move for SD storage, recording files, or SD-backed web
- * file management while preserving SD ownership rules.
- *
- * Inputs: `src`, `dst`.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
- */
-bool sd_storage_move(const char *src, const char *dst) {
-  if(sd_check_present() != ERR_NONE) return false;
-  if(!src || !dst) return false;
-  char ts[SD_STORAGE_PATH_MAX];
-  char td[SD_STORAGE_PATH_MAX];
-  const char *ps = sd_norm_sdmmc_path_(src, ts, sizeof(ts));
-  const char *pd = sd_norm_sdmmc_path_(dst, td, sizeof(td));
-  if(!ps || !pd) return false;
-  return SD_MMC.rename(ps, pd);
-}
-
-/**
- * Returns the requested sd storage get file size information from the module
- * state or underlying driver interface.
- *
- * Inputs: `path`, `out_size`.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
- */
-bool sd_storage_get_file_size(const char *path, uint32_t *out_size) {
-  if(out_size != nullptr) *out_size = 0u;
-  if(sd_check_present() != ERR_NONE) return false;
-  if(!path || !out_size) return false;
-
-  char tmp[SD_STORAGE_PATH_MAX];
-  const char *p = sd_norm_sdmmc_path_(path, tmp, sizeof(tmp));
-  if(!p) return false;
-
-  File f = SD_MMC.open(p);
-  if(!f){
-    return false;
-  }
-
-  if(f.isDirectory()){
-    f.close();
-    return false;
-  }
-
-  *out_size = (uint32_t)f.size();
-  f.close();
-  return true;
 }
 
 /**

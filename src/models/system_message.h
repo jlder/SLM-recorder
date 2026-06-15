@@ -61,14 +61,6 @@ typedef enum {
   MSG__COUNT
 } msg_id_t;
 
-// Message class used for override/lock rules.
-typedef enum {
-  MSGCLASS_INFO = 0,
-  MSGCLASS_WARNING = 1,
-  MSGCLASS_ERROR = 2,
-  MSGCLASS_SHUTDOWN = 3,
-  MSGCLASS_FATAL = 4
-} msg_class_t;
 
 #ifdef __cplusplus
 }

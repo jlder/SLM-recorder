@@ -86,25 +86,11 @@ bool accel_driver_set_calibration(const accel_calibration_t *cal);
  */
 void accel_driver_clear_calibration(void);
 
-/**
- * Return whether the accelerometer driver has active calibration.
- *
- * Parameters:
- *   none
- *
- * Return:
- *   true if calibration is active, false otherwise.
- */
-bool accel_driver_has_calibration(void);
-
 /** Set the installation rotation matrix used by normal corrected reads. */
 bool accel_driver_set_installation(const accel_installation_t *installation);
 
 /** Clear the active installation rotation. */
 void accel_driver_clear_installation(void);
-
-/** Return whether the accelerometer driver has active installation correction. */
-bool accel_driver_has_installation(void);
 
 // Read one accelerometer sample with bounded retries.
 // - Computes a fresh timestamp for every attempt (ts_ms_out = last attempt time).

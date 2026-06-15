@@ -183,17 +183,6 @@ void accel_driver_clear_calibration(void){
   s_accel_cal_active = false;
 }
 
-/**
- * Reports whether the accelerometer driver currently has active calibration
- * coefficients installed.
- *
- * Inputs: None.
- * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
- */
-bool accel_driver_has_calibration(void){
-  return s_accel_cal_active;
-}
-
 bool accel_driver_set_installation(const accel_installation_t *installation){
   if(installation == nullptr){
     return false;
@@ -209,10 +198,6 @@ void accel_driver_clear_installation(void){
                       0.0f, 1.0f, 0.0f,
                       0.0f, 0.0f, 1.0f}};
   s_accel_install_active = false;
-}
-
-bool accel_driver_has_installation(void){
-  return s_accel_install_active;
 }
 
 /**

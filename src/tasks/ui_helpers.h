@@ -168,11 +168,8 @@ lv_obj_t* createLabel(
 #define createScreenTitle(parent, text, y_offset) \
     createLabel(parent, text, NULL, FONT_MEDIUM, LV_ALIGN_TOP_MID, 0, y_offset, 0, LV_TEXT_ALIGN_CENTER, 0)
 
-#define createFieldLabel(parent, text, style, x, y) \
-    createLabel(parent, text, style, NULL, LV_ALIGN_TOP_MID, x, y, 0, LV_TEXT_ALIGN_CENTER, 0)
-
 // =============================================================================
-// ROLLER FUNCTIONS (Same as before)
+// ROLLER FUNCTIONS
 // =============================================================================
 
 /**

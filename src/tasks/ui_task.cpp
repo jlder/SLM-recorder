@@ -247,14 +247,8 @@ static uint32_t s_ui_record_btn_press_ms = 0u;
 // LVGL CALLBACKS
 // =============================================================================
 
-/**
- * My disp flush performs the ui task operation represented by this function
- * and keeps the module state consistent with recorder ownership rules.
- *
- * Inputs: `disp`, `area`, `px_map`.
- * Returns: None.
- */
-void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
+/** LVGL display flush callback: copy one rendered area to the display. */
+static void display_flush_cb_(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
     uint32_t w = lv_area_get_width(area);
     uint32_t h = lv_area_get_height(area);
     gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)px_map, w, h);
@@ -369,7 +363,7 @@ static void ui_display_standby_service_(void){
  * Inputs: `indev`, `data`.
  * Returns: None.
  */
-void my_touchpad_read(lv_indev_t *indev, lv_indev_data_t *data) {
+static void touch_read_cb_(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     touch_snapshot_t s = touch_service_get_snapshot();
     if (!s.valid || !s.pressed) {
@@ -385,18 +379,6 @@ void my_touchpad_read(lv_indev_t *indev, lv_indev_data_t *data) {
 // =============================================================================
 // UI HELPER FUNCTIONS
 // =============================================================================
-
-/**
- * Apply global background performs the ui task operation represented by this
- * function and keeps the module state consistent with recorder ownership
- * rules.
- *
- * Inputs: `screen`.
- * Returns: None.
- */
-void apply_global_background(lv_obj_t * screen) {
-    lv_obj_set_style_bg_img_src(screen, &SLM_206_v4, 0);
-}
 
 /**
  * Updates or evaluates disable button state used to qualify physical button
@@ -593,7 +575,7 @@ static void refreshSettingsButtons(void) {
  */
 void createMainScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     main_screen = lv_obj_create(NULL);
-    apply_global_background(main_screen);
+    lv_obj_set_style_bg_img_src(main_screen, &SLM_206_v4, 0);
     
     // Time label - using unified helper
     lbl_main_time = createLabel(main_screen, "", NULL, FONT_HUGE,
@@ -976,14 +958,14 @@ lv_init();
 
     // LVGL draw buffer is statically allocated (no heap).
     disp = lv_display_create(screenWidth, screenHeight);
-    lv_display_set_flush_cb(disp, my_disp_flush);
+    lv_display_set_flush_cb(disp, display_flush_cb_);
     lv_display_set_buffers(disp, disp_draw_buf, NULL, 
         screenWidth * 40 * sizeof(lv_color_t), 
         LV_DISPLAY_RENDER_MODE_PARTIAL);
     
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
-    lv_indev_set_read_cb(indev, my_touchpad_read);
+    lv_indev_set_read_cb(indev, touch_read_cb_);
     
     static lv_style_t style_huge;
     lv_style_init(&style_huge);
