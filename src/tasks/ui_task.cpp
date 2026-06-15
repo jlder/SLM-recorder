@@ -97,6 +97,7 @@ void createStandbyScreen(lv_style_t &style_huge);
 void createLowBatteryScreen(lv_style_t &style_huge);
 
 void wifi_btn_cb(lv_event_t * e);
+void record_btn_event_cb(lv_event_t * e);
 void save_date_cb(lv_event_t * e);
 void save_time_cb(lv_event_t * e);
 void save_reg_cb(lv_event_t * e);
@@ -225,12 +226,22 @@ lv_obj_t *pwd_rollers[8] = {NULL};
 
 lv_obj_t *btn_wifi_label = NULL;
 lv_obj_t *btn_wifi = NULL;
+lv_obj_t *btn_record = NULL;
+lv_obj_t *btn_record_label = NULL;
 lv_obj_t *btn_set = NULL;
 lv_obj_t *btn_settings_date = NULL;
 lv_obj_t *btn_settings_time = NULL;
 lv_obj_t *btn_settings_reg = NULL;
 lv_obj_t *btn_settings_wifi = NULL;
 
+
+// UI START/STOP RECORD button hold state.  The touch button deliberately uses
+// a longer local hold time than the physical RECORD button to reduce accidental
+// starts from the menu page.
+static const uint32_t UI_RECORD_HOLD_MS = 1000u;
+static bool s_ui_record_btn_pressed = false;
+static bool s_ui_record_btn_consumed = false;
+static uint32_t s_ui_record_btn_press_ms = 0u;
 
 // =============================================================================
 // LVGL CALLBACKS
@@ -471,6 +482,72 @@ static bool local_settings_complete_(void){
     return settings_get(&s) && settings_is_complete(&s);
 }
 
+/**
+ * Reports whether the local START/STOP RECORD button should request STOP.
+ *
+ * Inputs: `st`.
+ * Returns: `true` while a recording session is active or transitioning.
+ */
+static bool ui_record_button_shows_stop_(const system_status_t& st){
+    return (st.state == ST_RECORDING) ||
+           (st.state == ST_STARTING) ||
+           (st.state == ST_STOPPING);
+}
+
+/**
+ * Reports whether the local START/STOP RECORD button may be pressed.
+ *
+ * Inputs: `st`.
+ * Returns: `true` only when the State task can consume the matching request.
+ */
+static bool ui_record_button_enabled_(const system_status_t& st){
+    return (st.state == ST_READY) || (st.state == ST_RECORDING);
+}
+
+/**
+ * Reset the local hold detector used by the START/STOP RECORD menu button.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+static void ui_record_button_hold_reset_(void){
+    s_ui_record_btn_pressed = false;
+    s_ui_record_btn_consumed = false;
+    s_ui_record_btn_press_ms = 0u;
+}
+
+/**
+ * Service the local START/STOP RECORD long-press detector.
+ *
+ * The LVGL event callback only records press/release state.  This periodic
+ * service checks the elapsed press time against UI_RECORD_HOLD_MS and sends
+ * exactly one State-task request per press.
+ *
+ * Inputs: `st`.
+ * Returns: None.
+ */
+static void ui_record_button_hold_service_(const system_status_t& st){
+    if((!s_ui_record_btn_pressed) || s_ui_record_btn_consumed){
+        return;
+    }
+
+    if(((uint32_t)millis() - s_ui_record_btn_press_ms) < UI_RECORD_HOLD_MS){
+        return;
+    }
+
+    // Only READY and RECORDING consume UI record commands.  Transient states
+    // disable the button and ignore any stale touch hold.
+    if(st.state == ST_READY){
+        state_task_request_record_start();
+        s_ui_record_btn_consumed = true;
+    } else if(st.state == ST_RECORDING){
+        state_task_request_record_stop();
+        s_ui_record_btn_consumed = true;
+    } else {
+        ui_record_button_hold_reset_();
+    }
+}
+
 
 /**
  * Refreshes SETTINGS and setting-specific button colors so missing setup items
@@ -595,8 +672,8 @@ void createLowBatteryScreen(lv_style_t &style_huge) {
 // =============================================================================
 
 /**
- * Creates the local MENU page with WiFi, SETTINGS, and BACK actions, including
- * the BACK behavior that disables WiFi support.
+ * Creates the local MENU page with START/STOP RECORD, WiFi, SETTINGS, and
+ * BACK actions, including the BACK behavior that disables WiFi support.
  *
  * Inputs: `style_huge`.
  * Returns: None.
@@ -606,16 +683,20 @@ void createMenuScreen(lv_style_t &style_huge) {
     
     createScreenTitle(menu_screen, "MENU", 20);
     
-    btn_wifi = createMenuButton(menu_screen, "START WIFI", &style_huge, 80, wifi_btn_cb);
+    btn_record = createMenuButton(menu_screen, "START RECORD", &style_huge, 70, NULL);
+    btn_record_label = lv_obj_get_child(btn_record, 0);
+    lv_obj_add_event_cb(btn_record, record_btn_event_cb, LV_EVENT_ALL, NULL);
+
+    btn_wifi = createMenuButton(menu_screen, "START WIFI", &style_huge, 155, wifi_btn_cb);
     btn_wifi_label = lv_obj_get_child(btn_wifi, 0);
     
-    btn_set = createMenuButton(menu_screen, "SETTINGS", &style_huge, 170, 
+    btn_set = createMenuButton(menu_screen, "SETTINGS", &style_huge, 240, 
         [](lv_event_t* e){ lv_scr_load(settings_menu_screen); });
     
     // BACK button - use createButton directly (needs green color)
     createButton(menu_screen, "BACK", &style_huge, NULL,
         BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
-        LV_ALIGN_TOP_MID, 0, 370,
+        LV_ALIGN_TOP_MID, 0, 385,
         [](lv_event_t*e){
             web_task_set_enabled(false);
             lv_scr_load(main_screen);
@@ -958,13 +1039,15 @@ void syncUIToSystemState() {
     }
 
     bool ready = (st.state == ST_READY);
-    bool recording_like = (st.state == ST_RECORDING) || (st.state == ST_STARTING) || (st.state == ST_STOPPING);
+    bool recording = (st.state == ST_RECORDING);
+    bool recording_like = ui_record_button_shows_stop_(st);
 
-    // Generic rule: whenever the system is not cleanly READY, force the UI
-    // back to the main screen so the user can see the status message.
-    // This includes SD removal/low-space, any reported error, and transient
-    // states where user actions should be inhibited.
-    bool non_ready_message = (st.message_id != MSG_NONE) && (st.message_id != MSG_READY);
+    // Generic rule: errors and transient states still force the main screen.
+    // ST_RECORDING is the exception: MENU remains accessible so the operator
+    // can use the local STOP RECORD button.
+    bool non_ready_message = (st.message_id != MSG_NONE) &&
+                             (st.message_id != MSG_READY) &&
+                             !((st.state == ST_RECORDING) && (st.message_id == MSG_RECORDING));
     const ui_message_info_t *msginfo = ui_message_get(st.message_id);
 
     // Setup/maintenance-lock messages are allowed to keep MENU/WiFi access
@@ -983,12 +1066,22 @@ void syncUIToSystemState() {
         non_ready_message = false;
     }
 
-    bool force_main = (!ready) || recording_like || (st.last_error != 0) || non_ready_message || (msginfo && msginfo->force_main);
+    bool force_main = ((!ready) && (!recording)) ||
+                      (st.last_error != 0) ||
+                      non_ready_message ||
+                      (msginfo && msginfo->force_main);
     if (menu_access_lock_ready) {
         force_main = false;
     }
 
-    if (force_main && lv_scr_act() != main_screen && main_screen) {
+    // During recording the operator may use only MAIN and MENU.  If recording
+    // starts from hardware while a deeper settings page is open, return to MAIN.
+    if(recording &&
+       (lv_scr_act() != main_screen) &&
+       (lv_scr_act() != menu_screen) &&
+       main_screen){
+        lv_scr_load(main_screen);
+    } else if (force_main && lv_scr_act() != main_screen && main_screen) {
         lv_scr_load(main_screen);
     }
 
@@ -1000,14 +1093,25 @@ void syncUIToSystemState() {
     const lv_color_t blue = lv_palette_main(LV_PALETTE_BLUE);
     const lv_color_t amber = lv_palette_main(LV_PALETTE_AMBER);
 
-    // MENU button: enabled only in READY. Orange means the operator should
-    // enter MENU to resolve a setup/calibration blocking condition.
+    // MENU button: enabled in READY and RECORDING.  During RECORDING, MENU is
+    // needed to reach STOP RECORD; deeper maintenance/settings actions are
+    // disabled on the menu page.
     if (btn_main_menu) {
-        if (ready) enable_button(btn_main_menu, setup_action_required ? amber : blue);
+        if (ready || recording) enable_button(btn_main_menu, setup_action_required ? amber : blue);
         else disable_button(btn_main_menu);
     }
 
     const bool wifi_active = web_task_is_enabled();
+
+    // START/STOP RECORD follows recorder state, regardless of whether the
+    // current session was started by the hardware button or by the UI.
+    if(btn_record_label){
+        lv_label_set_text(btn_record_label, recording_like ? "STOP RECORD" : "START RECORD");
+    }
+    if(btn_record){
+        if(ui_record_button_enabled_(st)) enable_button(btn_record, recording ? lv_palette_main(LV_PALETTE_RED) : blue);
+        else disable_button(btn_record);
+    }
 
     // Update WiFi button label if exists
     if (btn_wifi_label) {
@@ -1018,7 +1122,7 @@ void syncUIToSystemState() {
     // is part of the required settings, so calibration/Web access is only
     // offered after the settings path has been completed.
     if (btn_wifi) {
-        if (settings_action_required) {
+        if (recording || settings_action_required) {
             disable_button(btn_wifi);
         } else {
             enable_button(btn_wifi,
@@ -1031,7 +1135,7 @@ void syncUIToSystemState() {
     // SETTINGS button (on menu screen): disabled while WiFi/Webserver is active.
     // When settings are required, orange guides the operator to SETTINGS.
     if (btn_set) {
-        if (wifi_active) disable_button(btn_set);
+        if (recording || wifi_active) disable_button(btn_set);
         else enable_button(btn_set, settings_action_required ? amber : blue);
     }
 
@@ -1053,6 +1157,10 @@ void syncUIToSystemState() {
 void updateUI() {
     // Pull everything needed from State Task (UI owns no hardware/I2C).
     system_status_t st = state_task_get_status();
+
+    // Service the local long-press START/STOP RECORD button before rendering
+    // state-dependent labels and colors.
+    ui_record_button_hold_service_(st);
 
     // Time/date
     char timeStr[16];
@@ -1095,8 +1203,9 @@ void updateUI() {
         }
     }
 
-    // Enforce screen-lock rules:
-    // During RECORDING (and non-READY transient states), UI must stay on main screen and MENU is disabled.
+    // Enforce screen-lock rules and update menu-button availability.
+    // During RECORDING, MAIN and MENU remain available so the operator can
+    // stop recording from the UI; WiFi and Settings are disabled on MENU.
     syncUIToSystemState();
 }
 
@@ -1104,6 +1213,32 @@ void updateUI() {
 // =============================================================================
 // BUTTON CALLBACKS
 // =============================================================================
+
+/**
+ * START/STOP RECORD button event callback records press/release state.
+ *
+ * The actual start/stop request is generated by ui_record_button_hold_service_()
+ * after the button has remained pressed for UI_RECORD_HOLD_MS.  Keeping the
+ * timing check in the periodic UI service avoids relying on LVGL long-press
+ * default timing.
+ *
+ * Inputs: `e`.
+ * Returns: None.
+ */
+void record_btn_event_cb(lv_event_t * e) {
+    const lv_event_code_t code = lv_event_get_code(e);
+
+    if(code == LV_EVENT_PRESSED){
+        s_ui_record_btn_pressed = true;
+        s_ui_record_btn_consumed = false;
+        s_ui_record_btn_press_ms = (uint32_t)millis();
+        return;
+    }
+
+    if((code == LV_EVENT_RELEASED) || (code == LV_EVENT_PRESS_LOST)){
+        ui_record_button_hold_reset_();
+    }
+}
 
 /**
  * WiFi button callback toggles the recorder access point and web server used

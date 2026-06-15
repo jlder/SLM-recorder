@@ -82,6 +82,19 @@ uint64_t sd_get_free_bytes(void);
  * Returns: `ERR_NONE` on success; otherwise an error code that explains the failure.
  */
 error_code_t sd_open_record(const char *path);
+
+/**
+ * Open the daily recording file and append a new recording session.
+ *
+ * Expected root-directory policy: for one registration/date prefix there shall
+ * be either zero or one matching file.  If the file exists, its _N suffix is
+ * incremented before the new session is appended.  More than one matching file
+ * is treated as an SD file-management inconsistency.
+ *
+ * Inputs: `prefix`.
+ * Returns: `ERR_NONE` on success; otherwise an error code that explains the failure.
+ */
+error_code_t sd_open_record_daily(const char *prefix);
 /**
  * @brief SD write record block.
  *

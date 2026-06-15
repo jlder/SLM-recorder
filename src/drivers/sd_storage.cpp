@@ -701,6 +701,211 @@ static bool sd_ensure_processed_dir_(void){
 }
 
 
+
+/**
+ * Parse the _N.bin suffix from a root file name matching one daily prefix.
+ *
+ * The expected daily filename is <prefix_base>_<N>.bin, for example
+ * FCJAF_20260614_3.bin.  The prefix passed here does not include the leading
+ * slash because File.name() can be returned with or without a path prefix.
+ *
+ * Inputs: `name`, `prefix_base`, `out_suffix`.
+ * Returns: `true` when the name matches the daily pattern and N was parsed.
+ */
+static bool sd_daily_suffix_from_name_(const char *name,
+                                       const char *prefix_base,
+                                       uint32_t *out_suffix){
+  if((name == nullptr) || (prefix_base == nullptr) || (out_suffix == nullptr)){
+    return false;
+  }
+
+  const char *base = sd_basename_(name);
+  if(base == nullptr){
+    return false;
+  }
+
+  const size_t prefix_len = strlen(prefix_base);
+  if((prefix_len == 0u) || (strncmp(base, prefix_base, prefix_len) != 0)){
+    return false;
+  }
+
+  // Require the exact separator after the daily prefix.  This prevents
+  // FCJAF_202606140_1.bin from matching FCJAF_20260614.
+  const char *p = base + prefix_len;
+  if(*p != '_'){
+    return false;
+  }
+  ++p;
+
+  if((*p < '1') || (*p > '9')){
+    return false;
+  }
+
+  // New daily files use a small session counter: _1.bin, _2.bin, ...
+  // Older per-recording files used a six-digit time suffix such as
+  // _103012.bin.  Limit the accepted suffix to three digits so old files are
+  // ignored instead of being mistaken for the new daily file.
+  static const uint32_t DAILY_SESSION_SUFFIX_MAX = 999u;
+  uint32_t value = 0u;
+  uint32_t digit_count = 0u;
+  while((*p >= '0') && (*p <= '9')){
+    ++digit_count;
+    if(digit_count > 3u){
+      return false;
+    }
+
+    const uint32_t digit = (uint32_t)(*p - '0');
+    value = (value * 10u) + digit;
+    if(value > DAILY_SESSION_SUFFIX_MAX){
+      return false;
+    }
+    ++p;
+  }
+
+  if((value == 0u) || (strcmp(p, ".bin") != 0)){
+    return false;
+  }
+
+  *out_suffix = value;
+  return true;
+}
+
+/**
+ * Build a full daily recording path from prefix and session suffix.
+ *
+ * Inputs: `prefix`, `session_index`, `out`, `out_sz`.
+ * Returns: `true` when the path fits in the output buffer.
+ */
+static bool sd_daily_path_build_(const char *prefix,
+                                 uint32_t session_index,
+                                 char *out,
+                                 size_t out_sz){
+  if((prefix == nullptr) || (out == nullptr) || (out_sz == 0u) ||
+     (session_index == 0u)){
+    return false;
+  }
+
+  const int n = snprintf(out, out_sz, "%s_%lu.bin",
+                         prefix,
+                         (unsigned long)session_index);
+  return (n > 0) && ((size_t)n < out_sz);
+}
+
+/**
+ * Open the daily recording file and append a new recording session.
+ *
+ * Normal case: zero or one file exists for a given registration/date prefix.
+ * If today's file exists, it is renamed from _N.bin to _(N+1).bin before the
+ * new session is appended.  If more than one matching file exists, the function
+ * reports a fault instead of guessing which file should receive the new data.
+ *
+ * Inputs: `prefix`.
+ * Returns: `ERR_NONE` on success; otherwise an SD error code.
+ */
+error_code_t sd_open_record_daily(const char *prefix){
+  if(s_file){
+    return ERR_SD_FAULT;
+  }
+
+  const error_code_t rc = sd_check_present();
+  if(rc != ERR_NONE){
+    return rc;
+  }
+
+  if((prefix == nullptr) || (prefix[0] != '/') || (prefix[1] == '\0') ||
+     (strchr(prefix + 1, '/') != nullptr)){
+    return ERR_SD_FAULT;
+  }
+
+  const char *prefix_base = prefix + 1;
+  uint32_t match_count = 0u;
+  uint32_t current_session = 0u;
+  char current_path[SD_STORAGE_PATH_MAX] = "";
+
+  File root = SD_MMC.open("/");
+  if(!root){
+    return sd_classify_io_fault();
+  }
+
+  for(;;){
+    File entry = root.openNextFile();
+    if(!entry){
+      break;
+    }
+
+    const char *entry_name = entry.name();
+    uint32_t suffix = 0u;
+    const bool matches = sd_daily_suffix_from_name_(entry_name,
+                                                    prefix_base,
+                                                    &suffix);
+
+    if(matches){
+      if(entry.isDirectory()){
+        entry.close();
+        root.close();
+        return ERR_SD_FAULT;
+      }
+
+      ++match_count;
+      if(match_count > 1u){
+        entry.close();
+        root.close();
+        return ERR_SD_FAULT;
+      }
+
+      current_session = suffix;
+
+      // Store the root path to the only matching daily file.  This path is
+      // used for the rename before opening in append mode.
+      const char *base = sd_basename_(entry_name);
+      if(base == nullptr){
+        entry.close();
+        root.close();
+        return ERR_SD_FAULT;
+      }
+
+      const int n = snprintf(current_path, sizeof(current_path), "/%s", base);
+      if((n <= 0) || ((size_t)n >= sizeof(current_path))){
+        entry.close();
+        root.close();
+        return ERR_SD_FAULT;
+      }
+    }
+
+    entry.close();
+  }
+
+  root.close();
+
+  const uint32_t next_session = (match_count == 0u) ? 1u : (current_session + 1u);
+  if((next_session == 0u) || ((match_count != 0u) && (next_session <= current_session))){
+    return ERR_SD_FAULT;
+  }
+
+  char target_path[SD_STORAGE_PATH_MAX];
+  if(!sd_daily_path_build_(prefix, next_session, target_path, sizeof(target_path))){
+    return ERR_SD_FAULT;
+  }
+
+  if(match_count == 1u){
+    if(sd_path_exists_(target_path)){
+      return ERR_SD_FAULT;
+    }
+
+    if(!SD_MMC.rename(current_path, target_path)){
+      return sd_classify_io_fault();
+    }
+  }
+
+  const error_code_t open_rc = sd_open_record(target_path);
+  if(open_rc != ERR_NONE){
+    return open_rc;
+  }
+
+  return ERR_NONE;
+}
+
+
 /**
  * Performs sd storage delete for SD storage, recording files, or SD-backed web
  * file management while preserving SD ownership rules.

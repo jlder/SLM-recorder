@@ -31,9 +31,20 @@
 
 #include "src/tasks/sd_task.h"
 // Webserver must ONLY be enabled in READY (State Task enforces this).
-// This task owns WiFi/AP and HTTP server lifecycle.
-
-static AsyncWebServer s_server(WEB_SERVER_PORT);
+// This task owns WiFi/AP and HTTP access.  WiFi/AP is toggled by Web ON/OFF;
+// the AsyncWebServer listener is intentionally created and started once.
+//
+// Important lifecycle note:
+// Tests on the target ESP32-S3 / Arduino / AsyncWebServer / AsyncTCP stack
+// showed that calling AsyncWebServer::end() after real HTTP traffic prevents
+// the port-80 server from dispatching requests after a later begin(), although
+// AP association, DHCP, raw TCP, and AsyncWebServer on other ports still work.
+// Therefore this module does not call end() or delete/recreate the server during
+// normal Web OFF.  Web OFF only disables the SoftAP and clears application-side
+// locks/state.
+static AsyncWebServer *s_server = nullptr;
+static bool s_server_routes_registered = false;
+static bool s_server_listener_started = false;
 // s_enabled_requested is written by other tasks and polled by web_task_loop.
 // It is volatile to prevent compiler caching of the single request flag.
 // WiFi/AP/HTTP server state remains owned by web_task_loop.  s_started is
@@ -54,7 +65,6 @@ static IPAddress s_subnet = AP_SUBNET;
 // --- Web single-client policy ---
 // Only one client (IP) may access SD endpoints at a time. Session expires after inactivity.
 static bool s_web_client_locked = false;
-static bool s_routes_registered = false;
 static uint32_t s_web_client_ip = 0u; // IPv4 packed
 static uint32_t s_web_client_last_ms = 0u;
 
@@ -572,21 +582,27 @@ static String cal_record_date_json_(const calibration_record_t& rec){
 
 /**
  * Registers web routes for status, file management, calibration actions, and
- * embedded pages once during server setup.
+ * embedded pages on the current server object.
  *
  * Inputs: None.
  * Returns: None.
  */
-static void register_routes_once(){
-  if(s_routes_registered) return;
+static void register_routes(){
+  if(s_server == nullptr) return;
 
-  // Routes
-  s_server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    // Serve embedded HTML interface.
+  if(s_server_routes_registered){
+    return;
+  }
+
+  s_server->onNotFound([](AsyncWebServerRequest *request){
+    request->send(404, "text/plain", "not found");
+  });
+
+  s_server->on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send_P(200, "text/html", HTML_PAGE);
   });
 
-  s_server.on("/api/ota", HTTP_POST,
+  s_server->on("/api/ota", HTTP_POST,
     [](AsyncWebServerRequest *request){
       if(s_ota_ok){
         request->send(200, "text/plain", "Firmware update OK. Rebooting...");
@@ -658,7 +674,7 @@ static void register_routes_once(){
 
 
   // API endpoints expected by the embedded HTML interface (prototype-compatible)
-  s_server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
+  s_server->on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
     const system_status_t st = state_task_get_status();
     const bool recording = (st.state == ST_RECORDING) || (st.state == ST_STARTING) || (st.state == ST_STOPPING);
     char buf[128];
@@ -673,7 +689,7 @@ static void register_routes_once(){
     request->send(200, "application/json", buf);
   });
 
-  s_server.on("/api/watchdog", HTTP_GET, [](AsyncWebServerRequest *request){
+  s_server->on("/api/watchdog", HTTP_GET, [](AsyncWebServerRequest *request){
     watchdog_fault_info_t info = {};
     if(!watchdog_get_fault_info(&info)){
       request->send(200, "application/json", "{\"available\":false}");
@@ -715,7 +731,7 @@ static void register_routes_once(){
     request->send(200, "application/json", out);
   });
 
-  s_server.on("/api/info", HTTP_GET, [](AsyncWebServerRequest *request){
+  s_server->on("/api/info", HTTP_GET, [](AsyncWebServerRequest *request){
     const bool present = (sd_error_get() != ERR_SD_NO_CARD);
     uint64_t sd_total_bytes = 0u;
     uint64_t sd_free_bytes = 0u;
@@ -735,7 +751,7 @@ static void register_routes_once(){
     request->send(200, "application/json", buf);
   });
 
-  s_server.on("/api/files", HTTP_GET, [](AsyncWebServerRequest *request){
+  s_server->on("/api/files", HTTP_GET, [](AsyncWebServerRequest *request){
     if (!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
     WebSdBusyScope _sdscope;
     if (!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
@@ -784,7 +800,7 @@ struct WebDownloadCtx {
   }
 };
 
-s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
+s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     if (!web_single_client_allow(request)) {
       request->send(409, "text/plain", "BUSY");
       return;
@@ -886,7 +902,7 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(response);
   });
 
-  s_server.on("/api/delete", HTTP_POST, [](AsyncWebServerRequest *request){
+  s_server->on("/api/delete", HTTP_POST, [](AsyncWebServerRequest *request){
     if (!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
     WebSdBusyScope _sdscope;
     if (!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
@@ -914,7 +930,7 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   
 
 
-  s_server.on("/api/cal/auth", HTTP_POST, [](AsyncWebServerRequest *request){
+  s_server->on("/api/cal/auth", HTTP_POST, [](AsyncWebServerRequest *request){
     String password = "";
     if(request->hasParam("password", true)){
       password = request->getParam("password", true)->value();
@@ -931,7 +947,7 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(200, "application/json", "{\"ok\":true}");
   });
 
-  s_server.on("/api/cal/status", HTTP_GET, [](AsyncWebServerRequest *request){
+  s_server->on("/api/cal/status", HTTP_GET, [](AsyncWebServerRequest *request){
     calibration_service_refresh_status();
     const calibration_status_t status = calibration_service_status();
     const bool recording_allowed = calibration_service_is_recording_allowed();
@@ -960,7 +976,7 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(200, "application/json", out);
   });
 
-  s_server.on("/api/cal/start", HTTP_POST, [](AsyncWebServerRequest *request){
+  s_server->on("/api/cal/start", HTTP_POST, [](AsyncWebServerRequest *request){
     if(!cal_require_auth_(request)) return;
     const system_status_t st = state_task_get_status();
     const bool recording = (st.state == ST_RECORDING) || (st.state == ST_STARTING) || (st.state == ST_STOPPING);
@@ -973,13 +989,13 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(ok ? 200 : 500, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false}");
   });
 
-  s_server.on("/api/cal/cancel", HTTP_POST, [](AsyncWebServerRequest *request){
+  s_server->on("/api/cal/cancel", HTTP_POST, [](AsyncWebServerRequest *request){
     if(!cal_require_auth_(request)) return;
     calibration_session_cancel();
     request->send(200, "application/json", "{\"ok\":true}");
   });
 
-  s_server.on("/api/cal/sample", HTTP_GET, [](AsyncWebServerRequest *request){
+  s_server->on("/api/cal/sample", HTTP_GET, [](AsyncWebServerRequest *request){
     if(!cal_require_auth_(request)) return;
     calibration_sample_status_t st = {};
     if(!calibration_session_get_status(&st)){
@@ -1066,13 +1082,13 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(200, "application/json", out);
   });
 
-  s_server.on("/api/cal/accept", HTTP_POST, [](AsyncWebServerRequest *request){
+  s_server->on("/api/cal/accept", HTTP_POST, [](AsyncWebServerRequest *request){
     if(!cal_require_auth_(request)) return;
     const bool ok = calibration_session_accept_candidate();
     request->send(ok ? 200 : 409, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false}");
   });
 
-  s_server.on("/api/cal/save", HTTP_POST, [](AsyncWebServerRequest *request){
+  s_server->on("/api/cal/save", HTTP_POST, [](AsyncWebServerRequest *request){
     if(!cal_require_auth_(request)) return;
     calibration_record_t rec = {};
     if(!calibration_session_save(&rec)){
@@ -1095,7 +1111,7 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   });
 
 
-  s_server.on("/api/install/start", HTTP_POST, [](AsyncWebServerRequest *request){
+  s_server->on("/api/install/start", HTTP_POST, [](AsyncWebServerRequest *request){
     if(!cal_require_auth_(request)) return;
     const system_status_t st = state_task_get_status();
     const bool recording = (st.state == ST_RECORDING) || (st.state == ST_STARTING) || (st.state == ST_STOPPING);
@@ -1108,13 +1124,13 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(ok ? 200 : 409, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false,\"reason\":\"sensor_cal_required\"}");
   });
 
-  s_server.on("/api/install/cancel", HTTP_POST, [](AsyncWebServerRequest *request){
+  s_server->on("/api/install/cancel", HTTP_POST, [](AsyncWebServerRequest *request){
     if(!cal_require_auth_(request)) return;
     calibration_installation_session_cancel();
     request->send(200, "application/json", "{\"ok\":true}");
   });
 
-  s_server.on("/api/install/sample", HTTP_GET, [](AsyncWebServerRequest *request){
+  s_server->on("/api/install/sample", HTTP_GET, [](AsyncWebServerRequest *request){
     if(!cal_require_auth_(request)) return;
     installation_calibration_status_t st = {};
     if(!calibration_installation_session_get_status(&st)){
@@ -1166,7 +1182,7 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(200, "application/json", out);
   });
 
-  s_server.on("/api/install/save", HTTP_POST, [](AsyncWebServerRequest *request){
+  s_server->on("/api/install/save", HTTP_POST, [](AsyncWebServerRequest *request){
     if(!cal_require_auth_(request)) return;
     calibration_record_t rec = {};
     if(!calibration_installation_session_save(&rec)){
@@ -1180,28 +1196,57 @@ s_server.on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(200, "application/json", out);
   });
 
-
-  s_routes_registered = true;
+  s_server_routes_registered = true;
 }
 
 /**
- * Starts the WiFi access point and web server using the configured AP address,
- * SSID, password, and registered routes.
+ * Ensure that the persistent AsyncWebServer object exists and has its routes.
  *
- * The AP/IP stack is given a short settling time before starting the HTTP
- * server.  This robustness measure reduces observed cases where the SoftAP is
- * joinable but HTTP is not reachable immediately after Web enable.  The code
- * polls WiFi.softAPIP() until the configured AP address is visible, with a
- * hard timeout as a safety net.
+ * The server is intentionally allocated once and reused for the lifetime of
+ * the recorder.  It is not deleted on Web OFF because the tested AsyncTCP /
+ * AsyncWebServer stack does not restart port 80 reliably after end().
+ *
+ * Inputs: None.
+ * Returns: `true` when the server object is ready; otherwise `false`.
+ */
+static bool ensure_server_ready_(){
+  if(s_server == nullptr){
+    s_server = new (std::nothrow) AsyncWebServer(WEB_SERVER_PORT);
+    s_server_routes_registered = false;
+    s_server_listener_started = false;
+  }
+
+  if(s_server == nullptr){
+    return false;
+  }
+
+  register_routes();
+  return s_server_routes_registered;
+}
+
+/**
+ * Starts the WiFi access point and, on the first successful Web ON, starts the
+ * persistent HTTP listener.
+ *
+ * AP enable/disable is the only lifecycle that is repeated.  The HTTP listener
+ * is started once and is left alive across Web OFF cycles to avoid the observed
+ * AsyncWebServer::end() restart failure on port 80 after real client traffic.
  *
  * Inputs: None.
  * Returns: None.
  */
 static void start_ap_and_server(){
   if(s_started) return;
-  register_routes_once();
 
-  WiFi.mode(WIFI_AP);
+  if(!ensure_server_ready_()){
+    s_started = false;
+    return;
+  }
+
+  // Configure the AP address before starting the AP.
+  // The Arduino WiFi layer may internally emit AP_START/AP_STOP/AP_START while
+  // applying the configuration.  This has been observed and is tolerated; the
+  // HTTP listener is kept independent of those AP-side transitions.
   WiFi.softAPConfig(s_ap_ip, s_gateway, s_subnet);
 
   String ssid = make_ssid();
@@ -1215,6 +1260,8 @@ static void start_ap_and_server(){
   }
 
   if(!ap_ok){
+    // AP start failed.  Keep the persistent HTTP server object intact; only
+    // reset the AP/WiFi side and retry on a later Web ON loop.
     WiFi.mode(WIFI_OFF);
     s_started = false;
     return;
@@ -1234,32 +1281,53 @@ static void start_ap_and_server(){
   }
 
   watchdog_kick(WD_WEB);
-  s_server.begin();
+
+  if(!s_server_listener_started){
+    s_server->begin();
+    s_server_listener_started = true;
+  }
+
   s_started = true;
 }
 
 /**
- * Stops the web server, releases SD web access, disconnects the access point,
- * and turns the ESP WiFi mode off.
+ * Stops Web availability by disabling the SoftAP and clearing Web-side state.
  *
- * The original delay(20) after softAPdisconnect() was too short for the
- * ESP-IDF event loop to complete AP teardown.  Toggling WiFi off on a
- * partially-torn-down interface corrupts driver state and worsens the
- * start-up race on the next enable.  Replaced with vTaskDelay(200) which
- * yields the scheduler correctly inside a FreeRTOS task context.
+ * The AsyncWebServer listener is deliberately left running.  Calling
+ * AsyncWebServer::end() after real HTTP traffic was proven to break later
+ * port-80 dispatch on the tested stack, while leaving the listener alive and
+ * toggling only the AP allowed repeated Web ON/OFF cycles to work.
  *
  * Inputs: None.
  * Returns: None.
  */
 static void stop_ap_and_server(){
   if(!s_started) return;
-  s_server.end();
+
+  // Web OFF may interrupt a browser download or OTA upload.  Release all
+  // application-level locks and abort in-progress OTA state before the AP is
+  // disconnected so the next Web ON starts cleanly.
+  (void)sd_files_download_end();
   web_sd_end();
   s_web_client_locked = false;
   s_cal_client_authorized = false;
+
+  if(s_ota_active){
+    Update.abort();
+  }
+  s_ota_active = false;
+  s_ota_ok = false;
+  s_ota_error[0] = '\0';
+
+  // Do not call s_server->end() and do not delete s_server here.
+  // The server listener is intentionally persistent; only the SoftAP is made
+  // unavailable to users.
   WiFi.softAPdisconnect(true);
-  vTaskDelay(pdMS_TO_TICKS(200));   // was delay(20) — yield while driver tears down
+  vTaskDelay(pdMS_TO_TICKS(200));
+
   WiFi.mode(WIFI_OFF);
+  vTaskDelay(pdMS_TO_TICKS(100));
+
   s_started = false;
 }
 /**
@@ -1331,6 +1399,11 @@ static void web_task_loop(void *arg){
  * Returns: None.
  */
 void web_task_init(void){
+  // Allocate and register the HTTP server once during initialization.  If heap
+  // is temporarily unavailable, start_ap_and_server() will retry before the
+  // first Web ON activation.
+  (void)ensure_server_ready_();
+
   const BaseType_t ok = xTaskCreatePinnedToCore(
       web_task_loop,
       "web_task",

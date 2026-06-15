@@ -81,6 +81,38 @@ bool record_filename(char *out, size_t out_sz, const char *registration, const c
   return (n>0) && ((size_t)n < out_sz);
 }
 
+/**
+ * Builds the daily recording filename prefix from registration and the date
+ * portion of the compact recording-start timestamp.
+ *
+ * The SD storage layer later appends _N.bin where N is the number of recording
+ * sessions started in the daily file.  Only the YYYYMMDD part of the token is
+ * used so all recordings of one day are appended to one file.
+ *
+ * Inputs: `out`, `out_sz`, `registration`, `datetime_token`.
+ * Returns: `true` when the prefix was built; otherwise `false`.
+ */
+bool record_daily_prefix(char *out, size_t out_sz, const char *registration, const char *datetime_token){
+  if((out == nullptr) || (out_sz < 16u)){
+    return false;
+  }
+
+  const char *reg = (registration && registration[0]) ? registration : "NOREG";
+  const char *tok = (datetime_token && datetime_token[0]) ? datetime_token : "00000000_000000";
+
+  // timebase_get_datetime_compact() provides YYYYMMDD_HHMMSS.  Daily files
+  // intentionally keep only the date so several start/stop recording sessions
+  // on the same day are stored in the same SD file.
+  char date[9] = "00000000";
+  if(strlen(tok) >= 8u){
+    memcpy(date, tok, 8u);
+    date[8] = '\0';
+  }
+
+  const int n = snprintf(out, out_sz, "/%s_%s", reg, date);
+  return (n > 0) && ((size_t)n < out_sz);
+}
+
 
 /**
  * Record format builds the final status block containing the saturated ring-

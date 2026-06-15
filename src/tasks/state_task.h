@@ -41,6 +41,28 @@ void state_task_init(void);
  */
 system_status_t state_task_get_status(void);
 
+/**
+ * Request recording start from the local UI.
+ *
+ * The request is latched and consumed by the State task.  The caller does not
+ * change recorder state directly; the normal READY start gates still apply.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+void state_task_request_record_start(void);
+
+/**
+ * Request recording stop from the local UI.
+ *
+ * The request is latched and consumed by the State task.  The caller does not
+ * close the SD file directly; the normal RECORDING stop path is used.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+void state_task_request_record_stop(void);
+
 
 // NOTE: Persistence of settings to non-volatile storage is owned by the
 // settings_store service. The State task only *reads* settings to gate

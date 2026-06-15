@@ -370,11 +370,11 @@ static void sd_task_loop(void *arg){
           break;
         }
 
-        char fn[FILENAME_MAX_LENGTH];
-        if(!record_filename(fn,
-                            sizeof(fn),
-                            sett.registration,
-                            timebase_get_datetime_compact())){
+        char daily_prefix[FILENAME_MAX_LENGTH];
+        if(!record_daily_prefix(daily_prefix,
+                                sizeof(daily_prefix),
+                                sett.registration,
+                                timebase_get_datetime_compact())){
           sd_error_set(ERR_SD_FAULT);
           break;
         }
@@ -387,7 +387,10 @@ static void sd_task_loop(void *arg){
           break;
         }
 
-        const error_code_t open_rc = sd_open_record(fn);
+        // Daily file policy: each recording session of the same day is appended
+        // to one file.  The SD layer increments the _N suffix before appending
+        // so the filename indicates how many sessions have been started.
+        const error_code_t open_rc = sd_open_record_daily(daily_prefix);
         if(open_rc != ERR_NONE){
           sd_error_set(open_rc);
           break;

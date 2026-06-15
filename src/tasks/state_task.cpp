@@ -80,7 +80,12 @@ static bool s_watchdog_ack_pending = false;
 // Settings persistence is owned by settings_store. The State task only reads.
 
 // UI request latches (simple, no queues).
-// UI actions are handled directly by the UI task (e.g. web_task_set_enabled).
+// UI tasks may run on another core, therefore the two command flags are
+// protected by a small spinlock.  The State task consumes the flags and still
+// owns all recorder-state transitions.
+static portMUX_TYPE s_ui_cmd_mux = portMUX_INITIALIZER_UNLOCKED;
+static bool s_ui_record_start_requested = false;
+static bool s_ui_record_stop_requested = false;
 
 // =============================================================================
 // Published status snapshot helpers
@@ -113,6 +118,64 @@ static system_status_t copy_status_snapshot_(void){
   portEXIT_CRITICAL(&s_st_pub_mux);
 
   return out;
+}
+
+// =============================================================================
+// UI command helpers
+// =============================================================================
+
+/**
+ * Consume a pending UI start-recording command.
+ *
+ * The latch is cleared even if the caller later decides that recording start
+ * is not allowed.  This makes a rejected UI request one-shot and prevents it
+ * from being applied later after conditions change.
+ *
+ * Inputs: None.
+ * Returns: `true` when the UI requested recording start.
+ */
+static bool ui_take_record_start_request_(void){
+  bool requested = false;
+
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  requested = s_ui_record_start_requested;
+  s_ui_record_start_requested = false;
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
+
+  return requested;
+}
+
+/**
+ * Consume a pending UI stop-recording command.
+ *
+ * The latch is cleared even if the caller later decides that recording stop is
+ * not applicable.  This keeps UI commands simple one-shot requests.
+ *
+ * Inputs: None.
+ * Returns: `true` when the UI requested recording stop.
+ */
+static bool ui_take_record_stop_request_(void){
+  bool requested = false;
+
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  requested = s_ui_record_stop_requested;
+  s_ui_record_stop_requested = false;
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
+
+  return requested;
+}
+
+/**
+ * Discard pending UI record commands in states where neither command is valid.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+static void ui_clear_record_requests_(void){
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  s_ui_record_start_requested = false;
+  s_ui_record_stop_requested = false;
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
 }
 
 // =============================================================================
@@ -597,6 +660,9 @@ static void state_task_main(void *arg){
 
       case ST_BOOT: {
 
+        // Record start/stop UI commands are not applicable in this state.
+        ui_clear_record_requests_();
+
         // Purpose: Initialize services/hardware after power-up.
 
         // Recurring actions
@@ -742,13 +808,17 @@ static void state_task_main(void *arg){
         const bool sd_maintenance_needed = sd_maintenance_error_(sd_err);
 
         // Record-button actions are time-triggered while the button is still held.
-        // A qualified record hold starts recording normally, unless the power
-        // button is pressed at the same time, in which case the combined gesture
-        // clears settings and shuts the unit down.
+        // A qualified hardware record hold starts recording normally, unless
+        // the power button is pressed at the same time, in which case the
+        // combined hardware gesture clears settings and shuts the unit down.
+        // A UI START RECORD request enters the same normal start path, but does
+        // not participate in the clear-settings gesture.
         const bool power_pressed = power_button_pressed();
         const bool record_requested = test_record_button(RECORD_START_HOLD_MS);
+        const bool ui_start_requested = ui_take_record_start_request_();
+        (void)ui_take_record_stop_request_(); // STOP is meaningful only in RECORDING.
         const bool clear_settings_requested = record_requested && power_pressed;
-        const bool start_record_requested = record_requested && (!power_pressed);
+        const bool start_record_requested = (record_requested && (!power_pressed)) || ui_start_requested;
 
         // Keep setup-lock messages visible until all required setup is complete.
         // Settings are checked first, then calibration status.
@@ -826,6 +896,9 @@ static void state_task_main(void *arg){
 
       
       case ST_STARTING: {
+
+        // Record start/stop UI commands are not applicable in this state.
+        ui_clear_record_requests_();
 
         // Purpose: Transient state requesting SD to open the recording file.
 
@@ -927,8 +1000,12 @@ static void state_task_main(void *arg){
 
         // 3) Stop recording conditions -> STOPPING
 
-        // User stop: record-stop hold closes the file and returns to READY.
-        if(test_record_button(RECORD_STOP_HOLD_MS) == true){
+        // User stop: hardware record-stop hold or UI STOP RECORD request
+        // closes the file and returns to READY through the normal STOPPING
+        // path.
+        (void)ui_take_record_start_request_(); // START is meaningful only in READY.
+        const bool ui_stop_requested = ui_take_record_stop_request_();
+        if((test_record_button(RECORD_STOP_HOLD_MS) == true) || ui_stop_requested){
           state_set(ST_STOPPING);
           break;
         }
@@ -954,6 +1031,9 @@ static void state_task_main(void *arg){
 
       
       case ST_STOPPING: {
+
+        // Record start/stop UI commands are not applicable in this state.
+        ui_clear_record_requests_();
 
         // Purpose: Transient state requesting SD to close the recording file.
         // Exit is selected after the SD task reports closed:
@@ -999,6 +1079,9 @@ static void state_task_main(void *arg){
 
       
       case ST_ERROR: {
+
+        // Record start/stop UI commands are not applicable in this state.
+        ui_clear_record_requests_();
 
         // Purpose: Display error condition and wait for operator CLEAR.
         // SD errors are clearable only after sd_task re-probes SD status and
@@ -1059,6 +1142,9 @@ static void state_task_main(void *arg){
       }
 
       case ST_OFF: {
+
+        // Record start/stop UI commands are not applicable in this state.
+        ui_clear_record_requests_();
 
         // Purpose: Display the selected shutdown notice briefly, then request
         // PMU power down. Low-battery shutdown uses a longer recharge notice.
@@ -1169,4 +1255,37 @@ system_status_t state_task_get_status(void){
 
   out.wifi_active = web_task_is_enabled();
   return out;
+}
+
+/**
+ * Latches a UI request to start recording.
+ *
+ * The State task consumes this command in ST_READY and applies the same normal
+ * start gates as the hardware RECORD button: settings complete, calibration
+ * valid, and no SD maintenance condition.  This function does not change state
+ * directly and does not touch SD or hardware.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+void state_task_request_record_start(void){
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  s_ui_record_start_requested = true;
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
+}
+
+/**
+ * Latches a UI request to stop recording.
+ *
+ * The State task consumes this command in ST_RECORDING and uses the same
+ * STOPPING state as the hardware RECORD button, so SD close/status handling
+ * remains centralized.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+void state_task_request_record_stop(void){
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  s_ui_record_stop_requested = true;
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
 }

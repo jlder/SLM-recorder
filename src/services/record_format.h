@@ -83,6 +83,20 @@ void record_format_build_block(record_block_t *out, int32_t ts_ms, const accel_s
  * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
  */
 bool record_filename(char *out, size_t out_sz, const char *registration, const char *datetime_token);
+
+/**
+ * Build the daily recording filename prefix from registration and date.
+ *
+ * The returned prefix includes the leading slash and the date, but it does not
+ * include the session suffix or file extension.  The SD storage layer appends
+ * _N.bin after it has found whether today's daily file already exists.
+ *
+ * Example: /FCJAF_20260614
+ *
+ * Inputs: `out`, `out_sz`, `registration`, `datetime_token`.
+ * Returns: `true` when the prefix was built; otherwise `false`.
+ */
+bool record_daily_prefix(char *out, size_t out_sz, const char *registration, const char *datetime_token);
 /**
  * @brief Record format build status block.
  *

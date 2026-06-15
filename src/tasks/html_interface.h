@@ -312,11 +312,6 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 <div id="calAuthStatus" class="small">Locked.</div>
             </div>
 
-            <div id="watchdogDiagPanel" class="card">
-                <h2>Watchdog Diagnostic</h2>
-                <div id="watchdogDiagText" class="small mono">Loading...</div>
-            </div>
-
             <div id="calMenuPanel" class="hidden">
                 <div class="button-grid maintenance-grid">
                     <div class="cal-menu-item">
@@ -331,6 +326,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                         <div class="small mono last-cal-date" id="installationCalDate">-</div>
                         <div class="small mono last-cal-date" id="installationCalTime">-</div>
                     </div>
+                    <button class="btn btn-primary" onclick="openHealthPage()">Health</button>
                     <button class="btn btn-primary" onclick="openOtaPage()">Firmware Update</button>
                     <button class="btn btn-return" onclick="showHome()">Return</button>
                 </div>
@@ -398,6 +394,17 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             </div>
         </div>
 
+        <div id="healthSection" class="hidden section">
+            <div id="watchdogDiagPanel" class="card">
+                <h2>Watchdog Diagnostic</h2>
+                <div id="watchdogDiagText" class="small mono">Loading...</div>
+            </div>
+            <div class="controls cal-actions">
+                <button class="btn btn-primary" onclick="updateWatchdogDiag()">Refresh</button>
+                <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
+            </div>
+        </div>
+
         <div id="otaSection" class="hidden section">
             <div class="card workflow-card">
                 <p><b>USB power is required for firmware update.</b></p>
@@ -435,6 +442,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             document.getElementById('maintenanceSection').classList.add('hidden');
             document.getElementById('accelCalPage').classList.add('hidden');
             document.getElementById('installCalPage').classList.add('hidden');
+            document.getElementById('healthSection').classList.add('hidden');
             document.getElementById('otaSection').classList.add('hidden');
         }
 
@@ -474,7 +482,6 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             document.getElementById('calMenuPanel').classList.add('hidden');
             resetAccelCalUi();
             resetInstallCalUi();
-            updateWatchdogDiag();
         }
 
         function showMaintenanceMenu() {
@@ -488,7 +495,6 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             resetAccelCalUi();
             resetInstallCalUi();
             calStatus();
-            updateWatchdogDiag();
         }
 
         function openAccelCal() {
@@ -517,6 +523,15 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             calStatus();
             startCalPolling();
             installSample();
+        }
+
+        function openHealthPage() {
+            setPageTitle('SLM Health');
+            if (!calAuth) { showMaintenanceLocked(); return; }
+            stopCalPolling();
+            hideAllPages();
+            document.getElementById('healthSection').classList.remove('hidden');
+            updateWatchdogDiag();
         }
 
         function openOtaPage() {
