@@ -111,6 +111,14 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             padding: 10px 12px;
             margin: 8px 0;
         }
+        .delete-warning-window {
+            border: 1px solid #f1c40f;
+            background: #fff8e1;
+            color: #5d4600;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin: 8px 0;
+        }
         .btn-return { background: #27ae60; color: white; }
         input[type="password"], input[type="file"] {
             max-width: 100%;
@@ -136,6 +144,52 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             overflow-wrap: anywhere;
         }
         .file-size { font-size: 13px; color: #555; }
+        .analysis-window {
+            border: 1px solid #3498db;
+            background: #eef7ff;
+            border-radius: 8px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .analysis-window h2 { margin-bottom: 6px; }
+        .progress-block {
+            margin: 8px 0;
+        }
+        .progress-label {
+            font-size: 12px;
+            margin-bottom: 3px;
+        }
+        .progress-track {
+            width: 100%;
+            height: 14px;
+            border: 1px solid #95a5a6;
+            border-radius: 7px;
+            overflow: hidden;
+            background: #ecf0f1;
+        }
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: #3498db;
+            transition: width 0.15s linear;
+        }
+        .analysis-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 8px;
+        }
+        .analysis-table th {
+            background: #2c3e50;
+            color: white;
+            padding: 7px;
+            text-align: left;
+            font-size: 12px;
+        }
+        .analysis-table td {
+            padding: 7px;
+            border-bottom: 1px solid #dfe6e9;
+            font-size: 12px;
+        }
         .file-btn {
             width: 96px;
             min-height: 32px;
@@ -316,6 +370,19 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             </div>
             <div id="fileListContainer">
                 <div class="loading">Loading files...</div>
+            </div>
+            <div id="flightAnalysisWindow" class="analysis-window hidden">
+                <h2>SLM Flight Analysis</h2>
+                <div id="flightAnalysisStatus" class="small">No analysis available.</div>
+                <div class="progress-block">
+                    <div id="downloadProgressText" class="progress-label small">Download: idle</div>
+                    <div class="progress-track"><div id="downloadProgressBar" class="progress-fill"></div></div>
+                </div>
+                <div class="progress-block">
+                    <div id="processingProgressText" class="progress-label small">Processing: idle</div>
+                    <div class="progress-track"><div id="processingProgressBar" class="progress-fill"></div></div>
+                </div>
+                <div id="flightAnalysisTable"></div>
             </div>
         </div>
 
@@ -707,7 +774,713 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         }
 
         function downloadFile(filename) {
-            window.location.href = '/api/download?file=' + encodeURIComponent(filename);
+            const status = document.getElementById('flightAnalysisStatus');
+            const panel = document.getElementById('flightAnalysisWindow');
+            const table = document.getElementById('flightAnalysisTable');
+
+            panel.classList.remove('hidden');
+            table.innerHTML = '';
+            status.textContent = 'Preparing download and analysis for ' + filename + '...';
+            setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Download: starting...');
+            setProgress('processingProgressBar', 'processingProgressText', 0, 'Processing: waiting for download...');
+
+            const downloadStartMs = performance.now();
+
+            downloadFileBuffer(filename, function(percent, text) {
+                setProgress('downloadProgressBar', 'downloadProgressText', percent, text);
+            })
+                .then(buffer => {
+                    const downloadMs = performance.now() - downloadStartMs;
+                    setProgress(
+                        'downloadProgressBar',
+                        'downloadProgressText',
+                        100,
+                        'Download: complete in ' + formatElapsedMs(downloadMs) +
+                            ' (' + formatBytes(buffer.byteLength) + ')'
+                    );
+
+                    // Save the file as soon as the binary download is complete.
+                    // Analysis is then performed from the same buffer.
+                    saveDownloadedBuffer(filename, buffer);
+
+                    const processingStartMs = performance.now();
+                    status.textContent = 'Processing ' + filename + '...';
+
+                    return analyzeRecorderFileAsync(buffer, function(percent, text) {
+                        setProgress('processingProgressBar', 'processingProgressText', percent, text);
+                    })
+                        .then(analysis => {
+                            analysis.downloadMs = downloadMs;
+                            analysis.processingMs = performance.now() - processingStartMs;
+                            setProgress(
+                                'processingProgressBar',
+                                'processingProgressText',
+                                100,
+                                'Processing: complete in ' + formatElapsedMs(analysis.processingMs)
+                            );
+                            showFlightAnalysis(filename, analysis);
+                        });
+                })
+                .catch(err => {
+                    status.textContent = 'Download or analysis failed. Falling back to direct download.';
+                    setProgress('processingProgressBar', 'processingProgressText', 0, 'Processing: failed.');
+                    console.error(err);
+                    window.location.href = '/api/download?file=' + encodeURIComponent(filename);
+                });
+        }
+
+        function downloadFileBuffer(filename, progressCb) {
+            return new Promise(function(resolve, reject) {
+                const xhr = new XMLHttpRequest();
+                xhr.open('GET', '/api/download?file=' + encodeURIComponent(filename), true);
+                xhr.responseType = 'arraybuffer';
+
+                xhr.onprogress = function(evt) {
+                    if (evt.lengthComputable && evt.total > 0) {
+                        const percent = Math.round((evt.loaded * 100) / evt.total);
+                        progressCb(
+                            percent,
+                            'Download: ' + percent + '% (' +
+                                formatBytes(evt.loaded) + ' / ' + formatBytes(evt.total) + ')'
+                        );
+                    } else {
+                        progressCb(0, 'Download: ' + formatBytes(evt.loaded) + ' received');
+                    }
+                };
+
+                xhr.onload = function() {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve(xhr.response);
+                    } else {
+                        reject(new Error('download failed: HTTP ' + xhr.status));
+                    }
+                };
+
+                xhr.onerror = function() {
+                    reject(new Error('download failed'));
+                };
+
+                xhr.send();
+            });
+        }
+
+        function setProgress(barId, textId, percent, text) {
+            const bar = document.getElementById(barId);
+            const label = document.getElementById(textId);
+            const p = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+
+            if (bar) bar.style.width = p + '%';
+            if (label) label.textContent = text || (p + '%');
+        }
+
+        function formatBytes(bytes) {
+            const b = Number(bytes) || 0;
+            if (b >= 1000000) return (b / 1000000).toFixed(1) + ' MB';
+            if (b >= 1000) return (b / 1000).toFixed(0) + ' kB';
+            return b + ' B';
+        }
+
+        function formatElapsedMs(ms) {
+            const seconds = (Number(ms) || 0) / 1000.0;
+            if (seconds < 10.0) return seconds.toFixed(1) + ' s';
+            return Math.round(seconds) + ' s';
+        }
+
+        function analysisYield() {
+            return new Promise(resolve => setTimeout(resolve, 0));
+        }
+
+        function saveDownloadedBuffer(filename, buffer) {
+            const blob = new Blob([buffer], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 30000);
+        }
+
+        function showFlightAnalysis(filename, analysis) {
+            const status = document.getElementById('flightAnalysisStatus');
+            const table = document.getElementById('flightAnalysisTable');
+
+            const timingText = analysisTimingText(analysis);
+
+            if (!analysis || !analysis.ok) {
+                const reason = analysis && analysis.reason ? analysis.reason : 'Analysis failed.';
+                status.textContent = reason + timingText;
+                table.innerHTML = '';
+                return;
+            }
+
+
+            if (analysis.flights.length === 0) {
+                status.textContent = filename + ' (' + (analysis.formatName || 'unknown format') +
+                    '): no complete flight detected from ' + analysis.recordCount +
+                    ' acceleration records.' + timingText;
+                table.innerHTML = '';
+                return;
+            }
+
+            status.textContent = filename + ' (' + (analysis.formatName || 'unknown format') +
+                '): ' + analysis.flights.length + ' flight(s) detected from ' +
+                analysis.recordCount + ' acceleration records.' + timingText;
+
+            let html = '<table class="analysis-table"><thead><tr>' +
+                '<th>Flight</th><th>Takeoff roll start</th><th>Lift off</th>' +
+                '<th>Touchdown</th><th>Landing roll end</th><th>Flight duration</th>' +
+                '</tr></thead><tbody>';
+
+            analysis.flights.forEach(f => {
+                html += '<tr>' +
+                    '<td>' + f.number + '</td>' +
+                    '<td class="mono">' + escapeHtml(f.takeoffRollStart) + '</td>' +
+                    '<td class="mono">' + escapeHtml(f.liftOff) + '</td>' +
+                    '<td class="mono">' + escapeHtml(f.touchdown) + '</td>' +
+                    '<td class="mono">' + escapeHtml(f.landingRollEnd) + '</td>' +
+                    '<td class="mono">' + escapeHtml(f.flightDuration) + '</td>' +
+                    '</tr>';
+            });
+
+            html += '</tbody></table>';
+            table.innerHTML = html;
+        }
+
+
+        function analysisTimingText(analysis) {
+            if (!analysis) return '';
+
+            const parts = [];
+            if (Number.isFinite(analysis.downloadMs)) {
+                parts.push('download ' + formatElapsedMs(analysis.downloadMs));
+            }
+            if (Number.isFinite(analysis.processingMs)) {
+                parts.push('processing ' + formatElapsedMs(analysis.processingMs));
+            }
+
+            return parts.length > 0 ? (' [' + parts.join(', ') + ']') : '';
+        }
+
+        // ---------------------------------------------------------------------
+        // Browser-side flight analysis
+        //
+        // The browser accepts both recorder binary formats:
+        //   - SLM 0x70 records:
+        //       0x55, 0x70, uint32 time_ms, int16 ax_mg, int16 ay_mg,
+        //       int16 az_mg, uint8 checksum
+        //   - WIT 0x50/0x51 packets:
+        //       0x50 time anchors and 0x51 acceleration samples.
+        //
+        // Both decoders produce the same internal acceleration timeline:
+        //   { absMs, axG, ayG, azG }
+        //
+        // The flight analysis is common to both formats and implements the
+        // Python method used during development: HIRMS (>3 Hz), LOWRMS
+        // (0.5..3 Hz), FlightGround = normalized LOWRMS - normalized HIRMS,
+        // hysteresis flight/ground state, then roll-phase timing from
+        // normalized HIRMS thresholds.
+        // ---------------------------------------------------------------------
+
+        const SLM_ANALYSIS_FS = 20.0;
+        const SLM_ANALYSIS_HIRMS_WINDOW_S = 4.0;
+        const SLM_ANALYSIS_LOWRMS_WINDOW_S = 10.0;
+        const SLM_ANALYSIS_FLIGHTGROUND_LPF_PERIOD_S = 20.0;
+        const SLM_ANALYSIS_FLIGHTGROUND_THRESHOLD = 0.05;
+        const SLM_ANALYSIS_FLIGHTGROUND_HYSTERESIS = 0.10;
+        const SLM_ANALYSIS_SEARCH_WINDOW_S = 80.0;
+        const SLM_ANALYSIS_TO_ROLL_START_THR = 0.10;
+        const SLM_ANALYSIS_TO_ROLL_END_THR = 0.25;
+        const SLM_ANALYSIS_LDG_ROLL_START_THR = 0.25;
+        const SLM_ANALYSIS_LDG_ROLL_END_THR = 0.10;
+        const SLM_ANALYSIS_MIN_FILE_S = 30.0;
+        const SLM_ANALYSIS_BUTTER_Q = [0.541196100146, 1.306562964876];
+
+        const SLM_RECORD_START = 0x55;
+        const SLM_RECORD_TYPE_ACCEL = 0x70;
+        const SLM_RECORD_LENGTH = 13;
+
+        const WIT_PACKET_START = 0x55;
+        const WIT_TYPE_TIME = 0x50;
+        const WIT_TYPE_ACCEL = 0x51;
+        const WIT_PACKET_LENGTH = 11;
+        const WIT_SCALE_G = 16.0 / 32768.0;
+
+        async function analyzeRecorderFileAsync(buffer, progressCb) {
+            const progress = progressCb || function(){};
+
+            progress(5, 'Processing: decoding file format...');
+            await analysisYield();
+
+            const decoded = decodeRecorderTimeline(buffer);
+            if (!decoded || decoded.records.length < SLM_ANALYSIS_FS * SLM_ANALYSIS_MIN_FILE_S) {
+                progress(100, 'Processing: not enough valid acceleration records.');
+                return { ok: false, reason: 'Not enough valid acceleration records for flight analysis.' };
+            }
+
+            progress(15, 'Processing: decoded ' + decoded.formatName + ', ' +
+                decoded.records.length + ' acceleration records.');
+            await analysisYield();
+
+            const flights = await analyzeAccelerationTimelineAsync(decoded.records, progress);
+            flights.forEach((f, index) => { f.number = index + 1; });
+
+            return {
+                ok: true,
+                formatName: decoded.formatName,
+                recordCount: decoded.records.length,
+                flights: flights
+            };
+        }
+
+        function decodeRecorderTimeline(buffer) {
+            const slm = decodeSlmTimeline(buffer);
+            const wit = decodeWitTimeline(buffer);
+
+            if (slm.records.length === 0 && wit.records.length === 0) {
+                return { formatName: 'unknown', records: [] };
+            }
+
+            // The formats use distinct packet IDs.  Select the decoder that
+            // produced the largest valid acceleration timeline.  This keeps the
+            // analysis independent of file extension and supports old WIT files
+            // directly from the phone download page.
+            return (slm.records.length >= wit.records.length) ? slm : wit;
+        }
+
+        function decodeSlmTimeline(buffer) {
+            const bytes = new Uint8Array(buffer);
+            const view = new DataView(buffer);
+            const records = [];
+            let dayOffset = 0;
+            let previousAbs = null;
+
+            for (let i = 0; i + SLM_RECORD_LENGTH <= bytes.length; ) {
+                if (bytes[i] !== SLM_RECORD_START || bytes[i + 1] !== SLM_RECORD_TYPE_ACCEL) {
+                    i++;
+                    continue;
+                }
+
+                let sum = 0;
+                for (let k = 0; k < SLM_RECORD_LENGTH - 1; k++) {
+                    sum = (sum + bytes[i + k]) & 0xFF;
+                }
+
+                if (sum !== bytes[i + SLM_RECORD_LENGTH - 1]) {
+                    i++;
+                    continue;
+                }
+
+                const timeMs = view.getUint32(i + 2, true);
+                const axMg = view.getInt16(i + 6, true);
+                const ayMg = view.getInt16(i + 8, true);
+                const azMg = view.getInt16(i + 10, true);
+
+                if (previousAbs !== null && timeMs + dayOffset < previousAbs - 1000) {
+                    dayOffset += 24 * 3600 * 1000;
+                }
+
+                const absMs = timeMs + dayOffset;
+                records.push({
+                    absMs: absMs,
+                    axG: axMg / 1000.0,
+                    ayG: ayMg / 1000.0,
+                    azG: azMg / 1000.0
+                });
+
+                previousAbs = absMs;
+                i += SLM_RECORD_LENGTH;
+            }
+
+            return { formatName: 'SLM 0x70', records: records };
+        }
+
+        function decodeWitTimeline(buffer) {
+            const bytes = new Uint8Array(buffer);
+            const view = new DataView(buffer);
+            const records = [];
+            let dayOffset = 0;
+            let lastSodMs = null;
+            let anchorAbsMs = null;
+            let accelCountSinceAnchor = 0;
+
+            for (let i = 0; i + 2 <= bytes.length; ) {
+                if (bytes[i] !== WIT_PACKET_START) {
+                    i++;
+                    continue;
+                }
+
+                const packetType = bytes[i + 1];
+                if ((packetType !== WIT_TYPE_TIME) && (packetType !== WIT_TYPE_ACCEL)) {
+                    i++;
+                    continue;
+                }
+
+                if (i + WIT_PACKET_LENGTH > bytes.length) {
+                    break;
+                }
+
+                let sum = 0;
+                for (let k = 0; k < WIT_PACKET_LENGTH - 1; k++) {
+                    sum = (sum + bytes[i + k]) & 0xFF;
+                }
+
+                if (sum !== bytes[i + WIT_PACKET_LENGTH - 1]) {
+                    i++;
+                    continue;
+                }
+
+                if (packetType === WIT_TYPE_TIME) {
+                    const sodMs = decodeWitTimeSodMs(bytes, view, i);
+                    if (sodMs !== null) {
+                        if (lastSodMs !== null && sodMs < lastSodMs) {
+                            dayOffset += 24 * 3600 * 1000;
+                        }
+                        anchorAbsMs = dayOffset + sodMs;
+                        accelCountSinceAnchor = 0;
+                        lastSodMs = sodMs;
+                    }
+                } else {
+                    const axRaw = view.getInt16(i + 2, true);
+                    const ayRaw = view.getInt16(i + 4, true);
+                    const azRaw = view.getInt16(i + 6, true);
+                    const absMs = (anchorAbsMs === null)
+                        ? Math.round(records.length * 1000.0 / SLM_ANALYSIS_FS)
+                        : Math.round(anchorAbsMs + accelCountSinceAnchor * 1000.0 / SLM_ANALYSIS_FS);
+
+                    records.push({
+                        absMs: absMs,
+                        axG: axRaw * WIT_SCALE_G,
+                        ayG: ayRaw * WIT_SCALE_G,
+                        azG: azRaw * WIT_SCALE_G
+                    });
+
+                    accelCountSinceAnchor++;
+                }
+
+                i += WIT_PACKET_LENGTH;
+            }
+
+            const formatName = (lastSodMs === null) ? 'WIT 0x51' : 'WIT 0x50/0x51';
+            return { formatName: formatName, records: records };
+        }
+
+        function decodeWitTimeSodMs(bytes, view, offset) {
+            const month = bytes[offset + 3];
+            const day = bytes[offset + 4];
+            const hour = bytes[offset + 5];
+            const minute = bytes[offset + 6];
+            const second = bytes[offset + 7];
+            const millisecond = view.getUint16(offset + 8, true);
+
+            if (month < 1 || month > 12 || day < 1 || day > 31 ||
+                hour > 23 || minute > 59 || second > 59 || millisecond > 999) {
+                return null;
+            }
+
+            return ((hour * 3600 + minute * 60 + second) * 1000 + millisecond);
+        }
+
+        async function analyzeAccelerationTimelineAsync(records, progressCb) {
+            const progress = progressCb || function(){};
+
+            progress(20, 'Processing: computing acceleration magnitude...');
+            await analysisYield();
+            const accelMod = records.map(r => Math.sqrt(r.axG * r.axG + r.ayG * r.ayG + r.azG * r.azG));
+
+            progress(32, 'Processing: computing HIRMS (>3 Hz)...');
+            await analysisYield();
+            const accelHigh = butterHighpass4ZeroPhase(accelMod, 3.0, SLM_ANALYSIS_FS);
+            const hirms = movingRms(accelHigh, SLM_ANALYSIS_HIRMS_WINDOW_S, SLM_ANALYSIS_FS);
+
+            progress(48, 'Processing: computing LOWRMS (0.5..3 Hz)...');
+            await analysisYield();
+            const accelLow = butterBandpassApproxZeroPhase(accelMod, 0.5, 3.0, SLM_ANALYSIS_FS);
+            const lowrms = movingRms(accelLow, SLM_ANALYSIS_LOWRMS_WINDOW_S, SLM_ANALYSIS_FS);
+
+            progress(62, 'Processing: normalizing RMS signals...');
+            await analysisYield();
+            const hMin = arrayMin(hirms);
+            const hMax = arrayMax(hirms);
+            const hirmsNorm = normalizeWithRange(hirms, hMin, hMax);
+            const lowrmsNorm = normalizeWithRange(lowrms, hMin, hMax);
+
+            progress(72, 'Processing: computing FlightGround...');
+            await analysisYield();
+            const flightgroundRaw = lowrmsNorm.map((v, i) => Math.max(0.0, v - hirmsNorm[i]));
+            const fgCutoff = 1.0 / SLM_ANALYSIS_FLIGHTGROUND_LPF_PERIOD_S;
+            const flightground = butterLowpass4ZeroPhase(flightgroundRaw, fgCutoff, SLM_ANALYSIS_FS);
+
+            progress(84, 'Processing: finding flight/ground transitions...');
+            await analysisYield();
+            const flightState = calculateBooleanState(
+                flightground,
+                SLM_ANALYSIS_FLIGHTGROUND_THRESHOLD,
+                SLM_ANALYSIS_FLIGHTGROUND_HYSTERESIS
+            );
+
+            const segments = findTransitionPeaks(
+                flightState,
+                hirms,
+                SLM_ANALYSIS_FS,
+                SLM_ANALYSIS_SEARCH_WINDOW_S
+            );
+
+            progress(94, 'Processing: finding roll phase times...');
+            await analysisYield();
+            return findRollPhases(segments, hirmsNorm, records);
+        }
+
+        function makeBiquad(type, cutoffHz, fs, q) {
+            const w0 = 2.0 * Math.PI * cutoffHz / fs;
+            const cosw0 = Math.cos(w0);
+            const sinw0 = Math.sin(w0);
+            const alpha = sinw0 / (2.0 * q);
+
+            let b0, b1, b2;
+            if (type === 'low') {
+                b0 = (1.0 - cosw0) / 2.0;
+                b1 = 1.0 - cosw0;
+                b2 = (1.0 - cosw0) / 2.0;
+            } else {
+                b0 = (1.0 + cosw0) / 2.0;
+                b1 = -(1.0 + cosw0);
+                b2 = (1.0 + cosw0) / 2.0;
+            }
+
+            const a0 = 1.0 + alpha;
+            const a1 = -2.0 * cosw0;
+            const a2 = 1.0 - alpha;
+
+            return {
+                b0: b0 / a0,
+                b1: b1 / a0,
+                b2: b2 / a0,
+                a1: a1 / a0,
+                a2: a2 / a0
+            };
+        }
+
+        function applyBiquad(data, coeff) {
+            const out = new Array(data.length);
+            let x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0;
+
+            for (let i = 0; i < data.length; i++) {
+                const x0 = data[i];
+                const y0 = coeff.b0 * x0 + coeff.b1 * x1 + coeff.b2 * x2 - coeff.a1 * y1 - coeff.a2 * y2;
+                out[i] = Number.isFinite(y0) ? y0 : 0.0;
+                x2 = x1; x1 = x0;
+                y2 = y1; y1 = out[i];
+            }
+
+            return out;
+        }
+
+        function applyCascade(data, sections) {
+            let out = data.slice();
+            sections.forEach(section => { out = applyBiquad(out, section); });
+            return out;
+        }
+
+        function applyZeroPhase(data, sections) {
+            const fwd = applyCascade(data, sections);
+            const rev = applyCascade(fwd.slice().reverse(), sections);
+            return rev.reverse();
+        }
+
+        function butterLowpass4ZeroPhase(data, cutoffHz, fs) {
+            const sections = SLM_ANALYSIS_BUTTER_Q.map(q => makeBiquad('low', cutoffHz, fs, q));
+            return applyZeroPhase(data, sections);
+        }
+
+        function butterHighpass4ZeroPhase(data, cutoffHz, fs) {
+            const sections = SLM_ANALYSIS_BUTTER_Q.map(q => makeBiquad('high', cutoffHz, fs, q));
+            return applyZeroPhase(data, sections);
+        }
+
+        function butterBandpassApproxZeroPhase(data, lowHz, highHz, fs) {
+            return butterLowpass4ZeroPhase(butterHighpass4ZeroPhase(data, lowHz, fs), highHz, fs);
+        }
+
+        function movingRms(data, windowTimeS, fs) {
+            const n = Math.max(1, Math.round(windowTimeS * fs));
+            const half = Math.floor(n / 2);
+            const prefix = new Array(data.length + 1);
+            prefix[0] = 0.0;
+
+            for (let i = 0; i < data.length; i++) {
+                prefix[i + 1] = prefix[i] + data[i] * data[i];
+            }
+
+            const out = new Array(data.length);
+            for (let i = 0; i < data.length; i++) {
+                const startRaw = i - half;
+                const endRaw = startRaw + n;
+                const start = Math.max(0, startRaw);
+                const end = Math.min(data.length, endRaw);
+                const sum = prefix[end] - prefix[start];
+                out[i] = Math.sqrt(Math.max(0.0, sum / n));
+            }
+
+            return out;
+        }
+
+        function normalizeWithRange(data, minVal, maxVal) {
+            if (!Number.isFinite(minVal) || !Number.isFinite(maxVal) || maxVal === minVal) {
+                return data.map(() => 0.0);
+            }
+            return data.map(v => (v - minVal) / (maxVal - minVal));
+        }
+
+        function calculateBooleanState(data, threshold, hysteresis) {
+            const tUp = threshold + hysteresis / 2.0;
+            const tDown = threshold - hysteresis / 2.0;
+            let state = 0;
+
+            return data.map(value => {
+                if (state === 0 && value >= tUp) state = 1;
+                else if (state === 1 && value <= tDown) state = 0;
+                return state;
+            });
+        }
+
+        function findTransitionPeaks(booleanArray, signalToPeak, fs, windowTimeS) {
+            const transitions = [];
+            for (let i = 1; i < booleanArray.length; i++) {
+                if (booleanArray[i] !== booleanArray[i - 1]) transitions.push(i);
+            }
+
+            const startIndices = transitions.filter(idx => booleanArray[idx] === 1);
+            const endIndices = transitions.filter(idx => booleanArray[idx] === 0);
+            if (booleanArray[0] === 1) startIndices.unshift(0);
+
+            const halfWindow = Math.round((windowTimeS / 2.0) * fs);
+            const segments = [];
+            let endCursor = 0;
+
+            startIndices.forEach(startIdx => {
+                while (endCursor < endIndices.length && endIndices[endCursor] <= startIdx) endCursor++;
+                if (endCursor >= endIndices.length) return;
+
+                const endIdx = endIndices[endCursor++];
+
+                const startWin0 = Math.max(0, startIdx - halfWindow);
+                const startWin1 = Math.min(signalToPeak.length, startIdx + halfWindow);
+                const endWin0 = Math.max(0, endIdx - halfWindow);
+                const endWin1 = Math.min(signalToPeak.length, endIdx + halfWindow);
+
+                const peakStartIdx = maxIndexInRange(signalToPeak, startWin0, startWin1);
+                const peakEndIdx = maxIndexInRange(signalToPeak, endWin0, endWin1);
+
+                if (peakStartIdx >= 0 && peakEndIdx > peakStartIdx) {
+                    segments.push({
+                        startIdx: startIdx,
+                        endIdx: endIdx,
+                        peakStartIdx: peakStartIdx,
+                        peakEndIdx: peakEndIdx
+                    });
+                }
+            });
+
+            return segments;
+        }
+
+        function findRollPhases(segments, hirmsNorm, records) {
+            const results = [];
+
+            segments.forEach(segment => {
+                const peakStartIdx = segment.peakStartIdx;
+                const peakEndIdx = segment.peakEndIdx;
+
+                let toRollStartIdx = 0;
+                let liftOffIdx = peakEndIdx;
+                let touchdownIdx = peakStartIdx;
+                let ldgRollEndIdx = records.length - 1;
+
+                for (let i = peakStartIdx - 1; i >= 0; i--) {
+                    if (hirmsNorm[i] <= SLM_ANALYSIS_TO_ROLL_START_THR) {
+                        toRollStartIdx = i + 1;
+                        break;
+                    }
+                }
+
+                for (let i = peakStartIdx; i < peakEndIdx; i++) {
+                    if (hirmsNorm[i] <= SLM_ANALYSIS_TO_ROLL_END_THR) {
+                        liftOffIdx = i;
+                        break;
+                    }
+                }
+
+                for (let i = peakEndIdx - 1; i >= peakStartIdx; i--) {
+                    if (hirmsNorm[i] <= SLM_ANALYSIS_LDG_ROLL_START_THR) {
+                        touchdownIdx = i + 1;
+                        break;
+                    }
+                }
+
+                for (let i = peakEndIdx; i < records.length; i++) {
+                    if (hirmsNorm[i] <= SLM_ANALYSIS_LDG_ROLL_END_THR) {
+                        ldgRollEndIdx = i;
+                        break;
+                    }
+                }
+
+                const durationMs = Math.max(0, records[ldgRollEndIdx].absMs - records[toRollStartIdx].absMs);
+
+                results.push({
+                    takeoffRollStart: formatClockMs(records[toRollStartIdx].absMs),
+                    liftOff: formatClockMs(records[liftOffIdx].absMs),
+                    touchdown: formatClockMs(records[touchdownIdx].absMs),
+                    landingRollEnd: formatClockMs(records[ldgRollEndIdx].absMs),
+                    flightDuration: formatDurationMs(durationMs)
+                });
+            });
+
+            return results;
+        }
+
+        function maxIndexInRange(data, start, end) {
+            let bestIdx = -1;
+            let bestVal = -Infinity;
+
+            for (let i = start; i < end; i++) {
+                if (data[i] > bestVal) {
+                    bestVal = data[i];
+                    bestIdx = i;
+                }
+            }
+
+            return bestIdx;
+        }
+
+        function arrayMin(data) {
+            return data.reduce((a, b) => Math.min(a, b), Infinity);
+        }
+
+        function arrayMax(data) {
+            return data.reduce((a, b) => Math.max(a, b), -Infinity);
+        }
+
+        function formatClockMs(absMs) {
+            let totalSeconds = Math.round(absMs / 1000.0);
+            totalSeconds = ((totalSeconds % 86400) + 86400) % 86400;
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            const s = totalSeconds % 60;
+            return pad2(h) + ':' + pad2(m) + ':' + pad2(s);
+        }
+
+        function formatDurationMs(ms) {
+            let totalSeconds = Math.round(ms / 1000.0);
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            const s = totalSeconds % 60;
+            return pad2(h) + ':' + pad2(m) + ':' + pad2(s);
+        }
+
+        function pad2(v) {
+            return String(v).padStart(2, '0');
         }
 
         function deleteFile(filename) {
