@@ -67,6 +67,9 @@ bool sd_files_download_active(void);
 /** Archive a file to /processed. Returns false if not authorized or on error. */
 bool sd_files_delete(const char *path);
 
+/** Permanently delete one selected file from /processed. */
+bool sd_files_delete_processed(const char *path);
+
 /**
  * SD-task service hook.
  * Called frequently from the SD state machine while it is safe to perform

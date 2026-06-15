@@ -158,3 +158,12 @@ void sd_storage_download_end(void);
  * Returns: `true` when the file was moved to /processed; otherwise `false`.
  */
 bool sd_storage_archive_to_processed(const char *path);
+
+
+/**
+ * Permanently delete one archived file from /processed.
+ *
+ * Inputs: `path`.
+ * Returns: `true` when the selected /processed file was deleted.
+ */
+bool sd_storage_delete_processed_file(const char *path);

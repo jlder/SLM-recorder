@@ -215,6 +215,14 @@ lv_obj_t *btn_main_menu = NULL;
 // Battery graphic - NEW: structure-based
 static BatteryGraphic battery_graphic;
 
+// Main-screen WiFi status graphic.  The object is created once with the main
+// screen and shown only while the local Web/WiFi access point is requested.
+static lv_obj_t *obj_main_wifi = NULL;
+
+// MENU button layout.  Four equal-height buttons are spaced by one constant
+// vertical step so the gaps remain even and easy to adjust.
+static const int16_t MENU_BUTTON_FIRST_Y = 80;
+static const int16_t MENU_BUTTON_STEP_Y  = 105;
 
 lv_obj_t *y_roller = NULL;
 lv_obj_t *mo_roller = NULL;
@@ -247,8 +255,14 @@ static uint32_t s_ui_record_btn_press_ms = 0u;
 // LVGL CALLBACKS
 // =============================================================================
 
-/** LVGL display flush callback: copy one rendered area to the display. */
-static void display_flush_cb_(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
+/**
+ * My disp flush performs the ui task operation represented by this function
+ * and keeps the module state consistent with recorder ownership rules.
+ *
+ * Inputs: `disp`, `area`, `px_map`.
+ * Returns: None.
+ */
+void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
     uint32_t w = lv_area_get_width(area);
     uint32_t h = lv_area_get_height(area);
     gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)px_map, w, h);
@@ -363,7 +377,7 @@ static void ui_display_standby_service_(void){
  * Inputs: `indev`, `data`.
  * Returns: None.
  */
-static void touch_read_cb_(lv_indev_t *indev, lv_indev_data_t *data) {
+void my_touchpad_read(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     touch_snapshot_t s = touch_service_get_snapshot();
     if (!s.valid || !s.pressed) {
@@ -379,6 +393,55 @@ static void touch_read_cb_(lv_indev_t *indev, lv_indev_data_t *data) {
 // =============================================================================
 // UI HELPER FUNCTIONS
 // =============================================================================
+
+/**
+ * Apply global background performs the ui task operation represented by this
+ * function and keeps the module state consistent with recorder ownership
+ * rules.
+ *
+ * Inputs: `screen`.
+ * Returns: None.
+ */
+void apply_global_background(lv_obj_t * screen) {
+    lv_obj_set_style_bg_img_src(screen, &SLM_206_v4, 0);
+}
+
+/**
+ * Creates the main-screen Wi-Fi graphic shown while Web/Wi-Fi access is active.
+ *
+ * The graphic uses LVGL's built-in Wi-Fi symbol instead of drawing arcs
+ * manually.  It is placed slightly to the right and lower than the top-left
+ * corner so it remains clear of the rounded display edge.
+ *
+ * Inputs: `parent`.
+ * Returns: None.
+ */
+static void create_wifi_graphic_(lv_obj_t *parent) {
+    obj_main_wifi = lv_label_create(parent);
+    lv_label_set_text(obj_main_wifi, LV_SYMBOL_WIFI);
+    lv_obj_set_style_text_font(obj_main_wifi, FONT_HUGE, 0);
+    lv_obj_set_style_text_color(obj_main_wifi, lv_palette_main(LV_PALETTE_BLUE), 0);
+    lv_obj_align(obj_main_wifi, LV_ALIGN_TOP_LEFT, 48, 34);
+    lv_obj_add_flag(obj_main_wifi, LV_OBJ_FLAG_HIDDEN);
+}
+
+/**
+ * Shows or hides the main-screen WiFi graphic according to Web/WiFi state.
+ *
+ * Inputs: `visible`.
+ * Returns: None.
+ */
+static void ui_wifi_graphic_set_visible_(bool visible) {
+    if(obj_main_wifi == NULL){
+        return;
+    }
+
+    if(visible){
+        lv_obj_clear_flag(obj_main_wifi, LV_OBJ_FLAG_HIDDEN);
+    }else{
+        lv_obj_add_flag(obj_main_wifi, LV_OBJ_FLAG_HIDDEN);
+    }
+}
 
 /**
  * Updates or evaluates disable button state used to qualify physical button
@@ -575,7 +638,7 @@ static void refreshSettingsButtons(void) {
  */
 void createMainScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     main_screen = lv_obj_create(NULL);
-    lv_obj_set_style_bg_img_src(main_screen, &SLM_206_v4, 0);
+    apply_global_background(main_screen);
     
     // Time label - using unified helper
     lbl_main_time = createLabel(main_screen, "", NULL, FONT_HUGE,
@@ -584,6 +647,8 @@ void createMainScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     // Date label - using unified helper
     lbl_main_date = createLabel(main_screen, "", NULL, FONT_MEDIUM,
         LV_ALIGN_TOP_MID, 0, 65, 380, LV_TEXT_ALIGN_CENTER);
+
+    create_wifi_graphic_(main_screen);
     
     // Menu button - using unified helper (was 8 lines, now 1!)
     btn_main_menu = createButton(main_screen, "MENU", &style_huge, NULL,
@@ -655,7 +720,8 @@ void createLowBatteryScreen(lv_style_t &style_huge) {
 
 /**
  * Creates the local MENU page with START/STOP RECORD, WiFi, SETTINGS, and
- * BACK actions, including the BACK behavior that disables WiFi support.
+ * BACK actions.  BACK only returns to MAIN; Web/WiFi remains controlled by
+ * the START/STOP WIFI button.
  *
  * Inputs: `style_huge`.
  * Returns: None.
@@ -665,22 +731,22 @@ void createMenuScreen(lv_style_t &style_huge) {
     
     createScreenTitle(menu_screen, "MENU", 20);
     
-    btn_record = createMenuButton(menu_screen, "START RECORD", &style_huge, 70, NULL);
+    btn_record = createMenuButton(menu_screen, "START RECORD", &style_huge, MENU_BUTTON_FIRST_Y, NULL);
     btn_record_label = lv_obj_get_child(btn_record, 0);
     lv_obj_add_event_cb(btn_record, record_btn_event_cb, LV_EVENT_ALL, NULL);
 
-    btn_wifi = createMenuButton(menu_screen, "START WIFI", &style_huge, 155, wifi_btn_cb);
+    btn_wifi = createMenuButton(menu_screen, "START WIFI", &style_huge, MENU_BUTTON_FIRST_Y + MENU_BUTTON_STEP_Y, wifi_btn_cb);
     btn_wifi_label = lv_obj_get_child(btn_wifi, 0);
     
-    btn_set = createMenuButton(menu_screen, "SETTINGS", &style_huge, 240, 
+    btn_set = createMenuButton(menu_screen, "SETTINGS", &style_huge, MENU_BUTTON_FIRST_Y + (2 * MENU_BUTTON_STEP_Y), 
         [](lv_event_t* e){ lv_scr_load(settings_menu_screen); });
     
     // BACK button - use createButton directly (needs green color)
     createButton(menu_screen, "BACK", &style_huge, NULL,
         BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
-        LV_ALIGN_TOP_MID, 0, 385,
+        LV_ALIGN_TOP_MID, 0, MENU_BUTTON_FIRST_Y + (3 * MENU_BUTTON_STEP_Y),
         [](lv_event_t*e){
-            web_task_set_enabled(false);
+            (void)e;
             lv_scr_load(main_screen);
         },
         lv_palette_main(LV_PALETTE_GREEN));
@@ -958,14 +1024,14 @@ lv_init();
 
     // LVGL draw buffer is statically allocated (no heap).
     disp = lv_display_create(screenWidth, screenHeight);
-    lv_display_set_flush_cb(disp, display_flush_cb_);
+    lv_display_set_flush_cb(disp, my_disp_flush);
     lv_display_set_buffers(disp, disp_draw_buf, NULL, 
         screenWidth * 40 * sizeof(lv_color_t), 
         LV_DISPLAY_RENDER_MODE_PARTIAL);
     
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
-    lv_indev_set_read_cb(indev, touch_read_cb_);
+    lv_indev_set_read_cb(indev, my_touchpad_read);
     
     static lv_style_t style_huge;
     lv_style_init(&style_huge);
@@ -1084,6 +1150,7 @@ void syncUIToSystemState() {
     }
 
     const bool wifi_active = web_task_is_enabled();
+    ui_wifi_graphic_set_visible_(wifi_active);
 
     // START/STOP RECORD follows recorder state, regardless of whether the
     // current session was started by the hardware button or by the UI.
@@ -1224,7 +1291,9 @@ void record_btn_event_cb(lv_event_t * e) {
 
 /**
  * WiFi button callback toggles the recorder access point and web server used
- * for file management and calibration support.
+ * for file management and calibration support.  After a START or STOP request
+ * the UI returns to MAIN so the operator immediately sees the WiFi indicator
+ * state next to the time/date field.
  *
  * Inputs: `e`.
  * Returns: None.
@@ -1232,13 +1301,21 @@ void record_btn_event_cb(lv_event_t * e) {
 void wifi_btn_cb(lv_event_t * e) {
     (void)e;
 
+    bool changed = false;
+
     if(web_task_is_enabled()){
         web_task_set_enabled(false);
+        changed = true;
     }else if(local_settings_complete_()){
         web_task_set_enabled(true);
+        changed = true;
     }
 
     syncUIToSystemState();
+
+    if(changed && (main_screen != NULL)){
+        lv_scr_load(main_screen);
+    }
 }
 
 /**

@@ -588,6 +588,26 @@ static bool sd_path_is_root_file_(const char *p){
   return (strchr(p + 1, '/') == nullptr);
 }
 
+static bool sd_path_is_processed_file_(const char *p){
+  static const char prefix[] = "/processed/";
+  const size_t prefix_len = sizeof(prefix) - 1u;
+
+  if((p == nullptr) || (strncmp(p, prefix, prefix_len) != 0)){
+    return false;
+  }
+
+  const char *name = p + prefix_len;
+  if(name[0] == '\0'){
+    return false;
+  }
+
+  // Only a direct child of /processed is accepted.  This prevents directory
+  // traversal and keeps this API limited to archived recorder files.
+  return (strchr(name, '/') == nullptr) &&
+         (strcmp(name, ".") != 0) &&
+         (strcmp(name, "..") != 0);
+}
+
 static const char *sd_basename_(const char *p){
   if(p == nullptr){
     return nullptr;
@@ -933,6 +953,36 @@ bool sd_storage_archive_to_processed(const char *path) {
 }
 
 /**
+ * Permanently delete one archived file from /processed.
+ *
+ * Inputs: `path`.
+ * Returns: `true` when the selected archived file was deleted.
+ */
+bool sd_storage_delete_processed_file(const char *path) {
+  if(sd_check_present() != ERR_NONE) return false;
+  if(path == nullptr) return false;
+
+  char tmp[SD_STORAGE_PATH_MAX];
+  const char *p = sd_norm_sdmmc_path_(path, tmp, sizeof(tmp));
+  if((p == nullptr) || (!sd_path_is_processed_file_(p))){
+    return false;
+  }
+
+  File f = SD_MMC.open(p, FILE_READ);
+  if(!f){
+    return false;
+  }
+
+  if(f.isDirectory()){
+    f.close();
+    return false;
+  }
+  f.close();
+
+  return SD_MMC.remove(p);
+}
+
+/**
  * Performs sd storage list json for SD storage, recording files, or SD-backed
  * web file management while preserving SD ownership rules.
  *
@@ -940,26 +990,48 @@ bool sd_storage_archive_to_processed(const char *path) {
  * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
  */
 bool sd_storage_list_json(const char *dir_path, char *out_json, uint32_t out_cap, uint32_t *out_len) {
-  (void)dir_path;
   if((out_json == nullptr) || (out_cap < 3u)){
     if(out_len != nullptr) *out_len = 0u;
     return false;
   }
+
+  out_json[0] = '[';
+  out_json[1] = ']';
+  out_json[2] = '\0';
+  if(out_len != nullptr) *out_len = 2u;
+
   if(sd_check_present() != ERR_NONE){
-    if(out_len != nullptr) *out_len = 0u;
-    out_json[0] = '['; out_json[1] = ']'; out_json[2] = '\0';
+    return false;
+  }
+
+  char dir_tmp[SD_STORAGE_PATH_MAX];
+  const char *dir = sd_norm_sdmmc_path_(dir_path, dir_tmp, sizeof(dir_tmp));
+  if(dir == nullptr){
+    return false;
+  }
+
+  // Web file management lists either the root recording area or /processed.
+  // Other directories are intentionally not exposed through the Web API.
+  const bool list_root = (strcmp(dir, "/") == 0);
+  const bool list_processed = (strcmp(dir, "/processed") == 0);
+  if((!list_root) && (!list_processed)){
+    return false;
+  }
+
+  File root = SD_MMC.open(dir);
+  if(!root){
+    // /processed is created on first archive operation.  Before that, the
+    // maintenance delete page simply has no files to show.
+    return list_processed;
+  }
+
+  if(!root.isDirectory()){
+    root.close();
     return false;
   }
 
   uint32_t count = 0u;
   sd_storage_list_item_t list_items[SD_MAX_RECORD_FILES];
-
-  File root = SD_MMC.open("/");
-  if(!root){
-    if(out_len != nullptr) *out_len = 0u;
-    out_json[0] = '['; out_json[1] = ']'; out_json[2] = '\0';
-    return false;
-  }
 
   for(;;){
     File file = root.openNextFile();
@@ -967,11 +1039,12 @@ bool sd_storage_list_json(const char *dir_path, char *out_json, uint32_t out_cap
     if(count >= (uint32_t)SD_MAX_RECORD_FILES){ file.close(); break; }
     if(file.isDirectory()){ file.close(); continue; }
 
-    const char *name = file.name();
+    const char *raw_name = file.name();
+    const char *name = sd_basename_(raw_name);
     const uint32_t size = (uint32_t)file.size();
     file.close();
 
-    if(name == nullptr){
+    if((name == nullptr) || (name[0] == '\0')){
       list_items[count].name[0] = '\0';
     } else {
       size_t n = 0u;
@@ -995,7 +1068,6 @@ bool sd_storage_list_json(const char *dir_path, char *out_json, uint32_t out_cap
     qsort(list_items, (size_t)count, sizeof(list_items[0]), cmp);
   }
 
-  out_json[0] = '['; out_json[1] = ']'; out_json[2] = '\0';
   uint32_t used = 2u;
   bool first = true;
 

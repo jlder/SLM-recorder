@@ -135,6 +135,17 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             margin: 1px 0;
             font-size: 13px;
         }
+        .delete-file-row {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            gap: 8px;
+            align-items: center;
+            min-height: 36px;
+        }
+        .delete-file-row input[type="checkbox"] {
+            width: 22px;
+            height: 22px;
+        }
         .cal-table {
             width: 100%;
             border-collapse: collapse;
@@ -328,6 +339,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     </div>
                     <button class="btn btn-primary" onclick="openHealthPage()">Health</button>
                     <button class="btn btn-primary" onclick="openOtaPage()">Firmware Update</button>
+                    <button class="btn btn-danger" onclick="openDeletePage()">Delete</button>
                     <button class="btn btn-return" onclick="showHome()">Return</button>
                 </div>
             </div>
@@ -394,6 +406,22 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             </div>
         </div>
 
+        <div id="deleteSection" class="hidden section">
+            <h2>SLM Delete</h2>
+            <div class="controls cal-actions">
+                <button class="btn btn-danger" onclick="deleteProcessedSelected()">Delete</button>
+                <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
+            </div>
+            <div class="card workflow-card">
+                <p>Select archived files from <span class="mono">/processed</span>, then press Delete.</p>
+                <p class="small bad">Deleted files are permanently lost.</p>
+            </div>
+            <div id="processedDeleteStatus" class="small">Loading...</div>
+            <div id="processedFileListContainer">
+                <div class="loading">Loading files...</div>
+            </div>
+        </div>
+
         <div id="healthSection" class="hidden section">
             <div id="watchdogDiagPanel" class="card">
                 <h2>Watchdog Diagnostic</h2>
@@ -425,6 +453,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
 
     <script>
         let allFiles = [];
+        let processedFiles = [];
         let calPoll = null;
         let calAuth = false;
         let calView = 'menu';
@@ -444,6 +473,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             document.getElementById('installCalPage').classList.add('hidden');
             document.getElementById('healthSection').classList.add('hidden');
             document.getElementById('otaSection').classList.add('hidden');
+            document.getElementById('deleteSection').classList.add('hidden');
         }
 
         function showHome() {
@@ -540,6 +570,15 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             stopCalPolling();
             hideAllPages();
             document.getElementById('otaSection').classList.remove('hidden');
+        }
+
+        function openDeletePage() {
+            setPageTitle('SLM Delete');
+            if (!calAuth) { showMaintenanceLocked(); return; }
+            stopCalPolling();
+            hideAllPages();
+            document.getElementById('deleteSection').classList.remove('hidden');
+            refreshProcessedFiles();
         }
 
         function calUnlock() {
@@ -670,6 +709,102 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     refreshFiles();
                 })
                 .catch(err => console.error('Delete error:', err));
+        }
+
+        function refreshProcessedFiles() {
+            const status = document.getElementById('processedDeleteStatus');
+            const container = document.getElementById('processedFileListContainer');
+            status.textContent = 'Loading...';
+            container.innerHTML = '<div class="loading">Loading files...</div>';
+
+            fetch('/api/processed/files')
+                .then(r => r.json().then(j => ({ok:r.ok, json:j})))
+                .then(res => {
+                    if (!res.ok || !res.json || !res.json.ok) {
+                        processedFiles = [];
+                        status.textContent = 'File list unavailable.';
+                        container.innerHTML = '<div class="loading">File list unavailable</div>';
+                        return;
+                    }
+
+                    processedFiles = res.json.files || [];
+                    status.textContent = processedFiles.length + ' file(s) in /processed.';
+                    displayProcessedFiles(processedFiles);
+                })
+                .catch(err => {
+                    processedFiles = [];
+                    status.textContent = 'File list unavailable.';
+                    container.innerHTML = '<div class="loading">File list unavailable</div>';
+                    console.error(err);
+                });
+        }
+
+        function displayProcessedFiles(files) {
+            const container = document.getElementById('processedFileListContainer');
+            if (!files || files.length === 0) {
+                container.innerHTML = '<div class="loading">No files in /processed</div>';
+                return;
+            }
+
+            let html = '<div class="file-list">';
+            files.forEach((file, index) => {
+                const name = String(file.name || '');
+                const safeName = escapeHtml(name);
+                const sizeKb = Math.round((file.size || 0) / 1000);
+                html += `<label class="file-item delete-file-row">
+                    <input type="checkbox" class="processed-delete-check" value="${escapeHtml(name)}">
+                    <span class="file-name">${safeName}</span>
+                    <span class="file-size">${sizeKb} kB</span>
+                </label>`;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function selectedProcessedFiles() {
+            return Array.from(document.querySelectorAll('.processed-delete-check:checked'))
+                .map(cb => cb.value)
+                .filter(name => name.length > 0);
+        }
+
+        function deleteProcessedOne(name) {
+            return fetch('/api/processed/delete?file=' + encodeURIComponent(name), { method: 'POST' })
+                .then(r => r.json().then(j => ({ok:r.ok, json:j, name:name})));
+        }
+
+        function deleteProcessedSelected() {
+            const selected = selectedProcessedFiles();
+            const status = document.getElementById('processedDeleteStatus');
+            if (selected.length === 0) {
+                status.textContent = 'No files selected.';
+                return;
+            }
+
+            if (!confirm('All selected files will be lost. Delete ' + selected.length + ' file(s)?')) {
+                return;
+            }
+
+            status.textContent = 'Deleting...';
+            let chain = Promise.resolve();
+            let deleted = 0;
+            let failed = 0;
+
+            selected.forEach(name => {
+                chain = chain.then(() => deleteProcessedOne(name))
+                    .then(res => {
+                        if (res.ok && res.json && res.json.ok) deleted++;
+                        else failed++;
+                    })
+                    .catch(err => {
+                        failed++;
+                        console.error(err);
+                    });
+            });
+
+            chain.then(() => {
+                status.textContent = 'Deleted: ' + deleted + ', failed: ' + failed + '.';
+                refreshProcessedFiles();
+            });
         }
 
         function updateSDInfo() {

@@ -45,7 +45,7 @@
 static AsyncWebServer *s_server = nullptr;
 static bool s_server_routes_registered = false;
 static bool s_server_listener_started = false;
-static uint32_t s_web_cycle = 0u;
+static uint32_t s_web_start_cycle = 0u;
 // s_enabled_requested is written by other tasks and polled by web_task_loop.
 // It is volatile to prevent compiler caching of the single request flag.
 // WiFi/AP/HTTP server state remains owned by web_task_loop.  s_started is
@@ -75,16 +75,23 @@ static bool s_cal_client_authorized = false;
 static uint32_t s_cal_client_ip = 0u;
 static uint32_t s_cal_client_last_ms = 0u;
 
-/** Convert an IPv4 address to a packed value for client-lock comparisons. */
+/**
+ * Ip to u32 performs the web task operation represented by this function and
+ * keeps the module state consistent with recorder ownership rules.
+ *
+ * Inputs: `ip`.
+ * Returns: Requested numeric value.
+ */
 static uint32_t ip_to_u32(const IPAddress& ip) {
   return ((uint32_t)ip[0] << 24) | ((uint32_t)ip[1] << 16) | ((uint32_t)ip[2] << 8) | (uint32_t)ip[3];
 }
 
 /**
- * Enforce one active web file-management client.
+ * Handles web single client allow for the Web/WiFi support path without
+ * changing recorder-core state ownership.
  *
- * Normal page/status requests remain open to any connected station, but SD file
- * operations are locked to one client IP until the inactivity timeout expires.
+ * Inputs: `req`.
+ * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
  */
 static bool web_single_client_allow(AsyncWebServerRequest* req) {
   const uint32_t now_ms = (uint32_t)millis();
@@ -570,6 +577,10 @@ static String rtc_date_json_(const rtc_datetime_t& dt){
   return web_snprintf_ok_(n, sizeof(buf)) ? String(buf) : String("{}");
 }
 
+static String cal_record_date_json_(const calibration_record_t& rec){
+  return rtc_date_json_(rec.sensor.timestamp);
+}
+
 /**
  * Registers web routes for status, file management, calibration actions, and
  * embedded pages on the current server object.
@@ -590,6 +601,40 @@ static void register_routes(){
 
   s_server->on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send_P(200, "text/html", HTML_PAGE);
+  });
+
+  // Lightweight health-check endpoint.  This route is intentionally kept even
+  // in production builds because it is useful to verify AP, DHCP, and HTTP
+  // reachability without loading the full HTML page.
+  s_server->on("/diag", HTTP_GET, [](AsyncWebServerRequest *request){
+    char buf[256];
+    const IPAddress ap_ip = WiFi.softAPIP();
+    const int n = snprintf(buf, sizeof(buf),
+                           "{\"ok\":true,"
+                           "\"cycle\":%lu,"
+                           "\"ms\":%lu,"
+                           "\"heap\":%lu,"
+                           "\"web_requested\":%s,"
+                           "\"web_started\":%s,"
+                           "\"listener_started\":%s,"
+                           "\"ap_ip\":\"%u.%u.%u.%u\","
+                           "\"stations\":%u}",
+                           (unsigned long)s_web_start_cycle,
+                           (unsigned long)millis(),
+                           (unsigned long)ESP.getFreeHeap(),
+                           s_enabled_requested ? "true" : "false",
+                           s_started ? "true" : "false",
+                           s_server_listener_started ? "true" : "false",
+                           (unsigned)ap_ip[0],
+                           (unsigned)ap_ip[1],
+                           (unsigned)ap_ip[2],
+                           (unsigned)ap_ip[3],
+                           (unsigned)WiFi.softAPgetStationNum());
+    if(!web_snprintf_ok_(n, sizeof(buf))){
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"format_failed\"}");
+      return;
+    }
+    request->send(200, "application/json", buf);
   });
 
   s_server->on("/api/ota", HTTP_POST,
@@ -662,32 +707,6 @@ static void register_routes(){
       }
     });
 
-
-  // Lightweight health check used during field troubleshooting.
-  // It intentionally avoids SD access and other blocking operations.
-  s_server->on("/diag", HTTP_GET, [](AsyncWebServerRequest *request){
-    String out = "{";
-    out += "\"ok\":true";
-    out += ",\"cycle\":";
-    out += String((unsigned long)s_web_cycle);
-    out += ",\"ms\":";
-    out += String((unsigned long)millis());
-    out += ",\"heap\":";
-    out += String((unsigned long)ESP.getFreeHeap());
-    out += ",\"web_requested\":";
-    out += s_enabled_requested ? "true" : "false";
-    out += ",\"web_started\":";
-    out += s_started ? "true" : "false";
-    out += ",\"listener_started\":";
-    out += s_server_listener_started ? "true" : "false";
-    out += ",\"ap_ip\":\"";
-    out += WiFi.softAPIP().toString();
-    out += "\"";
-    out += ",\"stations\":";
-    out += String((unsigned long)WiFi.softAPgetStationNum());
-    out += "}";
-    request->send(200, "application/json", out);
-  });
 
   // API endpoints expected by the embedded HTML interface (prototype-compatible)
   s_server->on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -946,6 +965,68 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   
 
 
+  s_server->on("/api/processed/files", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+    if(!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
+    WebSdBusyScope _sdscope;
+    if(!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
+
+    if(!sd_files_is_authorized()){
+      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"not_authorized\"}");
+      return;
+    }
+
+    static char json[SD_FILE_LIST_JSON_MAX];
+    uint32_t out_len = 0u;
+    const bool ok = sd_files_list_json("/processed", json, sizeof(json), &out_len);
+    if(!ok){
+      request->send(500, "application/json", "{\"ok\":false,\"reason\":\"sd_list_failed\"}");
+      return;
+    }
+
+    String out = String("{\"ok\":true,\"files\":") + String(json) + String("}");
+    request->send(200, "application/json", out);
+  });
+
+  s_server->on("/api/processed/delete", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+    if(!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
+    WebSdBusyScope _sdscope;
+    if(!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
+
+    if(!sd_files_is_authorized()){
+      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"not_authorized\"}");
+      return;
+    }
+
+    if(!request->hasParam("file") && !request->hasParam("file", true)){
+      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"missing_file\"}");
+      return;
+    }
+
+    const String file = request->hasParam("file") ? request->getParam("file")->value()
+                                                  : request->getParam("file", true)->value();
+    String path;
+    if(file.startsWith("/processed/")){
+      path = file;
+    } else if(file.indexOf('/') < 0){
+      path = String("/processed/") + file;
+    } else {
+      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"bad_path\"}");
+      return;
+    }
+
+    if((path.indexOf("..") >= 0) || (path.length() <= String("/processed/").length())){
+      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"bad_path\"}");
+      return;
+    }
+
+    const bool ok = sd_files_delete_processed(path.c_str());
+    request->send(ok ? 200 : 500,
+                  "application/json",
+                  ok ? "{\"ok\":true,\"deleted\":true}" : "{\"ok\":false,\"reason\":\"delete_failed\"}");
+  });
+
   s_server->on("/api/cal/auth", HTTP_POST, [](AsyncWebServerRequest *request){
     String password = "";
     if(request->hasParam("password", true)){
@@ -1091,7 +1172,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     out += ",\"nvs_result_available\":";
     out += nvs_result_ok ? "true" : "false";
     out += ",\"nvs_date\":";
-    out += nvs_result_ok ? rtc_date_json_(stored_result.sensor.timestamp) : "{}";
+    out += nvs_result_ok ? cal_record_date_json_(stored_result) : "{}";
     out += ",\"nvs_result\":";
     out += nvs_result_ok ? cal_record_axis_result_json_(stored_result) : "[]";
     out += "}";
@@ -1251,7 +1332,7 @@ static bool ensure_server_ready_(){
  * Inputs: None.
  * Returns: None.
  */
-static void start_web_ap(){
+static void start_ap_and_server(){
   if(s_started) return;
 
   if(!ensure_server_ready_()){
@@ -1283,7 +1364,9 @@ static void start_web_ap(){
     return;
   }
 
-  ++s_web_cycle;
+  // Count successful Web ON activations.  /diag reports this value so restart
+  // testing can distinguish successive AP cycles without serial logs.
+  s_web_start_cycle++;
 
   // Give the AP/IP stack time to settle before binding the HTTP server.
   // Poll until softAPIP() returns the configured address, or give up after
@@ -1319,7 +1402,7 @@ static void start_web_ap(){
  * Inputs: None.
  * Returns: None.
  */
-static void stop_web_ap(){
+static void stop_ap_and_server(){
   if(!s_started) return;
 
   // Web OFF may interrupt a browser download or OTA upload.  Release all
@@ -1354,7 +1437,7 @@ static void stop_web_ap(){
  * This function is called from foreign tasks (ui_task, state_task) on any
  * core.  It ONLY updates the shared flags; it never touches the WiFi driver
  * or HTTP server directly.  web_task_loop() is the sole owner of the
- * start_web_ap() / stop_web_ap() lifecycle and will act on the
+ * start_ap_and_server() / stop_ap_and_server() lifecycle and will act on the
  * flag change within one loop tick (~200 ms).
  *
  * sd_files_set_authorized() is safe to call from any task (it writes a single
@@ -1366,7 +1449,7 @@ static void stop_web_ap(){
 void web_task_set_enabled(bool enabled){
   s_enabled_requested = enabled;
   sd_files_set_authorized(enabled);
-  // Do NOT call stop_web_ap() here.  WiFi/AP/HTTP lifecycle is owned
+  // Do NOT call stop_ap_and_server() here.  WiFi/AP/HTTP lifecycle is owned
   // exclusively by web_task_loop() to avoid cross-task races on the driver.
 }
 
@@ -1393,11 +1476,11 @@ static void web_task_loop(void *arg){
     watchdog_kick(WD_WEB);
 
     if(s_enabled_requested && !s_started){
-      start_web_ap();
+      start_ap_and_server();
       watchdog_kick(WD_WEB);
     }
     if(!s_enabled_requested && s_started){
-      stop_web_ap();
+      stop_ap_and_server();
       watchdog_kick(WD_WEB);
     }
     if(s_ota_reboot_pending){
@@ -1418,7 +1501,7 @@ static void web_task_loop(void *arg){
  */
 void web_task_init(void){
   // Allocate and register the HTTP server once during initialization.  If heap
-  // is temporarily unavailable, start_web_ap() will retry before the
+  // is temporarily unavailable, start_ap_and_server() will retry before the
   // first Web ON activation.
   (void)ensure_server_ready_();
 
