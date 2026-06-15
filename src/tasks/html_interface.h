@@ -176,19 +176,23 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         .analysis-table {
             width: 100%;
             border-collapse: collapse;
+            table-layout: fixed;
             margin-top: 8px;
         }
         .analysis-table th {
             background: #2c3e50;
             color: white;
-            padding: 7px;
-            text-align: left;
-            font-size: 12px;
+            padding: 5px 2px;
+            text-align: center;
+            font-size: 11px;
+            line-height: 1.05;
         }
         .analysis-table td {
-            padding: 7px;
+            padding: 6px 2px;
             border-bottom: 1px solid #dfe6e9;
-            font-size: 12px;
+            font-size: 11px;
+            text-align: center;
+            white-space: nowrap;
         }
         .file-btn {
             width: 96px;
@@ -374,13 +378,10 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             <div id="flightAnalysisWindow" class="analysis-window hidden">
                 <h2>SLM Flight Analysis</h2>
                 <div id="flightAnalysisStatus" class="small">No analysis available.</div>
+                <div id="samplePeriodStats" class="small mono">Sample period: -</div>
                 <div class="progress-block">
                     <div id="downloadProgressText" class="progress-label small">Download: idle</div>
                     <div class="progress-track"><div id="downloadProgressBar" class="progress-fill"></div></div>
-                </div>
-                <div class="progress-block">
-                    <div id="processingProgressText" class="progress-label small">Processing: idle</div>
-                    <div class="progress-track"><div id="processingProgressBar" class="progress-fill"></div></div>
                 </div>
                 <div id="flightAnalysisTable"></div>
             </div>
@@ -780,9 +781,10 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
 
             panel.classList.remove('hidden');
             table.innerHTML = '';
+            const sampleStats = document.getElementById('samplePeriodStats');
+            if (sampleStats) sampleStats.textContent = 'Sample period: -';
             status.textContent = 'Preparing download and analysis for ' + filename + '...';
             setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Download: starting...');
-            setProgress('processingProgressBar', 'processingProgressText', 0, 'Processing: waiting for download...');
 
             const downloadStartMs = performance.now();
 
@@ -806,24 +808,15 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     const processingStartMs = performance.now();
                     status.textContent = 'Processing ' + filename + '...';
 
-                    return analyzeRecorderFileAsync(buffer, function(percent, text) {
-                        setProgress('processingProgressBar', 'processingProgressText', percent, text);
-                    })
+                    return analyzeRecorderFileAsync(buffer)
                         .then(analysis => {
                             analysis.downloadMs = downloadMs;
                             analysis.processingMs = performance.now() - processingStartMs;
-                            setProgress(
-                                'processingProgressBar',
-                                'processingProgressText',
-                                100,
-                                'Processing: complete in ' + formatElapsedMs(analysis.processingMs)
-                            );
                             showFlightAnalysis(filename, analysis);
                         });
                 })
                 .catch(err => {
                     status.textContent = 'Download or analysis failed. Falling back to direct download.';
-                    setProgress('processingProgressBar', 'processingProgressText', 0, 'Processing: failed.');
                     console.error(err);
                     window.location.href = '/api/download?file=' + encodeURIComponent(filename);
                 });
@@ -905,8 +898,12 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         function showFlightAnalysis(filename, analysis) {
             const status = document.getElementById('flightAnalysisStatus');
             const table = document.getElementById('flightAnalysisTable');
+            const sampleStats = document.getElementById('samplePeriodStats');
 
             const timingText = analysisTimingText(analysis);
+            if (sampleStats) {
+                sampleStats.textContent = samplePeriodStatsText(analysis && analysis.samplePeriod);
+            }
 
             if (!analysis || !analysis.ok) {
                 const reason = analysis && analysis.reason ? analysis.reason : 'Analysis failed.';
@@ -929,18 +926,18 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 analysis.recordCount + ' acceleration records.' + timingText;
 
             let html = '<table class="analysis-table"><thead><tr>' +
-                '<th>Flight</th><th>Takeoff roll start</th><th>Lift off</th>' +
-                '<th>Touchdown</th><th>Landing roll end</th><th>Flight duration</th>' +
+                '<th>FLT<br>#</th><th>T/O<br>START</th><th>T/O<br>ROLL</th>' +
+                '<th>LDG<br>ROLL</th><th>LDG<br>STOP</th><th>FLT<br>TIME</th>' +
                 '</tr></thead><tbody>';
 
             analysis.flights.forEach(f => {
                 html += '<tr>' +
                     '<td>' + f.number + '</td>' +
-                    '<td class="mono">' + escapeHtml(f.takeoffRollStart) + '</td>' +
-                    '<td class="mono">' + escapeHtml(f.liftOff) + '</td>' +
-                    '<td class="mono">' + escapeHtml(f.touchdown) + '</td>' +
-                    '<td class="mono">' + escapeHtml(f.landingRollEnd) + '</td>' +
-                    '<td class="mono">' + escapeHtml(f.flightDuration) + '</td>' +
+                    '<td class="mono">' + escapeHtml(f.takeoffRollStartShort || f.takeoffRollStart) + '</td>' +
+                    '<td class="mono">' + escapeHtml(f.takeoffRollDuration || '-') + '</td>' +
+                    '<td class="mono">' + escapeHtml(f.landingRollDuration || '-') + '</td>' +
+                    '<td class="mono">' + escapeHtml(f.landingRollEndShort || f.landingRollEnd) + '</td>' +
+                    '<td class="mono">' + escapeHtml(f.flightDurationShort || f.flightDuration) + '</td>' +
                     '</tr>';
             });
 
@@ -1014,9 +1011,17 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             await analysisYield();
 
             const decoded = decodeRecorderTimeline(buffer);
+            const samplePeriod = decoded ? computeSamplePeriodStats(decoded.records) : null;
+
             if (!decoded || decoded.records.length < SLM_ANALYSIS_FS * SLM_ANALYSIS_MIN_FILE_S) {
                 progress(100, 'Processing: not enough valid acceleration records.');
-                return { ok: false, reason: 'Not enough valid acceleration records for flight analysis.' };
+                return {
+                    ok: false,
+                    reason: 'Not enough valid acceleration records for flight analysis.',
+                    formatName: decoded ? decoded.formatName : 'unknown',
+                    recordCount: decoded ? decoded.records.length : 0,
+                    samplePeriod: samplePeriod
+                };
             }
 
             progress(15, 'Processing: decoded ' + decoded.formatName + ', ' +
@@ -1030,8 +1035,86 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 ok: true,
                 formatName: decoded.formatName,
                 recordCount: decoded.records.length,
+                samplePeriod: samplePeriod,
                 flights: flights
             };
+        }
+
+        function computeSamplePeriodStats(records) {
+            if (!records || records.length < 2) {
+                return { ok: false, count: 0, excluded: 0 };
+            }
+
+            const nominalMs = 1000.0 / SLM_ANALYSIS_FS;
+            const maxValidMs = nominalMs * 4.0;
+            const minValidMs = nominalMs * 0.2;
+            const periods = [];
+            let excluded = 0;
+
+            for (let i = 1; i < records.length; i++) {
+                const dt = records[i].absMs - records[i - 1].absMs;
+                if (Number.isFinite(dt) && dt >= minValidMs && dt <= maxValidMs) {
+                    periods.push(dt);
+                } else {
+                    excluded++;
+                }
+            }
+
+            if (periods.length === 0) {
+                return { ok: false, count: 0, excluded: excluded };
+            }
+
+            let sum = 0.0;
+            let min = periods[0];
+            let max = periods[0];
+            let outside49_51 = 0;
+            let outside48_52 = 0;
+
+            periods.forEach(dt => {
+                sum += dt;
+                if (dt < min) min = dt;
+                if (dt > max) max = dt;
+                if (dt < 49.0 || dt > 51.0) outside49_51++;
+                if (dt < 48.0 || dt > 52.0) outside48_52++;
+            });
+
+            const avg = sum / periods.length;
+            let varSum = 0.0;
+            periods.forEach(dt => {
+                const d = dt - avg;
+                varSum += d * d;
+            });
+
+            return {
+                ok: true,
+                count: periods.length,
+                excluded: excluded,
+                avgMs: avg,
+                stdMs: Math.sqrt(varSum / periods.length),
+                minMs: min,
+                maxMs: max,
+                outside49_51: outside49_51,
+                outside48_52: outside48_52
+            };
+        }
+
+        function samplePeriodStatsText(stats) {
+            if (!stats || !stats.ok) {
+                return 'Sample period: unavailable';
+            }
+
+            let text = 'Sample period: avg ' + stats.avgMs.toFixed(2) +
+                ' ms, std ' + stats.stdMs.toFixed(2) +
+                ' ms, min/max ' + stats.minMs.toFixed(1) +
+                '/' + stats.maxMs.toFixed(1) + ' ms' +
+                ', outside 49-51 ms: ' + stats.outside49_51 +
+                ', outside 48-52 ms: ' + stats.outside48_52;
+
+            if (stats.excluded > 0) {
+                text += ', gaps excluded ' + stats.excluded;
+            }
+
+            return text;
         }
 
         function decodeRecorderTimeline(buffer) {
@@ -1426,14 +1509,21 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     }
                 }
 
+                const takeoffRollMs = Math.max(0, records[liftOffIdx].absMs - records[toRollStartIdx].absMs);
+                const landingRollMs = Math.max(0, records[ldgRollEndIdx].absMs - records[touchdownIdx].absMs);
                 const durationMs = Math.max(0, records[ldgRollEndIdx].absMs - records[toRollStartIdx].absMs);
 
                 results.push({
                     takeoffRollStart: formatClockMs(records[toRollStartIdx].absMs),
+                    takeoffRollStartShort: formatClockHm(records[toRollStartIdx].absMs),
                     liftOff: formatClockMs(records[liftOffIdx].absMs),
                     touchdown: formatClockMs(records[touchdownIdx].absMs),
                     landingRollEnd: formatClockMs(records[ldgRollEndIdx].absMs),
-                    flightDuration: formatDurationMs(durationMs)
+                    landingRollEndShort: formatClockHm(records[ldgRollEndIdx].absMs),
+                    takeoffRollDuration: formatDurationSeconds(takeoffRollMs),
+                    landingRollDuration: formatDurationSeconds(landingRollMs),
+                    flightDuration: formatDurationMs(durationMs),
+                    flightDurationShort: formatDurationHm(durationMs)
                 });
             });
 
@@ -1471,12 +1561,31 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             return pad2(h) + ':' + pad2(m) + ':' + pad2(s);
         }
 
+        function formatClockHm(absMs) {
+            let totalSeconds = Math.round(absMs / 1000.0);
+            totalSeconds = ((totalSeconds % 86400) + 86400) % 86400;
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            return pad2(h) + ':' + pad2(m);
+        }
+
         function formatDurationMs(ms) {
             let totalSeconds = Math.round(ms / 1000.0);
             const h = Math.floor(totalSeconds / 3600);
             const m = Math.floor((totalSeconds % 3600) / 60);
             const s = totalSeconds % 60;
             return pad2(h) + ':' + pad2(m) + ':' + pad2(s);
+        }
+
+        function formatDurationHm(ms) {
+            let totalSeconds = Math.round(ms / 1000.0);
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            return pad2(h) + ':' + pad2(m);
+        }
+
+        function formatDurationSeconds(ms) {
+            return String(Math.round((Number(ms) || 0) / 1000.0));
         }
 
         function pad2(v) {
