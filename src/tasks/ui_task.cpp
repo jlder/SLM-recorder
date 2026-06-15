@@ -540,13 +540,27 @@ static bool ui_record_button_shows_stop_(const system_status_t& st){
 }
 
 /**
+ * Reports whether the UI START RECORD action is currently allowed.
+ *
+ * The State task accepts a record-start request in ST_READY only when the
+ * user-visible message is MSG_READY.  Other READY messages indicate that a
+ * setup, calibration, or SD maintenance condition still blocks recording.
+ *
+ * Inputs: `st`.
+ * Returns: `true` only when a START RECORD request can be consumed.
+ */
+static bool ui_record_start_allowed_(const system_status_t& st){
+    return (st.state == ST_READY) && (st.message_id == MSG_READY);
+}
+
+/**
  * Reports whether the local START/STOP RECORD button may be pressed.
  *
  * Inputs: `st`.
  * Returns: `true` only when the State task can consume the matching request.
  */
 static bool ui_record_button_enabled_(const system_status_t& st){
-    return (st.state == ST_READY) || (st.state == ST_RECORDING);
+    return ui_record_start_allowed_(st) || (st.state == ST_RECORDING);
 }
 
 /**
@@ -1152,8 +1166,10 @@ void syncUIToSystemState() {
     const bool wifi_active = web_task_is_enabled();
     ui_wifi_graphic_set_visible_(wifi_active);
 
-    // START/STOP RECORD follows recorder state, regardless of whether the
-    // current session was started by the hardware button or by the UI.
+    // START/STOP RECORD follows the same gates as the hardware RECORD button.
+    // START RECORD is blue only when the State task would accept a start
+    // request; otherwise it is disabled and gray.  STOP RECORD remains red
+    // while recording is active.
     if(btn_record_label){
         lv_label_set_text(btn_record_label, recording_like ? "STOP RECORD" : "START RECORD");
     }

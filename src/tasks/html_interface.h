@@ -103,6 +103,14 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         .btn-warning { background: #f39c12; color: white; }
         .btn-success { background: #27ae60; color: white; }
         .btn:disabled { background: #bdc3c7; color: #666; cursor: not-allowed; }
+        .delete-warning-window {
+            border: 1px solid #f1c40f;
+            background: #fff8e1;
+            color: #5d4600;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin: 8px 0;
+        }
         .btn-return { background: #27ae60; color: white; }
         input[type="password"], input[type="file"] {
             max-width: 100%;
@@ -339,7 +347,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     </div>
                     <button class="btn btn-primary" onclick="openHealthPage()">Health</button>
                     <button class="btn btn-primary" onclick="openOtaPage()">Firmware Update</button>
-                    <button class="btn btn-danger" onclick="openDeletePage()">Delete</button>
+                    <button class="btn btn-primary" onclick="openDeletePage()">Delete</button>
                     <button class="btn btn-return" onclick="showHome()">Return</button>
                 </div>
             </div>
@@ -409,12 +417,14 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         <div id="deleteSection" class="hidden section">
             <h2>SLM Delete</h2>
             <div class="controls cal-actions">
-                <button class="btn btn-danger" onclick="deleteProcessedSelected()">Delete</button>
+                <button class="btn btn-primary" onclick="deleteProcessedSelected()">Delete</button>
                 <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
             </div>
             <div class="card workflow-card">
                 <p>Select archived files from <span class="mono">/processed</span>, then press Delete.</p>
-                <p class="small bad">Deleted files are permanently lost.</p>
+            </div>
+            <div class="delete-warning-window">
+                <b>Important:</b> deleted files are permanently lost and cannot be recovered by the recorder.
             </div>
             <div id="processedDeleteStatus" class="small">Loading...</div>
             <div id="processedFileListContainer">
