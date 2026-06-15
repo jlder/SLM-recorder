@@ -116,7 +116,7 @@
 #define SD_RECORD_LOW_FREE_MB         250u
 #define SD_RECORD_FLUSH_PERIOD_MS    500u
 #define SD_TASK_PERIOD_MS            50u
-#define SD_TASK_FILE_OP_PERIOD_MS    5u
+#define SD_TASK_FILE_OP_PERIOD_MS    1u
 #define SD_IDLE_REPROBE_PERIOD_MS    500u
 #define SD_ERROR_REPROBE_PERIOD_MS   500u
 
