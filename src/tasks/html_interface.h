@@ -194,15 +194,6 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             text-align: center;
             white-space: nowrap;
         }
-        .kossira-heading {
-            margin-top: 10px;
-            font-weight: bold;
-            font-size: 13px;
-        }
-        .kossira-summary {
-            margin-top: 3px;
-            font-size: 12px;
-        }
         .file-btn {
             width: 96px;
             min-height: 32px;
@@ -393,7 +384,6 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                     <div class="progress-track"><div id="downloadProgressBar" class="progress-fill"></div></div>
                 </div>
                 <div id="flightAnalysisTable"></div>
-                <div id="kossiraSpectrumTable"></div>
             </div>
         </div>
 
@@ -524,7 +514,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         <div id="otaSection" class="hidden section">
             <div class="card workflow-card">
                 <p><b>USB power is required for firmware update.</b></p>
-                <p class="small">Upload only the Arduino application <span class="mono">.bin</span> file, typically <span class="mono">SLM_recorder.ino.bin</span>. Do not upload the merged binary.</p>
+                <p class="small">Upload only the recorder firmware <span class="mono">.bin</span> file, typically <span class="mono">SLM_recorder_date_version.bin</span>.</p>
                 <p class="small">The recorder will restart automatically after a successful update.</p>
             </div>
 
@@ -792,9 +782,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             panel.classList.remove('hidden');
             table.innerHTML = '';
             const sampleStats = document.getElementById('samplePeriodStats');
-            const kossiraTable = document.getElementById('kossiraSpectrumTable');
             if (sampleStats) sampleStats.textContent = 'Sample period: -';
-            if (kossiraTable) kossiraTable.innerHTML = '';
             status.textContent = 'Preparing download and analysis for ' + filename + '...';
             setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Download: starting...');
 
@@ -809,21 +797,17 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                         'downloadProgressBar',
                         'downloadProgressText',
                         100,
-                        'Download: complete in ' + formatElapsedMs(downloadMs) +
-                            ' (' + formatBytes(buffer.byteLength) + ')'
+                        'Download: complete'
                     );
 
                     // Save the file as soon as the binary download is complete.
                     // Analysis is then performed from the same buffer.
                     saveDownloadedBuffer(filename, buffer);
 
-                    const processingStartMs = performance.now();
                     status.textContent = 'Processing ' + filename + '...';
 
                     return analyzeRecorderFileAsync(buffer)
                         .then(analysis => {
-                            analysis.downloadMs = downloadMs;
-                            analysis.processingMs = performance.now() - processingStartMs;
                             showFlightAnalysis(filename, analysis);
                         });
                 })
@@ -897,6 +881,10 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
 
         function saveDownloadedBuffer(filename, buffer) {
             const blob = new Blob([buffer], { type: 'application/octet-stream' });
+            saveBlobFile(filename, blob);
+        }
+
+        function saveBlobFile(filename, blob) {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -910,36 +898,25 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         function showFlightAnalysis(filename, analysis) {
             const status = document.getElementById('flightAnalysisStatus');
             const table = document.getElementById('flightAnalysisTable');
-            const kossiraTable = document.getElementById('kossiraSpectrumTable');
             const sampleStats = document.getElementById('samplePeriodStats');
 
-            const timingText = analysisTimingText(analysis);
             if (sampleStats) {
                 sampleStats.textContent = samplePeriodStatsText(analysis && analysis.samplePeriod);
             }
-            if (kossiraTable) {
-                kossiraTable.innerHTML = renderKossiraSpectrum(analysis && analysis.kossira);
-            }
-
             if (!analysis || !analysis.ok) {
                 const reason = analysis && analysis.reason ? analysis.reason : 'Analysis failed.';
-                status.textContent = reason + timingText;
+                status.textContent = reason;
                 table.innerHTML = '';
                 return;
             }
-
 
             if (analysis.flights.length === 0) {
-                status.textContent = filename + ' (' + (analysis.formatName || 'unknown format') +
-                    '): no complete flight detected from ' + analysis.recordCount +
-                    ' acceleration records.' + timingText;
+                status.textContent = filename + ': no complete flight detected.';
                 table.innerHTML = '';
                 return;
             }
 
-            status.textContent = filename + ' (' + (analysis.formatName || 'unknown format') +
-                '): ' + analysis.flights.length + ' flight(s) detected from ' +
-                analysis.recordCount + ' acceleration records.' + timingText;
+            status.textContent = filename + ': ' + analysis.flights.length + ' flight(s) detected.';
 
             let html = '<table class="analysis-table"><thead><tr>' +
                 '<th>FLT<br>#</th><th>T/O<br>START</th><th>T/O<br>ROLL</th>' +
@@ -961,20 +938,6 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             table.innerHTML = html;
         }
 
-
-        function analysisTimingText(analysis) {
-            if (!analysis) return '';
-
-            const parts = [];
-            if (Number.isFinite(analysis.downloadMs)) {
-                parts.push('download ' + formatElapsedMs(analysis.downloadMs));
-            }
-            if (Number.isFinite(analysis.processingMs)) {
-                parts.push('processing ' + formatElapsedMs(analysis.processingMs));
-            }
-
-            return parts.length > 0 ? (' [' + parts.join(', ') + ']') : '';
-        }
 
         // ---------------------------------------------------------------------
         // Browser-side flight analysis
@@ -1020,16 +983,6 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         const WIT_PACKET_LENGTH = 11;
         const WIT_SCALE_G = 16.0 / 32768.0;
 
-        const KOSSIRA_G_MIN = -4.0;
-        const KOSSIRA_G_MAX = 6.0;
-        const KOSSIRA_FINE_CLASSES = 1024;
-        const KOSSIRA_COARSE_CLASSES = 32;
-        const KOSSIRA_FINE_PER_COARSE = 32;
-        const KOSSIRA_HYST_FINE_CLASSES = 10;
-        const KOSSIRA_COARSE_WIDTH_G =
-            (KOSSIRA_G_MAX - KOSSIRA_G_MIN) / KOSSIRA_COARSE_CLASSES;
-        const KOSSIRA_REFERENCE_6000FH = [0.1, 0.1, 0.1, 0.1, 0.1, 6.18968335118, 46.3512336727, 281.884597965, 1164.99430838, 2988.81623279, 6098.57017744, 10800.3237473, 21279.81939, 133934.392368, 1423065.75287, 6624972.41185, 6196570.79753, 4268809.15991, 728422.610648, 149719.987564, 49805.2708911, 24545.4792158, 15080.9517826, 10346.1333988, 7025.21833468, 3133.2284669, 449.90763888, 32.7497066366, 0.1, 0.1, 0.1, 0.1];
-
         async function analyzeRecorderFileAsync(buffer, progressCb) {
             const progress = progressCb || function(){};
 
@@ -1057,14 +1010,11 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             const flights = await analyzeAccelerationTimelineAsync(decoded.records, progress);
             flights.forEach((f, index) => { f.number = index + 1; });
 
-            const kossira = computeKossiraSpectrum(decoded.records, flights);
-
             return {
                 ok: true,
                 formatName: decoded.formatName,
                 recordCount: decoded.records.length,
                 samplePeriod: samplePeriod,
-                kossira: kossira,
                 flights: flights
             };
         }
@@ -1132,18 +1082,8 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
                 return 'Sample period: unavailable';
             }
 
-            let text = 'Sample period: avg ' + stats.avgMs.toFixed(2) +
-                ' ms, std ' + stats.stdMs.toFixed(2) +
-                ' ms, min/max ' + stats.minMs.toFixed(1) +
-                '/' + stats.maxMs.toFixed(1) + ' ms' +
-                ', outside 49-51 ms: ' + stats.outside49_51 +
-                ', outside 48-52 ms: ' + stats.outside48_52;
-
-            if (stats.excluded > 0) {
-                text += ', gaps excluded ' + stats.excluded;
-            }
-
-            return text;
+            return 'Sample period: avg ' + stats.avgMs.toFixed(2) +
+                ' ms, std ' + stats.stdMs.toFixed(2) + ' ms';
         }
 
         function decodeRecorderTimeline(buffer) {
@@ -1561,234 +1501,6 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             });
 
             return results;
-        }
-
-        function computeKossiraSpectrum(records, flights) {
-            const nzSamples = [];
-
-            if (records && flights) {
-                flights.forEach(flight => {
-                    const first = Math.max(0, Number(flight.liftOffIdx));
-                    const last = Math.min(records.length - 1, Number(flight.touchdownIdx));
-
-                    if (!Number.isFinite(first) || !Number.isFinite(last) || last <= first) {
-                        return;
-                    }
-
-                    for (let i = first; i <= last; i++) {
-                        const nz = records[i].azG;
-                        if (Number.isFinite(nz)) nzSamples.push(nz);
-                    }
-                });
-            }
-
-            if (nzSamples.length < 2) {
-                return {
-                    ok: false,
-                    reason: 'No complete airborne segment available for Kossira count.'
-                };
-            }
-
-            const meanNz = averageArray(nzSamples);
-            const fine = applyKossiraHysteresis(nzSamples);
-            const coarse = reduceKossiraFineToCoarse(fine);
-            const turns = extractKossiraTurningPoints(coarse);
-            const markov = createZeroMatrix(KOSSIRA_COARSE_CLASSES, KOSSIRA_COARSE_CLASSES);
-
-            let transitions = 0;
-            for (let i = 1; i < turns.length; i++) {
-                const from = turns[i - 1];
-                const to = turns[i];
-                if (from === to) continue;
-                markov[from][to] += 1;
-                transitions++;
-            }
-
-            const occurrences = kossiraMarkovToExceedances(markov, meanNz);
-
-            return {
-                ok: true,
-                signal: 'Nz = Z axis',
-                meanNz: meanNz,
-                samples: nzSamples.length,
-                retainedFine: fine.length,
-                retainedCoarse: coarse.length,
-                turningPoints: turns.length,
-                transitions: transitions,
-                classes: kossiraClassTable(occurrences)
-            };
-        }
-
-        function applyKossiraHysteresis(samples) {
-            const retained = [];
-            let lastFine = null;
-
-            samples.forEach(value => {
-                const cls = kossiraFineClass(value);
-                if (lastFine === null ||
-                    Math.abs(cls - lastFine) > KOSSIRA_HYST_FINE_CLASSES) {
-                    retained.push(cls);
-                    lastFine = cls;
-                }
-            });
-
-            return retained;
-        }
-
-        function reduceKossiraFineToCoarse(fineClasses) {
-            const coarse = [];
-
-            fineClasses.forEach(cls => {
-                const c = Math.max(0, Math.min(
-                    KOSSIRA_COARSE_CLASSES - 1,
-                    Math.floor(cls / KOSSIRA_FINE_PER_COARSE)
-                ));
-
-                if (coarse.length === 0 || coarse[coarse.length - 1] !== c) {
-                    coarse.push(c);
-                }
-            });
-
-            return coarse;
-        }
-
-        function extractKossiraTurningPoints(values) {
-            const turns = [];
-
-            values.forEach(v => {
-                if (turns.length === 0) {
-                    turns.push(v);
-                    return;
-                }
-
-                if (v === turns[turns.length - 1]) {
-                    return;
-                }
-
-                if (turns.length === 1) {
-                    turns.push(v);
-                    return;
-                }
-
-                const a = turns[turns.length - 2];
-                const b = turns[turns.length - 1];
-                const dir1 = Math.sign(b - a);
-                const dir2 = Math.sign(v - b);
-
-                if (dir2 === 0) {
-                    return;
-                }
-
-                if (dir1 === dir2) {
-                    // Still on the same monotonic branch: keep only the more
-                    // extreme value so the resulting sequence alternates peaks
-                    // and valleys.
-                    turns[turns.length - 1] = v;
-                } else {
-                    turns.push(v);
-                }
-            });
-
-            return turns;
-        }
-
-        function kossiraMarkovToExceedances(markov, meanNz) {
-            const occurrences = new Array(KOSSIRA_COARSE_CLASSES).fill(0);
-
-            for (let from = 0; from < KOSSIRA_COARSE_CLASSES; from++) {
-                for (let to = 0; to < KOSSIRA_COARSE_CLASSES; to++) {
-                    const n = markov[from][to];
-                    if (n === 0) continue;
-
-                    const lo = Math.min(from, to);
-                    const hi = Math.max(from, to);
-
-                    for (let cls = 0; cls < KOSSIRA_COARSE_CLASSES; cls++) {
-                        const lf = kossiraClassMid(cls);
-
-                        if (lf >= meanNz) {
-                            if (lo < cls && hi >= cls) occurrences[cls] += n;
-                        } else {
-                            if (lo <= cls && hi > cls) occurrences[cls] += n;
-                        }
-                    }
-                }
-            }
-
-            return occurrences;
-        }
-
-        function kossiraClassTable(occurrences) {
-            const rows = [];
-
-            for (let cls = 0; cls < KOSSIRA_COARSE_CLASSES; cls++) {
-                rows.push({
-                    classNumber: cls + 1,
-                    loadFactor: kossiraClassMid(cls),
-                    measured: occurrences[cls] || 0,
-                    reference6000h: KOSSIRA_REFERENCE_6000FH[cls]
-                });
-            }
-
-            return rows;
-        }
-
-        function kossiraFineClass(value) {
-            const clamped = Math.max(KOSSIRA_G_MIN, Math.min(KOSSIRA_G_MAX, value));
-            const scaled = (clamped - KOSSIRA_G_MIN) /
-                (KOSSIRA_G_MAX - KOSSIRA_G_MIN) * KOSSIRA_FINE_CLASSES;
-            return Math.max(0, Math.min(KOSSIRA_FINE_CLASSES - 1, Math.floor(scaled)));
-        }
-
-        function kossiraClassMid(cls) {
-            return KOSSIRA_G_MIN + (cls + 0.5) * KOSSIRA_COARSE_WIDTH_G;
-        }
-
-        function createZeroMatrix(rows, cols) {
-            const matrix = [];
-            for (let r = 0; r < rows; r++) {
-                matrix.push(new Array(cols).fill(0));
-            }
-            return matrix;
-        }
-
-        function averageArray(values) {
-            if (!values || values.length === 0) return 0.0;
-            let sum = 0.0;
-            values.forEach(v => { sum += v; });
-            return sum / values.length;
-        }
-
-        function renderKossiraSpectrum(kossira) {
-            if (!kossira) return '';
-
-            if (!kossira.ok) {
-                return '<div class="kossira-heading">Kossira Count</div>' +
-                    '<div class="kossira-summary small">' +
-                    escapeHtml(kossira.reason || 'Unavailable.') + '</div>';
-            }
-
-            let html = '<div class="kossira-heading">Kossira Count - airborne phases only</div>';
-            html += '<div class="kossira-summary small">Nz avg ' +
-                Number(kossira.meanNz).toFixed(3) + ' g, samples ' +
-                formatInteger(kossira.samples) + ', retained ' +
-                formatInteger(kossira.retainedFine) + ', transitions ' +
-                formatInteger(kossira.transitions) + '</div>';
-
-            html += '<table class="analysis-table"><thead><tr>' +
-                '<th>LF</th><th>REAL<br>OCC</th><th>REF<br>6000h</th>' +
-                '</tr></thead><tbody>';
-
-            kossira.classes.forEach(row => {
-                html += '<tr>' +
-                    '<td class="mono">' + row.loadFactor.toFixed(2) + '</td>' +
-                    '<td class="mono">' + formatInteger(row.measured) + '</td>' +
-                    '<td class="mono">' + formatReferenceOccurrence(row.reference6000h) + '</td>' +
-                    '</tr>';
-            });
-
-            html += '</tbody></table>';
-            return html;
         }
 
         function formatInteger(value) {
@@ -2441,8 +2153,8 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             }
 
             const file = fileInput.files[0];
-            if (!file.name.endsWith('.bin') || file.name.indexOf('merged') >= 0) {
-                status.textContent = 'Use the application .bin file, not the merged binary.';
+            if (!file.name.endsWith('.bin')) {
+                status.textContent = 'Use a recorder firmware .bin file named like SLM_recorder_date_version.bin.';
                 return;
             }
 

@@ -813,12 +813,20 @@ static void state_task_main(void *arg){
         // combined hardware gesture clears settings and shuts the unit down.
         // A UI START RECORD request enters the same normal start path, but does
         // not participate in the clear-settings gesture.
+        const bool wifi_active = web_task_is_enabled();
         const bool power_pressed = power_button_pressed();
         const bool record_requested = test_record_button(RECORD_START_HOLD_MS);
         const bool ui_start_requested = ui_take_record_start_request_();
         (void)ui_take_record_stop_request_(); // STOP is meaningful only in RECORDING.
         const bool clear_settings_requested = record_requested && power_pressed;
-        const bool start_record_requested = (record_requested && (!power_pressed)) || ui_start_requested;
+
+        // When WiFi/Web access is active, the touch START RECORD button is
+        // disabled by the UI.  The physical RECORD button intentionally keeps
+        // authority so recording can always be started independently of the
+        // UI/Web layer.  Leaving READY for STARTING forces WiFi/Web OFF.
+        const bool start_record_requested =
+            (record_requested && (!power_pressed)) ||
+            ((!wifi_active) && ui_start_requested);
 
         // Keep setup-lock messages visible until all required setup is complete.
         // Settings are checked first, then calibration status.
@@ -843,7 +851,7 @@ static void state_task_main(void *arg){
 
         // SD file-management access is only allowed in READY when WiFi/Web is enabled.
         // Keep the authorization gate synchronized with the Web task enable.
-        sd_files_set_authorized(web_task_is_enabled());
+        sd_files_set_authorized(wifi_active);
 
         // State change actions
         // READY still monitors SD errors because SD task may detect an SD fault

@@ -80,6 +80,7 @@ extern lv_obj_t *pwd_rollers[8];
 static volatile bool s_touch_activity_detected = false;
 static uint32_t s_display_last_activity_ms = 0u;
 static bool s_display_dimmed = false;
+static lv_obj_t *s_display_resume_screen = NULL;
 static bool s_display_prev_usb_valid = false;
 static bool s_display_prev_usb_present = false;
 
@@ -296,7 +297,12 @@ static void ui_display_wake_(uint32_t now){
         display_brightness_set(DISPLAY_BRIGHTNESS_ACTIVE);
         s_display_dimmed = false;
 
-        if(main_screen != NULL){
+        lv_obj_t *resume = s_display_resume_screen;
+        s_display_resume_screen = NULL;
+
+        if((resume != NULL) && (resume != standby_screen)){
+            lv_scr_load(resume);
+        } else if(main_screen != NULL){
             lv_scr_load(main_screen);
         }
     }
@@ -316,13 +322,6 @@ static void ui_display_standby_service_(void){
     const bool touch_activity = ui_touch_activity_consume_();
     const bool button_activity = power_button_pressed() || record_button_pressed();
 
-    const bool message_or_error =
-        (st.last_error != 0) ||
-        ((st.message_id != MSG_NONE) &&
-         (st.message_id != MSG_READY) &&
-         (st.message_id != MSG_RECORDING) &&
-         (st.message_id != MSG_SD_FULL_FILES));
-
     const bool usb_inserted =
         st.usb_present_valid &&
         st.usb_present &&
@@ -336,25 +335,19 @@ static void ui_display_standby_service_(void){
         s_display_prev_usb_present = false;
     }
 
-    const bool recorder_state_allows_standby =
-        (st.state == ST_READY) ||
-        (st.state == ST_RECORDING);
-
-    // Standby may be entered only from the main display. Once already in
-    // standby, the standby screen itself is allowed to remain active until a
-    // normal wake condition occurs.
     const lv_obj_t *active_screen = lv_scr_act();
-    const bool screen_allows_standby =
-        (active_screen == main_screen) ||
-        (s_display_dimmed && (active_screen == standby_screen));
 
+    // The display standby rule is page-independent and message-independent:
+    // after the timeout, any normal recorder page may be replaced by the
+    // standby screen.  The low-battery shutdown screen is excluded because it
+    // intentionally shows a mandatory red instruction before shutdown.
     const bool standby_allowed =
-        recorder_state_allows_standby && screen_allows_standby;
+        (standby_screen != NULL) &&
+        (active_screen != low_battery_screen);
 
     if((!standby_allowed) ||
        touch_activity ||
        button_activity ||
-       message_or_error ||
        usb_inserted){
         ui_display_wake_(now);
         return;
@@ -362,9 +355,8 @@ static void ui_display_standby_service_(void){
 
     if(!s_display_dimmed &&
        ((now - s_display_last_activity_ms) >= DISPLAY_DIM_TIMEOUT_MS)){
-        if(standby_screen != NULL){
-            lv_scr_load(standby_screen);
-        }
+        s_display_resume_screen = (lv_obj_t *)active_screen;
+        lv_scr_load(standby_screen);
         display_brightness_set(DISPLAY_BRIGHTNESS_DIMMED);
         s_display_dimmed = true;
     }
@@ -543,14 +535,17 @@ static bool ui_record_button_shows_stop_(const system_status_t& st){
  * Reports whether the UI START RECORD action is currently allowed.
  *
  * The State task accepts a record-start request in ST_READY only when the
- * user-visible message is MSG_READY.  Other READY messages indicate that a
- * setup, calibration, or SD maintenance condition still blocks recording.
+ * user-visible message is MSG_READY and recorder WiFi/Web access is OFF.
+ * Other READY messages indicate that a setup, calibration, or SD maintenance
+ * condition still blocks recording.
  *
  * Inputs: `st`.
  * Returns: `true` only when a START RECORD request can be consumed.
  */
 static bool ui_record_start_allowed_(const system_status_t& st){
-    return (st.state == ST_READY) && (st.message_id == MSG_READY);
+    return (st.state == ST_READY) &&
+           (st.message_id == MSG_READY) &&
+           (!st.wifi_active);
 }
 
 /**
@@ -596,7 +591,7 @@ static void ui_record_button_hold_service_(const system_status_t& st){
 
     // Only READY and RECORDING consume UI record commands.  Transient states
     // disable the button and ignore any stale touch hold.
-    if(st.state == ST_READY){
+    if((st.state == ST_READY) && ui_record_start_allowed_(st)){
         state_task_request_record_start();
         s_ui_record_btn_consumed = true;
     } else if(st.state == ST_RECORDING){
@@ -1168,8 +1163,8 @@ void syncUIToSystemState() {
 
     // START/STOP RECORD follows the same gates as the hardware RECORD button.
     // START RECORD is blue only when the State task would accept a start
-    // request; otherwise it is disabled and gray.  STOP RECORD remains red
-    // while recording is active.
+    // request and WiFi/Web is OFF; otherwise it is disabled and gray.
+    // STOP RECORD remains red while recording is active.
     if(btn_record_label){
         lv_label_set_text(btn_record_label, recording_like ? "STOP RECORD" : "START RECORD");
     }
