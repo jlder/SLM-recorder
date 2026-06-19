@@ -23,10 +23,10 @@ typedef struct {
   bool     usb_present_valid;
   // Pulse set true for one state_task cycle when USB power was previously present and is now absent.
   bool     usb_lost;
+  // Diagnostic SD-present snapshot used for watchdog fault reporting.
+  // SD capacity/free-space for Web file management is queried through
+  // sd_files_get_space() and /api/info, not through system_status_t.
   bool     sd_present;
-  uint32_t sd_total_mb;
-  uint32_t sd_used_mb;
-  uint32_t sd_free_mb;
   bool     wifi_active;
   int32_t  last_error;
   msg_id_t message_id;

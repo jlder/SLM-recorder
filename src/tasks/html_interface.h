@@ -993,18 +993,16 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             const samplePeriod = decoded ? computeSamplePeriodStats(decoded.records) : null;
 
             if (!decoded || decoded.records.length < SLM_ANALYSIS_FS * SLM_ANALYSIS_MIN_FILE_S) {
-                progress(100, 'Processing: not enough valid acceleration records.');
+                progress(100, 'Processing: not enough valid flight-analysis data.');
                 return {
                     ok: false,
-                    reason: 'Not enough valid acceleration records for flight analysis.',
+                    reason: 'Not enough valid flight-analysis data.',
                     formatName: decoded ? decoded.formatName : 'unknown',
-                    recordCount: decoded ? decoded.records.length : 0,
                     samplePeriod: samplePeriod
                 };
             }
 
-            progress(15, 'Processing: decoded ' + decoded.formatName + ', ' +
-                decoded.records.length + ' acceleration records.');
+            progress(15, 'Processing: analyzing flight times...');
             await analysisYield();
 
             const flights = await analyzeAccelerationTimelineAsync(decoded.records, progress);
@@ -1013,7 +1011,6 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             return {
                 ok: true,
                 formatName: decoded.formatName,
-                recordCount: decoded.records.length,
                 samplePeriod: samplePeriod,
                 flights: flights
             };

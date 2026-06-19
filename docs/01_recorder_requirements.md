@@ -73,8 +73,8 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_DIMMED` | 60 | standby display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.08` | version text displayed on device |
-| `RECORDER_VERSION_TEXT` | `sw ver 1.08` / `hw ver 1.00` | main display version text |
+| `RECORDER_SOFTWARE_VERSION` | `1.11` | version text displayed on device |
+| `RECORDER_VERSION_TEXT` | `sw ver 1.11` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
 
@@ -129,7 +129,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `SD_WRITE_RETRY_MAX` | 3 | SD write retry limit |
 | `SD_RECORD_FLUSH_PERIOD_MS` | 500 ms | recording file flush period |
 | `SD_TASK_PERIOD_MS` | 50 ms | normal SD task service period |
-| `SD_TASK_FILE_OP_PERIOD_MS` | 5 ms | SD task service period while idle and Web file-management is authorized |
+| `SD_TASK_FILE_OP_PERIOD_MS` | 1 ms | SD task service period while idle and Web file-management is authorized |
 | `SD_IDLE_REPROBE_PERIOD_MS` | 500 ms | idle SD reprobe period |
 | `SD_ERROR_REPROBE_PERIOD_MS` | 500 ms | SD error-state reprobe period |
 | `SD_FILE_OP_TIMEOUT_MS` | 2000 ms | file-management operation timeout |
@@ -292,11 +292,9 @@ Status:
 
 #### OP-UI-003 — Display standby
 
-The display shall start at full brightness and enter standby after `DISPLAY_DIM_TIMEOUT_MS`.
+The display shall start at full brightness and enter standby after `DISPLAY_DIM_TIMEOUT_MS` without local operator interaction.
 
-Standby display behavior shall be allowed only while the recorder state is READY or RECORDING and the active UI page is the main display. The normal `READY` and `RECORDING` status messages shall not prevent standby.
-
-Standby shall not start while the operator is on MENU, SETTINGS, setting-edit pages, or Web/WiFi support pages shown on the local display.
+Standby display behavior shall be page-independent for normal recorder UI pages. It shall be allowed from the main page, MENU, SETTINGS, setting-edit pages, and WiFi-support pages. The active recorder message shall not by itself prevent standby. The dedicated low-battery shutdown notice is excluded because it intentionally displays mandatory red recharge instructions before PMU shutdown.
 
 During RECORDING, date/time cache refresh is allowed while the display is active so the displayed clock continues to update. Recording sample timestamps remain based on the captured recording start time plus the monotonic ESP timer and do not depend on periodic RTC refresh.
 
@@ -305,18 +303,9 @@ When standby is active:
 - the standby screen shall have a black background;
 - the standby screen shall show large dimmed white text reading `TOUCH TO ACTIVATE`;
 - normal UI refresh shall stop;
-- minimal UI/touch processing shall continue at a reduced rate to detect wake conditions, including while RECORDING.
+- minimal UI/LVGL/touch processing shall continue at a reduced rate to detect wake conditions, including while RECORDING.
 
-The display shall return to the active main UI at full brightness when:
-
-- touch activity is detected;
-- a setup, fault, or error message is active;
-- the power/clear button is pressed;
-- the record button is pressed;
-- USB power is inserted;
-- recorder state leaves READY or RECORDING.
-
-SD insertion/removal does not need a separate brightness trigger because SD insertion/removal conditions generate user-visible messages.
+The display shall restore the previously active page at full brightness when touch activity is detected. The display shall also wake on power/clear button activity, record button activity, or USB power insertion. These wake actions shall not clear settings, stop WiFi, start/stop recording, or acknowledge errors by themselves; normal button hold processing still applies separately.
 
 Status:
 
@@ -328,17 +317,20 @@ Status:
 
 When the recorder is READY and not recording, the MENU button shall be active and shall provide access to a secondary page with:
 
-- START WIFI;
+- START RECORD;
+- START WIFI / STOP WIFI;
 - SETTINGS;
 - BACK.
 
 The MENU button shall be:
 
+- blue when READY and no setup/calibration/SD-maintenance action is required;
+- orange when READY and a setup/calibration/SD-maintenance action is required;
+- gray when inactive.
+
 START WIFI shall be disabled while required settings are incomplete because the WiFi password is one of the required settings. Calibration and Firmware Update over the Web interface shall therefore only be offered after SETTINGS is complete.
 
-- blue when READY and no setup/calibration action is required;
-- orange when READY and a setup/calibration action is required;
-- gray when inactive.
+The screen START RECORD action shall be disabled/gray while WiFi/Web access is active. The physical RECORD button remains available as an independent hardware recording control and may start recording when WiFi/Web is active; leaving READY for STARTING forces WiFi/Web OFF before recording.
 
 The BACK button shall be green and always active.
 
@@ -376,7 +368,7 @@ Calibration access shall be protected because calibration is a maintenance/mecha
 
 When calibration is required or faulted, the START WIFI button shall be orange to guide the operator to the Web calibration interface.
 
-WiFi shall be turned OFF when the operator leaves the MENU page using BACK to return to the main page.
+WiFi shall be turned OFF when the operator selects STOP WIFI or when the recorder leaves READY for a state transition such as recording start. The screen START RECORD action is disabled while WiFi is active; the physical RECORD button remains authoritative and can initiate recording, which forces WiFi/Web OFF through READY exit cleanup.
 
 Status:
 
@@ -398,7 +390,7 @@ The Web interface shall provide a Firmware Update function that allows the opera
 
 Firmware update shall require USB power to be present. If USB power is not detected, the update request shall be rejected.
 
-The Firmware Update page shall instruct the operator to upload the Arduino application `.bin`.
+The Firmware Update page shall instruct the operator to upload the recorder application `.bin` named like `SLM_recorder_date_version.bin`.
 
 After a successful firmware update, the recorder shall restart automatically.
 
@@ -537,7 +529,7 @@ Status:
 
 #### OP-REC-001 — Recording start action
 
-Recording shall be started by holding the physical record/start-stop button for `RECORD_START_HOLD_MS`.
+Recording shall be started by holding the physical record/start-stop button for `RECORD_START_HOLD_MS`. The local MENU screen also provides a START RECORD button using its own hold time; that screen button shall be disabled while WiFi/Web is active.
 
 Status:
 
@@ -555,7 +547,9 @@ Recording shall start only when all required operating conditions are satisfied:
 - required settings are saved;
 - valid calibration exists;
 - calibration is not expired;
-- record-button start hold is qualified.
+- a hardware record-button start hold is qualified, or a permitted UI START RECORD hold is qualified.
+
+The physical RECORD button is intentionally independent of the UI/Web layer. If WiFi/Web is active and the physical RECORD button starts recording, the recorder shall turn WiFi/Web OFF as part of leaving READY. The UI START RECORD button shall not start recording while WiFi/Web is active.
 
 Status:
 
@@ -664,7 +658,10 @@ The page shall allow the operator to:
 
 - visualize/list files on SD;
 - download files from SD;
-- archive root recording files to `/processed` when delete is requested.
+- perform local browser-side flight-time analysis during download;
+- display detected flight times and sample-period average/standard deviation;
+- archive root recording files to `/processed` when Archive is requested;
+- permanently delete selected files already in `/processed` from the Maintenance / Delete page.
 
 Web file management shall be accessible when recording is not active, including when recording is blocked by SD max-file-count maintenance while SD free space is still available.
 
@@ -931,6 +928,8 @@ result: PASS
 
 ### 7.1 Display Message Table
 
+The table below lists messages rendered in the normal bottom message area of the local UI.
+
 | Display message | Color | Type | Recoverable / operator action |
 |---|---|---|---|
 | `BOOT` | Green | startup | not an error |
@@ -939,17 +938,15 @@ result: PASS
 | `STARTING` | Green | transient | not an error |
 | `STOPPING` | Green | transient | not an error |
 | `SHUTDOWN` | Green | shutdown | normal operator-requested shutdown transition; not an error |
-| `TOUCH TO ACTIVATE` | White | standby | yes, touch screen to activate recorder display |
 | `SD OK/CLR` | Green | SD recovered / clear prompt | yes, press clear after the SD condition is gone |
 | `NEED SETTINGS` | Amber | setup required | yes, perform date, time, registration, and password settings |
 | `ACC CAL REQ` | Amber | accelerometer calibration required | yes, perform password-protected Web accelerometer calibration menu (`START WIFI`) |
 | `INST CAL REQ` | Amber | installation calibration required | yes, perform password-protected Web installation calibration menu (`START WIFI`) |
 | `NO SD` | Amber | SD/storage warning | yes, insert SD card |
-| `SD LOW` | Amber | SD/storage warning | yes, insert an SD card with enough free space |
-| `SD FULL (FILES)` | Amber | SD file-count maintenance | yes, download and archive root files using recorder Web interface (`START WIFI`) |
-| `LOW BATT` | Amber | power warning | yes, connect USB |
-| `BATTERY LOW` / `RECHARGE WITH USB` | Red | power too low | yes, connect USB; shown as a black full-screen shutdown notice for 10 seconds before PMU shutdown |
-| `CAL FAULT` | Red | calibration fault | possible, perform factory reset and perform calibrations |
+| `SD LOW` | Amber | SD/storage warning | yes, insert an SD card with enough free space; archive alone does not free SD space |
+| `SD FULL (FILES)` | Amber | SD file-count maintenance | yes, archive root files and/or delete files from `/processed` using recorder Web interface (`START WIFI`) |
+| `LOW BATT` | Amber | power warning | yes, connect USB power |
+| `CAL FAULT` | Red | calibration fault | possible, reset if required and repeat settings/calibrations |
 | `ACCEL ERR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
 | `RTC ERROR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
 | `PMU ERROR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
@@ -958,11 +955,18 @@ result: PASS
 | `ERROR` | Red | generic fallback error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
 | `SD ERROR` | Red | SD/storage fault | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
 | `GENERIC ERROR` | Red | fatal error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
-| `FATAL WDG/CLR` | Red | watchdog fault acknowledgement | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
+| `FATAL WDG/CLR` | Red | watchdog fault acknowledgement | possible, press the power/clear button to acknowledge the watchdog fault; if required, hold power/clear up to 8 seconds to stop recorder, then restart * |
 
 \* If the error persists after restart, report the problem to support.
 
-The `BATTERY LOW` / `RECHARGE WITH USB` notice is separate from the normal message table rendering. It is displayed as red bold text on a black full-screen background for 10 seconds before shutdown when startup or operation detects a low-battery shutdown condition without USB power.
+### 7.1.1 Special Full-Screen Displays
+
+The following screens are not normal bottom message-area messages.
+
+| Screen text | Color | Trigger / operator action |
+|---|---|---|
+| `TOUCH TO ACTIVATE` | Dim white on black | display standby; touch screen, press a hardware button, or connect USB power to wake |
+| `BATTERY LOW` / `RECHARGE WITH USB` | Red on black | low-battery shutdown notice; connect USB power; displayed for 10 seconds before PMU shutdown |
 
 ### 7.2 Error and Trigger Mapping
 

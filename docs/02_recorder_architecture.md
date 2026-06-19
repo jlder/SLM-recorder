@@ -364,13 +364,13 @@ Orange buttons form an operator guidance path to resolve the current blocking co
 
 After the configured display inactivity timeout, the UI may switch directly to a black standby screen with large dim white `TOUCH TO ACTIVATE` text.
 
-Display standby is a UI sub-state, not a recorder state. It is allowed only while the recorder state is READY or RECORDING and the local UI is on the main display. While standby is active, the UI task skips the normal `updateUI()` refresh and runs at a reduced loop rate, currently about 5 Hz in standby while keeping LVGL/touch processing active for wake detection.
+Display standby is a UI sub-state, not a recorder state. It is page-independent for normal recorder UI pages: main, MENU, SETTINGS, setting-edit pages, and WiFi-support pages may all be replaced by the standby screen. The active message does not by itself prevent standby. The dedicated low-battery shutdown notice is excluded because it must remain visible until PMU shutdown.
 
-Wake conditions are touch, power/clear button press, record button press, USB insertion, setup/fault/error message, or recorder state leaving READY/RECORDING. The normal RECORDING message does not block standby.
+While standby is active, the UI task skips the normal `updateUI()` refresh and runs at a reduced loop rate, currently about 5 Hz in standby while keeping LVGL/touch processing active for wake detection. Wake conditions are touch, power/clear button press, record button press, or USB insertion. The UI restores the previously active page at full brightness.
 
 ## 18. WiFi Support Power Rule
 
-WiFi/AP support is user-selected from MENU. The AP is stopped when the operator presses the menu BACK button to return to the main page, or when `state_task` disables Web support during state transitions such as recording.
+WiFi/AP support is user-selected from MENU. The AP is stopped when the operator selects STOP WIFI or when `state_task` disables Web support during state transitions such as recording. While WiFi is active, the screen START RECORD button is disabled/gray. The physical RECORD button remains authoritative; if it starts recording while WiFi is active, READY exit cleanup turns WiFi/Web OFF before STARTING/RECORDING.
 
 The HTTP listener is not stopped in normal operation. It remains allocated and started once because the tested AsyncWebServer/AsyncTCP stack does not reliably recover port-80 dispatch after `AsyncWebServer::end()` has been called following real HTTP traffic. When Web support is OFF, the listener is not exposed to the operator because the AP is down and SD file-management authorization is disabled.
 
@@ -390,11 +390,11 @@ This avoids adding a second date/time derivation path in the UI and avoids date 
 
 Touch sampling remains enabled in RECORDING so the standby display can wake from touch while acquisition and SD writing continue.
 
-Standby is intentionally not entered from MENU, SETTINGS, or setting-edit pages so the operator is not interrupted while navigating or entering setup data.
+Standby is allowed from MENU, SETTINGS, and setting-edit pages. Waking restores the page that was visible before standby.
 
 ## 20. SD Archive Behavior
 
-The Web delete action is implemented as an archive operation. Root-level recording files are moved to `/processed`; the folder is created if needed, and destination name collisions are resolved with a numeric suffix. The normal Web file list remains root-file oriented, so processed files are hidden from the active file list.
+The Web Archive action for root-level recording files is implemented as a move to `/processed`; the folder is created if needed, and destination name collisions are resolved with a numeric suffix. The normal Web file list remains root-file oriented, so processed files are hidden from the active file list. A separate Maintenance / Delete page lists files already in `/processed` and permanently deletes selected archived files when the operator confirms deletion.
 
 ### 11.5 Daily recording file policy
 
@@ -501,11 +501,15 @@ This is an implementation constraint of the selected AsyncWebServer/AsyncTCP sta
 
 The `/diag` route is kept as a permanent health endpoint. It reports basic Web/AP state such as cycle count, heap, AP IP address, station count, Web request flag, and listener-started flag.
 
-## 28. Web OTA Firmware Update
+## 28. Web Download and Flight-Time Analysis
+
+The Web file-management page downloads the selected daily `.bin` file to the browser. The same in-memory buffer is analyzed locally to identify detected flight times. The displayed analysis is intentionally limited to the flight-time table plus sample-period average and standard deviation. Kossira/occurrence/load-factor spectrum calculation and CSV export are not active in this release baseline.
+
+## 29. Web OTA Firmware Update
 
 The firmware uses a project-local `partitions.csv` file for OTA-capable builds. The partition table provides two OTA application slots so a new application image can be written to the inactive slot while the current firmware continues running.
 
-Firmware update is exposed as a manual Web maintenance function from the recorder access point. The operator selects Firmware Update in the Web interface and uploads the Arduino application binary. 
+Firmware update is exposed as a manual Web maintenance function from the recorder access point. The operator selects Firmware Update in the Web interface and uploads the recorder application binary named like `SLM_recorder_date_version.bin`. 
 
 `web_task` owns the OTA endpoint and streams the uploaded file to the ESP32 Arduino `Update` API. USB power is required before the update begins. If USB power is not present, the upload is rejected and the current firmware remains active.
 

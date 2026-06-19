@@ -1101,7 +1101,18 @@ static void state_task_main(void *arg){
           // ERROR uses power-clear hold for recoverable error acknowledgement
           // and power-long hold for shutdown.
           init_power_button();
+
+          // Touch remains enabled in ERROR so the page-independent display
+          // standby screen can always be woken by touching the display.
+          touch_enable(true);
           s_first_pass = false;
+        }
+
+        // Refresh touch snapshot for display-standby wake while an error is
+        // displayed.  Without this, a standby screen entered during an error
+        // can no longer see the touch wake request.
+        if(touch_is_enabled()){
+          touch_service_update_from_hw();
         }
 
         // State change actions

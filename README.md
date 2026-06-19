@@ -7,7 +7,7 @@ Copyright (c) 2026 AgingGliders
 
 Firmware for the AgingGliders recorder prototype based on the Waveshare ESP32-S3 AMOLED 2.06 board.
 
-The recorder samples acceleration at 20 Hz, stores recordings on SD card, provides a local lvgl user interface, and exposes a WiFi/Web interface for file management, calibration, and firmware update.
+The recorder samples acceleration at 20 Hz, stores recordings on SD card, provides a local LVGL user interface, and exposes a WiFi/Web interface for file management, calibration, and firmware update.
 
 ## 1. Hardware
 
@@ -21,9 +21,8 @@ The board is programmed through the Arduino IDE using the ESP32-S3 board support
 
 ## 2. Arduino IDE Board Configuration
 
-After Arduino installation, 
+After Arduino installation, from the Arduino IDE menu File / Preferences, add the Espressif board manager URL:
 
-From the Arduino IDE menu Files / Preferences,  add url for Espressif boards:
 https://espressif.github.io/arduino-esp32/package_esp32_index.json
 
 In the Arduino IDE Board Manager, install `esp32` from Espressif at version 3.3.5.
@@ -69,7 +68,7 @@ lv_conf.h
 src/board/pin_config.h
 ```
 
-`lv_conf.h` is the lvgl configuration file for lvgl 9.3.0. It is intentionally stored at the project root so lvgl can find it without requiring a copy in the global Arduino libraries folder.
+`lv_conf.h` is the LVGL configuration file for LVGL 9.3.0. It is intentionally stored at the project root so lvgl can find it without requiring a copy in the global Arduino libraries folder.
 
 `src/board/pin_config.h` contains the Waveshare ESP32-S3 AMOLED 2.06 board pin mapping used by the firmware.
 
@@ -90,12 +89,12 @@ Do not rely on copies of these files in `Documents/Arduino/libraries`.
 
 After uploading firmware from the Arduino IDE, perform a full device restart before formal testing. This avoids occasional transient startup issues after the IDE upload/reset sequence.
 
-Alternatively
+Alternative firmware installation methods:
 
-- For first application installation, it is possible to install the binary file located in the docs/firmware folder (path defined in manifest.json) using the GitHub web interface: https://jlder.github.io/SLM-recorder/. When connected, the device should be visible under: USB JTAG/ serial debug.
-- When application has been installed once, following updates can be performed using OTA (Device WIFI ON, http://192.168.4.1 , select firmware update). Software releases are in the firmware folder.
+- For first application installation, it is possible to install the binary file located in the `docs/firmware` folder (path defined in `manifest.json`) using the GitHub-hosted WebUSB installer: https://jlder.github.io/SLM-recorder/. When connected, the device should be visible under the USB JTAG/serial debug interface.
+- When the application has been installed once, subsequent updates can be performed using OTA: start device WiFi, open `http://192.168.4.1/`, select Firmware Update, and upload an application binary named like `SLM_recorder_date_version.bin` from the project-root `firmware` folder.
 
-/!\ in both cases it is recommended to use Chrome in incognito mode to avoid using cache with outdated information.
+/!\ In both cases it is recommended to use Chrome in incognito mode to avoid using cache with outdated information.
 
 ## 6. First Run / Setup
 
@@ -107,7 +106,7 @@ Typical required setup:
 2. Configure time.
 3. Configure glider registration.
 4. Configure WiFi password.
-5. Perform calibration using web interface (see section 7).
+5. Perform calibrations using the Web interface (see section 7).
 
 The recorder will not authorize recording until required settings are stored and a valid calibration exists.
 
@@ -125,10 +124,16 @@ The Web interface supports:
 
 - SD file listing;
 - file download;
-- file archive through the Delete button (the file is moved to `/processed`);
-- calibration;
-- firmware update (the firmware can be updated only when USB power is connected to the device. The firmware releases are available in the firmware folder of the project);
+- browser-side flight-time analysis during download, displaying detected flight times and sample-period average/standard deviation;
+- file archive through the root file-list Archive button, which moves the file to `/processed`;
+- permanent deletion of selected files already archived in `/processed` from the Maintenance / Delete page;
+- calibrations;
+- firmware update using an application binary named like `SLM_recorder_date_version.bin` (firmware update is accepted only when USB power is connected to the device);
 - a lightweight health-check endpoint at `http://192.168.4.1/diag`.
+
+For this release baseline, the browser-side analysis is limited to flight-time detection and sample-period statistics; Kossira occurrence/load-factor processing and CSV export are not active.
+
+When WiFi/Web access is active, the screen START RECORD button is disabled/grey. Stop WiFi before starting recording from the screen. The physical RECORD button remains available as an independent hardware control; if it starts recording while WiFi is active, the recorder leaves READY and stops WiFi/Web before entering recording.
 
 Implementation note: the HTTP listener is created, route-registered, and started once. START WIFI / BACK only start and stop the ESP32 access point and Web-side application activity. The firmware intentionally does not call `AsyncWebServer::end()` during normal Web OFF because the selected AsyncWebServer/AsyncTCP stack does not provide a reliable stop/restart lifecycle for port-80 dispatch after HTTP traffic.
 
@@ -140,7 +145,7 @@ Recording requires:
 - free space above the configured recording-start threshold;
 - root recording file count below the configured limit;
 - valid settings;
-- valid calibration.
+- valid calibrations.
 
 Recording files use a daily-file policy. The first recording session of a day creates a file named:
 
@@ -156,19 +161,19 @@ Important SD conditions:
 SD FULL (FILES)
 ```
 
-This means the SD root file-count limit has been reached. It can be resolved by using web interface to delete/archive files.
+This means the SD root file-count limit has been reached. It can be resolved by using the Web interface to upload files to the central SLM server and archive root files to `/processed`, then by deleting archived files from `/processed` if space must be freed.
 
 ```text
 SD LOW
 ```
 
-This means SD free space is below the configured low-space threshold. Archiving does not solve this, because moving files to `/processed` does not free SD memory.
+This means SD free space is below the configured low-space threshold. Archiving does not solve this, because moving files to `/processed` does not free SD memory. The Maintenance/Delete function can remove files from `/processed`, but deleted files are permanently lost.
 
 The firmware uses two SD free-space thresholds: a higher threshold required before recording starts and a lower threshold while recording is already active. This prevents recording from starting just above the low-space threshold and immediately stopping with `SD LOW`.
 
-### Installation calibration
+### Calibrations
 
-In addition to the six-face sensor gain/offset calibration, the recorder supports an installation calibration from the Web interface. The glider must be placed in its AFM/AMM level-flight attitude. The recorder then reads the sensor-calibrated acceleration, waits for a stable window, and computes a 3 x 3 installation rotation matrix so that corrected Z reads +1 g in level flight.
+In addition to the recorder six-face sensor gain/offset calibration, the recorder supports an installation calibration. The glider must be placed in its AFM/AMM level-flight attitude. The recorder then reads the sensor-calibrated acceleration, waits for a stable window, and computes a 3 x 3 installation rotation matrix so that corrected Z reads +1 g in level flight.
 
 The installation calibration corrects pitch/roll mounting error. Yaw around the vertical axis is not observable from gravity alone and is not corrected. Recording remains disabled until both the sensor calibration and the installation calibration are valid.
 
@@ -176,7 +181,7 @@ The installation calibration corrects pitch/roll mounting error. Yaw around the 
 
 This project was developed with significant assistance from artificial intelligence tools.
 
-AI contributed substantially to the architecture and coding of some software areas, including the graphical user interface and Web services. For core recorder functions, including the state machines, helper layers, abstraction layers, and overall system architecture, the design decisions and implementation remained under developer control. In those areas, AI was still used to review, clean, reorganize, homogenize naming and comments, identify issues, and propose corrections.
+AI contributed substantially to the architecture and coding of some software areas, particularly the graphical user interface and Web services. For core recorder functions, including the state machines, helper layers, abstraction layers, and overall system architecture, the design decisions and implementation remained under developer control. In those areas, AI was still used to review, clean, reorganize, homogenize naming and comments, identify issues, and propose corrections.
 
 Overall, AI was instrumental in producing an operational demonstrator in approximately two weeks and in helping mature the firmware into a first-release candidate in less than four months.
 

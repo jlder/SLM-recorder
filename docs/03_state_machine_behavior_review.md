@@ -321,7 +321,7 @@ On close request, SD task:
 
 ## 14. Calibration Session Behavior
 
-Calibration is serviced while the device is in READY with WiFi/Web available. Recording is locked while calibration is missing/expired/faulted or while setup is incomplete.
+Calibration is serviced while the device is in READY with WiFi/Web available. Recording is locked while calibration is missing/expired/faulted or while setup is incomplete. While WiFi/Web is active, the screen START RECORD action is disabled; the physical RECORD button remains an independent hardware control and can start recording after READY exit cleanup turns WiFi/Web OFF.
 
 Calibration session behavior:
 
@@ -385,19 +385,16 @@ The RTC/date-time cache is required before recording start to create the filenam
 
 ## 20. Display Standby Sub-State
 
-Display standby is not a high-level recorder state. It is a UI/display sub-state allowed only while the recorder remains in READY or RECORDING and the local UI is on the main display.
+Display standby is not a high-level recorder state. It is a UI/display sub-state that may replace any normal recorder UI page after the configured inactivity timeout. It is not limited to the main page and is not blocked only because a particular READY/RECORDING/setup message is active. The low-battery shutdown notice is excluded from standby.
 
 While in standby:
 
 - normal UI refresh is skipped;
 - touch/LVGL processing continues at a reduced rate;
+- the previous UI page is remembered so it can be restored on wake;
 - recorder state logic, recording acquisition, SD writing, low-power handling, and error/message handling continue normally.
 
-The UI exits standby if touch/button/USB/message/error activity occurs or if the recorder leaves READY or RECORDING.
-
-Touch remains enabled during RECORDING so the UI standby sub-state can wake from touch. Touch is disabled again when leaving RECORDING for STOPPING.
-
-The UI does not enter standby from MENU, SETTINGS, or setting-edit pages. These pages keep the display active while the operator is navigating or editing setup data.
+The UI exits standby when touch activity is detected, when the power/clear or record button is pressed, or when USB power is inserted. During RECORDING, touch remains enabled so the UI standby sub-state can wake from touch while acquisition and SD writing continue.
 
 ### SD Free-Space Hysteresis
 
@@ -464,9 +461,13 @@ Web downloads use a sequential SD-owned session. The Web task does not open SD f
 
 While a download session is active, the SD idle reprobe is skipped so the open download file handle is not invalidated by an SD reinitialization.
 
-## 26. Web OTA Firmware Update Behavior
+## 26. Web Download and Flight-Time Analysis Behavior
 
-Firmware update is available only through the Web interface. Since Web support is enabled from READY, firmware update is operationally separated from active recording.
+Web download uses the SD-file download path to transfer the selected daily `.bin` to the browser. The browser saves the `.bin` file and analyzes the same buffer locally to detect flight times. The displayed result is limited to the flight-time table and the sample-period average/standard deviation. Kossira occurrence/load-factor processing and CSV generation are intentionally disabled in this release baseline.
+
+## 27. Web OTA Firmware Update Behavior
+
+Firmware update is available only through the Web interface. Since Web support is enabled from READY, firmware update is operationally separated from active recording. The Web Firmware Update page expects a recorder application binary named like `SLM_recorder_date_version.bin`.
 
 The Web Firmware Update tab provides a file selector and upload button. Browser-side upload progress is shown using the upload progress event.
 

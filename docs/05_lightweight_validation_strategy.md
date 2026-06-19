@@ -170,22 +170,23 @@ Expected result:
 
 Purpose:
 
-Confirm standby display reduces active UI refresh and wakes correctly.
+Confirm standby display reduces active UI refresh and wakes correctly on normal recorder pages.
 
 Procedure:
 
 1. Leave the recorder idle on the main UI longer than `DISPLAY_DIM_TIMEOUT_MS`.
-2. Confirm the screen changes to a black standby display with `TOUCH TO ACTIVATE` from the main display.
-3. Confirm standby does not start while on MENU, SETTINGS, or setting-edit pages.
-3. Wake using touch.
-4. Repeat wake using power/clear button, record button, USB insertion, and a generated message/error where practical.
+2. Confirm the screen changes to a black standby display with `TOUCH TO ACTIVATE`.
+3. Wake using touch and confirm the previous page is restored.
+4. Repeat the timeout/wake check from MENU, SETTINGS, at least one setting-edit page, and the WiFi-active MENU page.
+5. Repeat wake using power/clear button, record button, and USB insertion.
+6. Confirm the low-battery shutdown notice does not enter standby during its 10-second display period.
 
 Expected result:
 
 - Before standby, confirm the active UI time continues updating during RECORDING.
-- Standby display appears after timeout in READY and RECORDING.
-- Standby does not remain active in BOOT, STARTING, STOPPING, ERROR, or OFF.
-- Active main UI returns at full brightness on each wake condition.
+- Standby display appears after timeout on normal recorder UI pages, independent of the active message.
+- The page visible before standby returns at full brightness on wake.
+- Standby does not hide the dedicated low-battery shutdown notice.
 
 ### VAL-SET-001 — Settings persistence
 
@@ -239,7 +240,7 @@ Procedure:
 3. Connect a remote device to the recorder WiFi.
 4. Open `http://192.168.4.1/`.
 5. Open `http://192.168.4.1/diag`.
-6. Stop WiFi using the MENU/BACK workflow.
+6. Stop WiFi using the MENU -> STOP WIFI button.
 7. Repeat START WIFI / Web page / `/diag` for at least five cycles.
 
 Expected result:
@@ -247,8 +248,10 @@ Expected result:
 - Web page loads on every cycle.
 - `/diag` returns valid JSON with `ok:true`, AP IP `192.168.4.1`, and a cycle count that increments across Web ON cycles.
 - Heap reported by `/diag` has no steady downward trend across repeated cycles.
-- File tab and Calibration tab are visible.
+- The Web main menu and the expected File Management and Maintenance pages are visible.
 - Web access is unavailable or not authorized during active recording.
+- While WiFi is active and the recorder is READY, the screen START RECORD button is disabled/gray.
+- Holding the physical RECORD button while WiFi is active starts recording if all start gates are satisfied and WiFi/Web is stopped automatically during the transition.
 
 Validation note:
 
@@ -390,12 +393,17 @@ Procedure:
 1. Ensure settings complete.
 2. Ensure valid calibration exists.
 3. Ensure SD is present, has free space, and file count is below threshold.
-4. Hold record button for configured start hold.
-5. Repeat with one condition missing where practical.
+4. Hold the physical record button for the configured start hold.
+5. Repeat using the screen START RECORD button with WiFi OFF.
+6. Enable WiFi and confirm the screen START RECORD button is disabled.
+7. With WiFi still active, hold the physical RECORD button and confirm recording can start when all other start gates are satisfied.
+8. Repeat with one condition missing where practical.
 
 Expected result:
 
 - Recording starts only when all conditions are satisfied.
+- The screen START RECORD action is blocked while WiFi is active.
+- The physical RECORD button remains authoritative and can start recording while WiFi is active; WiFi/Web is stopped during the transition.
 - Missing conditions display appropriate messages and block recording.
 
 ### VAL-REC-002 — Recording stop by record button
@@ -588,6 +596,27 @@ Expected result:
 - The file is moved from SD root to `/processed`.
 - The file is not shown in the active root-file list.
 - If the destination name already exists, a `_N` suffix is added before the extension.
+
+### VAL-WEB-002 — Web download and flight-time analysis
+
+Purpose:
+
+Confirm Web download saves the daily binary file and displays the simplified flight-time analysis.
+
+Procedure:
+
+1. Create or identify a daily recording file in the SD root.
+2. Enable WiFi and open the Web file-management page.
+3. Select Download for the daily file.
+4. Observe download progress and the SLM Flight Analysis window.
+5. Verify that no Kossira/occurrence/load-factor table is displayed and no CSV file is saved.
+
+Expected result:
+
+- The selected `.bin` file is saved to the browser device.
+- The flight-time table is displayed when complete flights are detected.
+- Sample statistics show only average sample period and standard deviation.
+- No Markov/Kossira/occurrence CSV files are downloaded.
 
 ### VAL-SD-006 — SD maintenance access when recording is blocked
 

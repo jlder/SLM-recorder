@@ -309,8 +309,9 @@ static void ui_display_wake_(uint32_t now){
 }
 
 /**
- * Display standby service enters the black standby screen from the main page,
- * detects wake conditions, and restores the active UI when needed.
+ * Display standby service enters the black standby screen from any normal
+ * recorder UI page, detects wake conditions, and restores the active UI when
+ * needed.
  *
  * Inputs: None.
  * Returns: None.
