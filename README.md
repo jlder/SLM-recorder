@@ -106,7 +106,7 @@ Typical required setup:
 2. Configure time.
 3. Configure glider registration.
 4. Configure WiFi password.
-5. Perform calibrations using the Web interface (see section 7).
+5. Perform calibrations using the Web interface (see section 8).
 
 The recorder will not authorize recording until required settings are stored and a valid calibration exists.
 
@@ -137,7 +137,13 @@ When WiFi/Web access is active, the screen START RECORD button is disabled/grey.
 
 Implementation note: the HTTP listener is created, route-registered, and started once. START WIFI / BACK only start and stop the ESP32 access point and Web-side application activity. The firmware intentionally does not call `AsyncWebServer::end()` during normal Web OFF because the selected AsyncWebServer/AsyncTCP stack does not provide a reliable stop/restart lifecycle for port-80 dispatch after HTTP traffic.
 
-## 8. SD Card Behavior
+## 8. Calibrations
+
+There is a recorder accelerometer calibration which samples accelerations on the sensor six faces to adjust gains/offsets on the 3 axis. The recorder must be placed successively on its six faces, while waiting long enough on each face to get a stable reading. There is also an installation calibration which compensate for the possible installation angles errors, the goal being for the recorder to report a z axis which is aligned with gravity when the glider is in flight attitude and wing leveled. The recorder shall be in its support in the glider when performing this calibration.
+
+Note: the installation calibration corrects pitch/roll mounting error. Yaw around the vertical axis is not observable from gravity alone and is not corrected. Recording remains disabled until both the sensor calibration and the installation calibration are valid.
+
+## 9. SD Card Behavior
 
 Recording requires:
 
@@ -171,13 +177,7 @@ This means SD free space is below the configured low-space threshold. Archiving 
 
 The firmware uses two SD free-space thresholds: a higher threshold required before recording starts and a lower threshold while recording is already active. This prevents recording from starting just above the low-space threshold and immediately stopping with `SD LOW`.
 
-### Calibrations
-
-In addition to the recorder six-face sensor gain/offset calibration, the recorder supports an installation calibration. The glider must be placed in its AFM/AMM level-flight attitude. The recorder then reads the sensor-calibrated acceleration, waits for a stable window, and computes a 3 x 3 installation rotation matrix so that corrected Z reads +1 g in level flight.
-
-The installation calibration corrects pitch/roll mounting error. Yaw around the vertical axis is not observable from gravity alone and is not corrected. Recording remains disabled until both the sensor calibration and the installation calibration are valid.
-
-## 9. Artificial Intelligence Assistance
+## 10. Artificial Intelligence Assistance
 
 This project was developed with significant assistance from artificial intelligence tools.
 
@@ -185,7 +185,7 @@ AI contributed substantially to the architecture and coding of some software are
 
 Overall, AI was instrumental in producing an operational demonstrator in approximately two weeks and in helping mature the firmware into a first-release candidate in less than four months.
 
-## 10. Licensing
+## 11. Licensing
 
 Project-owned AgingGliders recorder firmware code is licensed for non-commercial use under:
 
@@ -206,7 +206,7 @@ THIRD_PARTY_VERSIONS.md
 
 Third-party libraries remain under their own licenses and are not relicensed by AgingGliders.
 
-## 11. Commercial Licensing Contact
+## 12. Commercial Licensing Contact
 
 For commercial licensing, contact:
 
