@@ -35,8 +35,10 @@ bool display_drv_init(void){
       LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3
   );
 
-    s_gfx = new Arduino_CO5300(
-      s_bus, LCD_RESET, 0, LCD_WIDTH, LCD_HEIGHT, 22, 0, 0, 0
+  // Arduino_GFX 1.6.0 CO5300 API includes an IPS argument after rotation.
+  // Keep it explicit to avoid argument shifting on clean Library Manager installs.
+  s_gfx = new Arduino_CO5300(
+      s_bus, LCD_RESET, 0, false, LCD_WIDTH, LCD_HEIGHT, 22, 0, 0, 0
   );
 
   if(!s_gfx) return false;
