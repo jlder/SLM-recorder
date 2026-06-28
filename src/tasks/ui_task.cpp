@@ -79,8 +79,8 @@ extern lv_obj_t *pwd_rollers[8];
 
 static volatile bool s_touch_activity_detected = false;
 static uint32_t s_display_last_activity_ms = 0u;
-static bool s_display_dimmed = false;
-static lv_obj_t *s_display_resume_screen = NULL;
+static bool s_display_standby = false;
+static bool s_display_ignore_touch_until_release = false;
 static bool s_display_prev_usb_valid = false;
 static bool s_display_prev_usb_present = false;
 
@@ -94,7 +94,6 @@ void createSetDateScreen(lv_style_t &style_huge, lv_style_t &style_large);
 void createSetTimeScreen(lv_style_t &style_huge, lv_style_t &style_large);
 void createSetRegScreen(lv_style_t &style_huge, lv_style_t &style_large);
 void createSetWifiPwdScreen(lv_style_t &style_huge, lv_style_t &style_large);
-void createStandbyScreen(lv_style_t &style_huge);
 void createLowBatteryScreen(lv_style_t &style_huge);
 
 void wifi_btn_cb(lv_event_t * e);
@@ -204,7 +203,6 @@ lv_obj_t *set_date_screen = NULL;
 lv_obj_t *set_time_screen = NULL;
 lv_obj_t *set_reg_screen = NULL;
 lv_obj_t *set_wifi_pwd_screen = NULL;
-lv_obj_t *standby_screen = NULL;
 lv_obj_t *low_battery_screen = NULL;
 
 lv_obj_t *lbl_main_time = NULL;
@@ -284,8 +282,9 @@ static bool ui_touch_activity_consume_(void){
 }
 
 /**
- * Display wake helper records recent activity, restores full brightness, and
- * returns from standby to the main UI.
+ * Display wake helper records recent activity and exits physical display
+ * standby.  The active LVGL page is not changed; it is only invalidated so the
+ * current page is redrawn after AMOLED panel power is restored.
  *
  * Inputs: None.
  * Returns: None.
@@ -293,25 +292,22 @@ static bool ui_touch_activity_consume_(void){
 static void ui_display_wake_(uint32_t now){
     s_display_last_activity_ms = now;
 
-    if(s_display_dimmed){
-        display_brightness_set(DISPLAY_BRIGHTNESS_ACTIVE);
-        s_display_dimmed = false;
+    if(s_display_standby){
+        display_driver_standby_exit();
+        s_display_standby = false;
+        s_display_ignore_touch_until_release = true;
 
-        lv_obj_t *resume = s_display_resume_screen;
-        s_display_resume_screen = NULL;
-
-        if((resume != NULL) && (resume != standby_screen)){
-            lv_scr_load(resume);
-        } else if(main_screen != NULL){
-            lv_scr_load(main_screen);
+        lv_obj_t *active = lv_scr_act();
+        if(active != NULL){
+            lv_obj_invalidate(active);
         }
     }
 }
 
 /**
- * Display standby service enters the black standby screen from any normal
- * recorder UI page, detects wake conditions, and restores the active UI when
- * needed.
+ * Display standby service switches only the physical AMOLED display output off
+ * after inactivity, detects wake conditions, and requests a redraw of the
+ * still-active LVGL page on wake.
  *
  * Inputs: None.
  * Returns: None.
@@ -336,15 +332,8 @@ static void ui_display_standby_service_(void){
         s_display_prev_usb_present = false;
     }
 
-    const lv_obj_t *active_screen = lv_scr_act();
-
-    // The display standby rule is page-independent and message-independent:
-    // after the timeout, any normal recorder page may be replaced by the
-    // standby screen.  The low-battery shutdown screen is excluded because it
-    // intentionally shows a mandatory red instruction before shutdown.
-    const bool standby_allowed =
-        (standby_screen != NULL) &&
-        (active_screen != low_battery_screen);
+    // Do not blank the mandatory low-battery shutdown notice.
+    const bool standby_allowed = (lv_scr_act() != low_battery_screen);
 
     if((!standby_allowed) ||
        touch_activity ||
@@ -354,12 +343,10 @@ static void ui_display_standby_service_(void){
         return;
     }
 
-    if(!s_display_dimmed &&
+    if(!s_display_standby &&
        ((now - s_display_last_activity_ms) >= DISPLAY_DIM_TIMEOUT_MS)){
-        s_display_resume_screen = (lv_obj_t *)active_screen;
-        lv_scr_load(standby_screen);
-        display_brightness_set(DISPLAY_BRIGHTNESS_DIMMED);
-        s_display_dimmed = true;
+        display_driver_standby_enter();
+        s_display_standby = true;
     }
 }
 
@@ -373,10 +360,19 @@ static void ui_display_standby_service_(void){
 void my_touchpad_read(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     touch_snapshot_t s = touch_service_get_snapshot();
-    if (!s.valid || !s.pressed) {
+
+    if(!s.valid || !s.pressed){
+        s_display_ignore_touch_until_release = false;
         data->state = LV_INDEV_STATE_REL;
         return;
     }
+
+    if(s_display_standby || s_display_ignore_touch_until_release){
+        s_touch_activity_detected = true;
+        data->state = LV_INDEV_STATE_REL;
+        return;
+    }
+
     data->state = LV_INDEV_STATE_PR;
     data->point.x = s.x;
     data->point.y = s.y;
@@ -678,30 +674,6 @@ void createMainScreen(lv_style_t &style_huge, lv_style_t &style_large) {
         LV_ALIGN_BOTTOM_MID, 0, -25, 380, LV_TEXT_ALIGN_CENTER, 2);
 }
 
-
-// =============================================================================
-// SCREEN: STANDBY
-// =============================================================================
-
-/**
- * Creates the black AMOLED standby screen with dimmed wake instruction text
- * used to reduce display power.
- *
- * Inputs: `style_large`.
- * Returns: None.
- */
-void createStandbyScreen(lv_style_t &style_huge) {
-    standby_screen = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(standby_screen, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(standby_screen, LV_OPA_COVER, 0);
-
-    lv_obj_t *label = lv_label_create(standby_screen);
-    lv_label_set_text(label, "TOUCH TO ACTIVATE");
-    lv_obj_add_style(label, &style_huge, 0);
-    lv_obj_set_style_text_color(label, lv_color_white(), 0);
-    lv_obj_set_style_text_opa(label, LV_OPA_80, 0);
-    lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
-}
 
 /**
  * Creates the full-screen low-battery notice shown before automatic shutdown.
@@ -1023,7 +995,8 @@ void initUI() {
 
     
         s_display_last_activity_ms = (uint32_t)millis();
-    s_display_dimmed = false;
+    s_display_standby = false;
+    s_display_ignore_touch_until_release = false;
     display_brightness_set(DISPLAY_BRIGHTNESS_ACTIVE);
 
 lv_init();
@@ -1058,7 +1031,6 @@ lv_init();
     createSetTimeScreen(style_huge, style_large);
     createSetRegScreen(style_huge, style_large);
     createSetWifiPwdScreen(style_huge, style_large);
-    createStandbyScreen(style_huge);
     createLowBatteryScreen(style_huge);
     
     // Initialize status manager
@@ -1463,20 +1435,17 @@ static void ui_task_loop(void *arg){
     (void)arg;
     initUI();
     for(;;){
-        if(s_display_dimmed){
-            // In standby, run LVGL first so touch is sampled, then process wake
-            // in the same loop. This avoids an extra standby-period delay.
+        if(s_display_standby){
+            // In standby, LVGL remains on the current page.  Run the handler so
+            // touch is sampled, then process wake in the same loop.
             lv_timer_handler();
             ui_display_standby_service_();
         }else{
             updateUI();
-            // When active, run standby/wake service before lv_timer_handler()
-            // so a transition to the standby screen is flushed immediately,
-            // avoiding a dimmed normal UI frame.
             ui_display_standby_service_();
             lv_timer_handler();
         }
-        vTaskDelay(pdMS_TO_TICKS(s_display_dimmed ? 200 : 20)); // ~50 Hz active, ~5 Hz standby
+        vTaskDelay(pdMS_TO_TICKS(s_display_standby ? 200 : 20)); // ~50 Hz active, ~5 Hz standby
     }
 }
 

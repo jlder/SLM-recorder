@@ -31,6 +31,9 @@ extern "C" {
 bool display_drv_init(void){
   if(s_gfx) return true;
 
+  pinMode(LCD_EN, OUTPUT);
+  digitalWrite(LCD_EN, HIGH);
+
   s_bus = new Arduino_ESP32QSPI(
       LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3
   );
@@ -76,6 +79,42 @@ void display_brightness_set(uint8_t brightness){
   // setBrightness() is provided by the concrete CO5300 display class,
   // not by the Arduino_GFX base class.
   s_gfx->setBrightness(brightness);
+}
+
+/**
+ * Enters display standby by switching the CO5300 display off and removing
+ * power from the AMOLED panel supply controlled by LCD_EN.  LVGL state is not
+ * changed; only the physical display output is disabled.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+void display_driver_standby_enter(void){
+  if(s_gfx == nullptr){
+    return;
+  }
+
+  s_gfx->displayOff();
+  digitalWrite(LCD_EN, LOW);
+}
+
+/**
+ * Exits display standby by restoring the AMOLED panel supply and enabling the
+ * CO5300 display output again.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+void display_driver_standby_exit(void){
+  digitalWrite(LCD_EN, HIGH);
+  delay(20);
+
+  if(s_gfx == nullptr){
+    return;
+  }
+
+  s_gfx->displayOn();
+  display_brightness_set(DISPLAY_BRIGHTNESS_ACTIVE);
 }
 
 

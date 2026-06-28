@@ -34,6 +34,22 @@ bool display_drv_init(void);
  */
 void display_brightness_set(uint8_t brightness);
 
+/**
+ * @brief Enter display standby by switching off the AMOLED panel power path.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+void display_driver_standby_enter(void);
+
+/**
+ * @brief Exit display standby and restore the AMOLED panel power path.
+ *
+ * Inputs: None.
+ * Returns: None.
+ */
+void display_driver_standby_exit(void);
+
 // Accessor for LVGL flush callback
 #ifdef __cplusplus
 /**
