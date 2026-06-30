@@ -346,24 +346,16 @@ static bool s_low_battery_shutdown_requested = false;
 static bool s_low_battery_notice_active = false;
 
 /**
- * Updates the published USB status snapshot and USB-loss edge latch used by
- * READY shutdown and UI power indicators.
+ * Updates the published USB status snapshot used by UI display and power
+ * management. USB removal shutdown is detected locally in ST_READY.
  *
- * Inputs: `prev_usb_present`, `prev_usb_valid`.
+ * Inputs: None.
  * Returns: None.
  */
-static void update_usb_status_snapshot(bool* prev_usb_present, bool* prev_usb_valid){
-  if((prev_usb_present == nullptr) || (prev_usb_valid == nullptr)){
-    return;
-  }
-
-  // Without a valid PMU, USB status cannot be trusted.  Reset both the
-  // published value and the edge-detection history.
+static void update_usb_status_snapshot(void){
   if(!pmu_ok){
     s_st.usb_present = false;
     s_st.usb_present_valid = false;
-    s_st.usb_lost = false;
-    *prev_usb_valid = false;
     return;
   }
 
@@ -371,24 +363,7 @@ static void update_usb_status_snapshot(bool* prev_usb_present, bool* prev_usb_va
   const bool ok = usb_present(&usb_now);
   s_st.usb_present_valid = ok;
   if(ok){
-    // usb_lost is an edge latch: it is raised only when the previous valid
-    // sample was USB-present and the current valid sample is USB-absent.
-    if(*prev_usb_valid && *prev_usb_present && !usb_now){
-      s_st.usb_lost = true;
-    }
-
-    // USB re-appearance clears the edge latch.  READY exit cleanup also
-    // consumes it when shutdown handling starts.
-    if(usb_now){
-      s_st.usb_lost = false;
-    }
-
     s_st.usb_present = usb_now;
-    *prev_usb_present = usb_now;
-    *prev_usb_valid = true;
-  } else {
-    // A failed read must not create a false USB-lost edge.
-    s_st.usb_lost = false;
   }
 }
 
@@ -471,8 +446,6 @@ static void recording_service(void){
  * Returns: None.
  */
 static inline void ready_exit_cleanup(void){
-  // Consume the USB-lost edge when leaving READY.
-  s_st.usb_lost = false;
   // On exit from READY, WiFi/Web shall be OFF.
   web_task_set_enabled(false);
   // SD file-management shall be disabled outside READY.
@@ -587,9 +560,10 @@ static void state_task_main(void *arg){
 
   TickType_t last_wake = xTaskGetTickCount();
 
-  // USB edge detection state for the published hardware snapshot.
-  static bool s_usb_prev_pub = false;
-  static bool s_usb_prev_pub_valid = false;
+  // READY-local USB transition detector. Current USB presence is still
+  // published in all states by low-rate housekeeping.
+  static bool s_ready_usb_prev_present = false;
+  static bool s_ready_usb_prev_valid = false;
 
   // One-time state-task runtime initialization.  This establishes the
   // state-task-owned status snapshot and resets services coordinated here
@@ -778,6 +752,13 @@ static void state_task_main(void *arg){
           (void)datetime_service_sync_rtc();
           calibration_service_refresh_status();
 
+          // Initialize READY-local USB transition detection.  USB already
+          // absent when entering/re-entering READY is only the reference
+          // state; it is not a USB-removal event.
+          update_usb_status_snapshot();
+          s_ready_usb_prev_present = s_st.usb_present;
+          s_ready_usb_prev_valid = s_st.usb_present_valid;
+
           // Initialize hold-based button detectors for READY semantics.
           // READY uses record-start hold, clear-settings gesture detection,
           // and power-long hold for shutdown.
@@ -864,10 +845,16 @@ static void state_task_main(void *arg){
           state_set(ST_ERROR);
           break;
         }
-        // In READY, USB loss edge or power-long requests shutdown. Low-power
-        // shutdown is handled globally after hardware housekeeping so all states
-        // use the same battery-protection behavior.
-        const bool trig_usb  = (s_st.usb_lost == true);
+        // In READY, only a fresh USB-present to USB-absent transition requests
+        // shutdown. USB removal that happened before READY entry is ignored.
+        const bool trig_usb =
+            s_ready_usb_prev_valid &&
+            s_st.usb_present_valid &&
+            s_ready_usb_prev_present &&
+            (!s_st.usb_present);
+        s_ready_usb_prev_present = s_st.usb_present;
+        s_ready_usb_prev_valid = s_st.usb_present_valid;
+
         const bool trig_pwr  = (test_power_button(POWER_SHUTDOWN_HOLD_MS) == true);
 
         if(trig_usb || trig_pwr){
@@ -1202,7 +1189,7 @@ static void state_task_main(void *arg){
       // depend on periodic RTC reads.
       (void)datetime_service_sync_rtc();
 
-      update_usb_status_snapshot(&s_usb_prev_pub, &s_usb_prev_pub_valid);
+      update_usb_status_snapshot();
       update_battery_snapshot();
       low_power_shutdown_service_();
     }
