@@ -616,6 +616,21 @@ static const char *sd_basename_(const char *p){
   return (slash != nullptr) ? (slash + 1) : p;
 }
 
+static bool sd_entry_name_is_root_file_(const char *p){
+  if((p == nullptr) || (p[0] == '\0')){
+    return false;
+  }
+
+  // File.name() may return either "file.bin" or "/file.bin" for a
+  // direct child of the SD root.  Anything containing another slash is not a
+  // root-level file and must not be selected as today's active daily file.
+  if(p[0] == '/'){
+    ++p;
+  }
+
+  return (p[0] != '\0') && (strchr(p, '/') == nullptr);
+}
+
 static bool sd_split_name_ext_(const char *name,
                                char *base,
                                size_t base_sz,
@@ -694,6 +709,10 @@ static bool sd_daily_suffix_from_name_(const char *name,
                                        const char *prefix_base,
                                        uint32_t *out_suffix){
   if((name == nullptr) || (prefix_base == nullptr) || (out_suffix == nullptr)){
+    return false;
+  }
+
+  if(!sd_entry_name_is_root_file_(name)){
     return false;
   }
 

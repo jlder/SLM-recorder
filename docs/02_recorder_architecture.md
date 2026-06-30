@@ -362,11 +362,11 @@ Orange buttons form an operator guidance path to resolve the current blocking co
 
 ## 17. Display Standby Architecture
 
-After the configured display inactivity timeout, the UI may switch directly to a black standby screen with large dim white `TOUCH TO ACTIVATE` text.
+After the configured display inactivity timeout, the UI may switch directly to display standby. In standby the AMOLED output is switched off, the panel supply controlled by `LCD_EN` is disabled, and the display appears black with no standby text.
 
 Display standby is a UI sub-state, not a recorder state. It is page-independent for normal recorder UI pages: main, MENU, SETTINGS, setting-edit pages, and WiFi-support pages may all be replaced by the standby screen. The active message does not by itself prevent standby. The dedicated low-battery shutdown notice is excluded because it must remain visible until PMU shutdown.
 
-While standby is active, the UI task skips the normal `updateUI()` refresh and runs at a reduced loop rate, currently about 5 Hz in standby while keeping LVGL/touch processing active for wake detection. Wake conditions are touch, power/clear button press, record button press, or USB insertion. The UI restores the previously active page at full brightness.
+While standby is active, the UI task skips the normal `updateUI()` refresh and runs at a reduced loop rate, currently about 5 Hz in standby while keeping LVGL/touch processing active for wake detection. Wake conditions are touch, power/clear button press, record button press, or USB insertion. On wake, the display supply is re-enabled and the UI restores the previously active page at full brightness.
 
 ## 18. WiFi Support Power Rule
 
@@ -374,7 +374,7 @@ WiFi/AP support is user-selected from MENU. The AP is stopped when the operator 
 
 The HTTP listener is not stopped in normal operation. It remains allocated and started once because the tested AsyncWebServer/AsyncTCP stack does not reliably recover port-80 dispatch after `AsyncWebServer::end()` has been called following real HTTP traffic. When Web support is OFF, the listener is not exposed to the operator because the AP is down and SD file-management authorization is disabled.
 
-The UI loop runs standby/wake selection before `lv_timer_handler()` so the standby screen is flushed immediately and the normal UI is not shown dimmed as an intermediate frame.
+The UI loop runs standby/wake selection before `lv_timer_handler()` so the display-off transition happens without leaving the normal UI shown as a dimmed intermediate frame.
 
 The date/time cache continues to be refreshed during RECORDING so the active UI clock updates normally. Recording sample timing uses the captured start time plus the monotonic ESP timer and does not depend on periodic RTC reads.
 
@@ -402,7 +402,7 @@ Recording files are grouped by registration and date. `record_format` builds the
 
 The first session of a day creates `_1.bin`. If another session starts on the same day, the existing daily file is renamed to the next suffix and then opened in append mode. The suffix therefore records how many sessions have been started in that daily file.
 
-Only files matching the daily filename pattern are selected for append/rename matching. Files with any other recording-file naming pattern are left unchanged.
+Only root-level files matching the daily filename pattern are selected for append/rename matching. Files under `/processed` or any other subdirectory are ignored, even if their basename matches the daily registration/date prefix. Files with any other recording-file naming pattern are left unchanged.
 
 ## 21. SD Maintenance While READY
 

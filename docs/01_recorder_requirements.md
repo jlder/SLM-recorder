@@ -70,11 +70,11 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | Configuration | Current value | Requirement use |
 |---|---:|---|
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
-| `DISPLAY_BRIGHTNESS_DIMMED` | 60 | standby display brightness |
+| `DISPLAY_BRIGHTNESS_DIMMED` | 60 | legacy dimmed-brightness value; not used by the current display-off standby implementation |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.11` | version text displayed on device |
-| `RECORDER_VERSION_TEXT` | `sw ver 1.11` / `hw ver 1.00` | main display version text |
+| `RECORDER_SOFTWARE_VERSION` | `1.13` | version text displayed on device |
+| `RECORDER_VERSION_TEXT` | `sw ver 1.13` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
 
@@ -198,13 +198,15 @@ Status:
 
 - **Implemented.**
 
-#### OP-PWR-005 — Stop by USB removal while idle
+#### OP-PWR-005 — Stop by USB removal while READY
 
-When not recording and not blocked by a non-clearable error condition, the recorder shall stop when USB power is removed.
+When the recorder is in `ST_READY` and not blocked by a non-clearable error condition, the recorder shall stop when a fresh USB-present to USB-absent transition is detected.
+
+USB absence that occurred before entering `ST_READY` shall not be remembered and shall not trigger shutdown after a recording is stopped. During `ST_RECORDING` and `ST_STOPPING`, USB removal shall not by itself request shutdown; the recorder shall continue on battery unless another shutdown condition exists.
 
 Status:
 
-- **Implemented in READY.**
+- **Implemented.**
 
 #### OP-PWR-006 — Stop on low-power condition
 
@@ -300,8 +302,9 @@ During RECORDING, date/time cache refresh is allowed while the display is active
 
 When standby is active:
 
-- the standby screen shall have a black background;
-- the standby screen shall show large dimmed white text reading `TOUCH TO ACTIVATE`;
+- the AMOLED display shall be switched off and appear black;
+- the display panel supply controlled by `LCD_EN` shall be switched off;
+- no standby text shall be displayed;
 - normal UI refresh shall stop;
 - minimal UI/LVGL/touch processing shall continue at a reduced rate to detect wake conditions, including while RECORDING.
 
@@ -708,7 +711,7 @@ On the first session of the day, `N` shall be `1`. For each subsequent session o
 
 If more than one root file matches the same registration/date daily prefix, the recorder shall treat this as an SD fault rather than guessing which file should be appended.
 
-Files that do not match the daily filename pattern shall not be selected for append/rename matching.
+Only root-level files shall be considered for daily append/rename matching. Files in `/processed` or any other subdirectory shall not be selected, even if their basename matches the daily filename pattern for the same registration and date. Files that do not match the daily filename pattern shall not be selected for append/rename matching.
 
 Status:
 
@@ -965,7 +968,7 @@ The following screens are not normal bottom message-area messages.
 
 | Screen text | Color | Trigger / operator action |
 |---|---|---|
-| `TOUCH TO ACTIVATE` | Dim white on black | display standby; touch screen, press a hardware button, or connect USB power to wake |
+| Display off / black screen | No text displayed | display standby; touch screen, press a hardware button, or connect USB power to wake |
 | `BATTERY LOW` / `RECHARGE WITH USB` | Red on black | low-battery shutdown notice; connect USB power; displayed for 10 seconds before PMU shutdown |
 
 ### 7.2 Error and Trigger Mapping
@@ -1114,7 +1117,7 @@ Recording files use a daily-file policy. `record_format` builds the daily prefix
 /REGISTRATION_YYYYMMDD_1.bin
 ```
 
-For each subsequent recording session on the same day, the existing file is renamed to the next suffix, for example `_2.bin`, and opened in append mode. The suffix is the daily session count.
+For each subsequent recording session on the same day, the existing root-level file is renamed to the next suffix, for example `_2.bin`, and opened in append mode. The suffix is the daily session count. Archived files under `/processed` are ignored and are never selected as the active daily file for append.
 
 Each session appended to the daily file has the normal session block sequence:
 
@@ -1136,7 +1139,7 @@ Items to continue monitoring:
 |---|---|
 | Final acceptance tolerance for 20 Hz timing/jitter | validation method exists; acceptance tolerance can still be formalized |
 | Recorded-file validation for binary format revisions | required for each block-format revision |
-| Daily recording file behavior | validate first session creates `_1.bin`; second same-day session renames/appends to `_2.bin`; non-daily-pattern files are ignored for append/rename matching |
+| Daily recording file behavior | validate first session creates `_1.bin`; second same-day session renames/appends to `_2.bin`; archived same-day files under `/processed` and non-daily-pattern files are ignored for append/rename matching |
 
 
 

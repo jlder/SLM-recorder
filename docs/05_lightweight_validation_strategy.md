@@ -175,7 +175,7 @@ Confirm standby display reduces active UI refresh and wakes correctly on normal 
 Procedure:
 
 1. Leave the recorder idle on the main UI longer than `DISPLAY_DIM_TIMEOUT_MS`.
-2. Confirm the screen changes to a black standby display with `TOUCH TO ACTIVATE`.
+2. Confirm the display switches off / becomes black with no standby text shown.
 3. Wake using touch and confirm the previous page is restored.
 4. Repeat the timeout/wake check from MENU, SETTINGS, at least one setting-edit page, and the WiFi-active MENU page.
 5. Repeat wake using power/clear button, record button, and USB insertion.
@@ -184,7 +184,7 @@ Procedure:
 Expected result:
 
 - Before standby, confirm the active UI time continues updating during RECORDING.
-- Standby display appears after timeout on normal recorder UI pages, independent of the active message.
+- Display-off standby appears after timeout on normal recorder UI pages, independent of the active message.
 - The page visible before standby returns at full brightness on wake.
 - Standby does not hide the dedicated low-battery shutdown notice.
 
@@ -569,6 +569,8 @@ Procedure:
 4. Start and stop a second recording on the same day.
 5. Inspect the SD root again.
 6. Decode the resulting file and confirm that both sessions are present, each with its own calibration block and close/status block sequence.
+7. Move or copy a same-day file to `/processed/REGISTRATION_YYYYMMDD_1.bin`, remove any matching root-level daily file, then start a new same-day recording.
+8. Confirm the archived `/processed` file is ignored and a new root-level `/REGISTRATION_YYYYMMDD_1.bin` is created.
 
 Expected result:
 
@@ -576,6 +578,7 @@ Expected result:
 - The second same-day session renames/appends the daily file to `_2.bin`.
 - No additional separate time-stamped recording file is created for the second session.
 - The appended file remains decodable as a sequence of recording-session blocks.
+- A same-day file under `/processed` is not selected for append/rename matching.
 
 ### VAL-SD-005 — Web delete archives to processed folder
 

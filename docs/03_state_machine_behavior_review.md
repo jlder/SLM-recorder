@@ -124,7 +124,7 @@ Recurring actions:
 - displays setup-lock messages when needed;
 - handles WiFi state indirectly through UI/Web task control;
 - monitors SD task error status even while idle;
-- monitors USB loss, low battery, and power-long shutdown request;
+- monitors fresh READY-local USB loss edge, low battery, and power-long shutdown request;
 - detects record-start hold.
 
 Setup lock behavior:
@@ -389,6 +389,8 @@ Display standby is not a high-level recorder state. It is a UI/display sub-state
 
 While in standby:
 
+- the AMOLED display output is switched off;
+- the display panel supply controlled by `LCD_EN` is switched off;
 - normal UI refresh is skipped;
 - touch/LVGL processing continues at a reduced rate;
 - the previous UI page is remembered so it can be restored on wake;
