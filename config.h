@@ -74,7 +74,7 @@
 // storage version and update the load/reject/migration handling in
 // calibration_store.cpp. Do not change the storage layout without changing
 // the corresponding storage version.
-#define CALIBRATION_SENSOR_STORAGE_VERSION  1u
+#define CALIBRATION_SENSOR_STORAGE_VERSION  2u
 #define CALIBRATION_INSTALL_STORAGE_VERSION 1u
 #define CALIBRATION_GRAVITY_MG             1000.0f
 #define CALIBRATION_VALIDITY_MONTHS        12u
@@ -88,13 +88,18 @@
 #define CALIBRATION_GAIN_MIN               0.8f
 #define CALIBRATION_GAIN_MAX               1.2f
 #define CALIBRATION_OFFSET_ABS_MAX_MG      200.0f
+#define CALIBRATION_GAIN_DELTA_MAX          0.05f
+#define CALIBRATION_OFFSET_DELTA_MAX_MG     50.0f
+#define CALIBRATION_TEMP_MIN_C              25.0f
+#define CALIBRATION_TEMP_MAX_C              55.0f
+#define CALIBRATION_TEMP_MAX_SPAN_C         3.0f
 
 
 // Product version displayed on the device main screen.
 // Hardware version identifies the recorder hardware/prototype revision.
 // Software version is incremented during prototype development and before release.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.13"
+#define RECORDER_SOFTWARE_VERSION      "1.14"
 #define RECORDER_VERSION_TEXT          "sw ver " RECORDER_SOFTWARE_VERSION "\nhw ver " RECORDER_HARDWARE_VERSION
 
 // Storage / SD

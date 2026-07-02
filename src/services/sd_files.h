@@ -60,11 +60,17 @@ bool sd_files_download_read(uint8_t *out, uint32_t len, uint32_t *out_len);
 bool sd_files_download_end(void);
 
 /**
+ * Write a complete text file on the SD card through the SD-task file queue.
+ * Returns false if not authorized, busy, timed out, or on SD/filesystem error.
+ */
+bool sd_files_write_text_file(const char *path, const char *text, uint32_t len);
+
+/**
  * Return whether a download session is active or being opened/closed.
  */
 bool sd_files_download_active(void);
 
-/** Archive a file to /processed. Returns false if not authorized or on error. */
+/** Archive a root file or calibration report to /processed. */
 bool sd_files_delete(const char *path);
 
 /** Permanently delete one selected file from /processed. */

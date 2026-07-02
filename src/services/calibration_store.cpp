@@ -3,7 +3,7 @@
 
 /**
  * @file src/services/calibration_store.cpp
- * @brief Persistent storage for accelerometer and installation calibration.
+ * @brief Persistent storage for recorder and installation calibration.
  */
 
 #include "src/services/calibration_store.h"
@@ -25,12 +25,16 @@ static bool s_cal_storage_ready = false;
 //   coverage, or key meaning must be accompanied by a matching bump of
 //   CALIBRATION_SENSOR_STORAGE_VERSION or CALIBRATION_INSTALL_STORAGE_VERSION
 //   in config.h.
-// - The load path shall then either reject the old version safely or explicitly
-//   migrate it. The recorder has not been released yet, so no historical
-//   migration is currently required.
+// - The load path shall reject incompatible old versions unless an explicit
+//   migration is implemented and documented. v1.14 changes recorder calibration
+//   storage and acceptance semantics; installation calibration storage remains
+//   version 1 because its payload format is unchanged.
 static const char *KEY_SENSOR = "sensor";
+static const char *KEY_SENSOR_REF = "sensor_ref";
+static const char *KEY_SENSOR_CAND = "sensor_cand";
 static const char *KEY_INSTALL = "install";
 static const char *KEY_FAULT = "fault";
+static const char *KEY_FAULT_REASON = "fault_reason";
 
 // The following packed types are the on-flash NVS payload format. They are
 // intentionally separate from runtime calibration structs to avoid compiler
@@ -67,6 +71,10 @@ typedef struct __attribute__((packed)) {
   float offset_x_mg;
   float offset_y_mg;
   float offset_z_mg;
+  uint8_t temperature_valid;
+  float temperature_c;
+  float temperature_min_c;
+  float temperature_max_c;
   calibration_store_face_t face[CAL_FACE_COUNT];
 } calibration_store_sensor_t;
 
@@ -147,6 +155,10 @@ static void sensor_to_store_(calibration_store_sensor_t *out, const sensor_calib
   out->offset_x_mg = in->offset_x_mg;
   out->offset_y_mg = in->offset_y_mg;
   out->offset_z_mg = in->offset_z_mg;
+  out->temperature_valid = in->temperature_valid ? 1u : 0u;
+  out->temperature_c = in->temperature_c;
+  out->temperature_min_c = in->temperature_min_c;
+  out->temperature_max_c = in->temperature_max_c;
   for(uint32_t i = 0u; i < (uint32_t)CAL_FACE_COUNT; ++i){
     out->face[i].valid = in->face[i].valid ? 1u : 0u;
     vec_to_store_(&out->face[i].mean_mg, &in->face[i].mean_mg);
@@ -169,6 +181,10 @@ static void sensor_from_store_(sensor_calibration_t *out, const calibration_stor
   out->offset_x_mg = in->offset_x_mg;
   out->offset_y_mg = in->offset_y_mg;
   out->offset_z_mg = in->offset_z_mg;
+  out->temperature_valid = (in->temperature_valid != 0u);
+  out->temperature_c = in->temperature_c;
+  out->temperature_min_c = in->temperature_min_c;
+  out->temperature_max_c = in->temperature_max_c;
   for(uint32_t i = 0u; i < (uint32_t)CAL_FACE_COUNT; ++i){
     out->face[i].valid = (in->face[i].valid != 0u);
     vec_from_store_(&out->face[i].mean_mg, &in->face[i].mean_mg);
@@ -268,8 +284,8 @@ static bool installation_record_valid_(const calibration_store_installation_reco
   return (rec->checksum == installation_record_checksum_(rec));
 }
 
-static bool calibration_store_save_sensor_(const sensor_calibration_t *sensor){
-  if((sensor == nullptr) || !sensor->valid || !s_cal_storage_ready){
+static bool calibration_store_save_sensor_key_(const char *key, const sensor_calibration_t *sensor){
+  if((key == nullptr) || (sensor == nullptr) || !sensor->valid || !s_cal_storage_ready){
     return false;
   }
 
@@ -279,8 +295,12 @@ static bool calibration_store_save_sensor_(const sensor_calibration_t *sensor){
   stored.sensor.valid = 1u;
   stored.checksum = sensor_record_checksum_(&stored);
 
-  const size_t n = s_cal_prefs.putBytes(KEY_SENSOR, &stored, sizeof(stored));
+  const size_t n = s_cal_prefs.putBytes(key, &stored, sizeof(stored));
   return (n == sizeof(stored));
+}
+
+static bool calibration_store_save_sensor_(const sensor_calibration_t *sensor){
+  return calibration_store_save_sensor_key_(KEY_SENSOR, sensor);
 }
 
 static bool calibration_store_save_installation_(const installation_calibration_t *installation){
@@ -299,22 +319,28 @@ static bool calibration_store_save_installation_(const installation_calibration_
 }
 
 
+static bool calibration_store_load_sensor_key_(const char *key, sensor_calibration_t *out){
+  if((key == nullptr) || (out == nullptr) || !s_cal_storage_ready || !s_cal_prefs.isKey(key)){
+    return false;
+  }
+
+  const size_t len = s_cal_prefs.getBytesLength(key);
+  if(len == sizeof(calibration_store_sensor_record_t)){
+    calibration_store_sensor_record_t stored = {};
+    const size_t n = s_cal_prefs.getBytes(key, &stored, sizeof(stored));
+    if((n == sizeof(stored)) && sensor_record_valid_(&stored)){
+      sensor_from_store_(out, &stored.sensor);
+      return true;
+    }
+  }
+
+  // Legacy v1 records did not include mandatory temperature/history
+  // semantics. Reject them so v1.14 forces fresh recorder calibration.
+  return false;
+}
+
 static bool calibration_store_load_sensor_(sensor_calibration_t *out){
-  if((out == nullptr) || !s_cal_storage_ready || !s_cal_prefs.isKey(KEY_SENSOR)){
-    return false;
-  }
-
-  calibration_store_sensor_record_t stored = {};
-  const size_t n = s_cal_prefs.getBytes(KEY_SENSOR, &stored, sizeof(stored));
-  if(n != sizeof(stored)){
-    return false;
-  }
-  if(!sensor_record_valid_(&stored)){
-    return false;
-  }
-
-  sensor_from_store_(out, &stored.sensor);
-  return true;
+  return calibration_store_load_sensor_key_(KEY_SENSOR, out);
 }
 
 static bool calibration_store_load_installation_(installation_calibration_t *out){
@@ -333,6 +359,10 @@ static bool calibration_store_load_installation_(installation_calibration_t *out
 
   installation_from_store_(out, &stored.installation);
   return true;
+}
+
+bool calibration_store_load_installation(installation_calibration_t *out){
+  return calibration_store_load_installation_(out);
 }
 
 bool calibration_store_init(void){
@@ -358,6 +388,46 @@ bool calibration_store_load(calibration_record_t *out){
   return true;
 }
 
+bool calibration_store_load_reference(calibration_record_t *out){
+  if((out == nullptr) || !s_cal_storage_ready){
+    return false;
+  }
+
+  memset(out, 0, sizeof(*out));
+  out->version = (uint32_t)CALIBRATION_RECORD_VERSION;
+  if(!calibration_store_load_sensor_key_(KEY_SENSOR_REF, &out->sensor)){
+    return false;
+  }
+  return true;
+}
+
+bool calibration_store_save_reference(const calibration_record_t *rec){
+  if((rec == nullptr) || !s_cal_storage_ready || !rec->sensor.valid){
+    return false;
+  }
+  return calibration_store_save_sensor_key_(KEY_SENSOR_REF, &rec->sensor);
+}
+
+bool calibration_store_load_candidate(calibration_record_t *out){
+  if((out == nullptr) || !s_cal_storage_ready){
+    return false;
+  }
+
+  memset(out, 0, sizeof(*out));
+  out->version = (uint32_t)CALIBRATION_RECORD_VERSION;
+  if(!calibration_store_load_sensor_key_(KEY_SENSOR_CAND, &out->sensor)){
+    return false;
+  }
+  return true;
+}
+
+bool calibration_store_save_candidate(const calibration_record_t *rec){
+  if((rec == nullptr) || !s_cal_storage_ready || !rec->sensor.valid){
+    return false;
+  }
+  return calibration_store_save_sensor_key_(KEY_SENSOR_CAND, &rec->sensor);
+}
+
 bool calibration_store_save_latest(const calibration_record_t *rec){
   if((rec == nullptr) || !s_cal_storage_ready || !rec->sensor.valid){
     return false;
@@ -373,7 +443,7 @@ bool calibration_store_save_latest(const calibration_record_t *rec){
     }
   }
 
-  // If this save contains only a new accelerometer calibration, leave any
+  // If this save contains only a new recorder calibration, leave any
   // existing installation calibration record untouched. The installation matrix
   // represents the physical mounting orientation and can remain valid across a
   // sensor recalibration.
@@ -390,11 +460,60 @@ bool calibration_store_fault_get(void){
   return s_cal_prefs.getBool(KEY_FAULT, false);
 }
 
+calibration_fault_reason_t calibration_store_fault_reason_get(void){
+  if(!s_cal_storage_ready){
+    return CAL_FAULT_NONE;
+  }
+  return (calibration_fault_reason_t)s_cal_prefs.getUInt(KEY_FAULT_REASON, (uint32_t)CAL_FAULT_NONE);
+}
+
 bool calibration_store_fault_set(bool fault){
   if(!s_cal_storage_ready){
     return false;
   }
-  return (s_cal_prefs.putBool(KEY_FAULT, fault) > 0u);
+  const bool ok = (s_cal_prefs.putBool(KEY_FAULT, fault) > 0u);
+  if(ok && !fault){
+    (void)calibration_store_fault_reason_set(CAL_FAULT_NONE);
+  }
+  return ok;
+}
+
+bool calibration_store_fault_reason_set(calibration_fault_reason_t reason){
+  if(!s_cal_storage_ready){
+    return false;
+  }
+  return (s_cal_prefs.putUInt(KEY_FAULT_REASON, (uint32_t)reason) > 0u);
+}
+
+static bool calibration_store_remove_key_if_present_(const char *key){
+  if((key == nullptr) || !s_cal_storage_ready){
+    return false;
+  }
+  if(!s_cal_prefs.isKey(key)){
+    return true;
+  }
+  return s_cal_prefs.remove(key);
+}
+
+bool calibration_store_clear_recorder(void){
+  if(!s_cal_storage_ready){
+    return false;
+  }
+
+  bool ok = true;
+  ok = calibration_store_remove_key_if_present_(KEY_SENSOR) && ok;
+  ok = calibration_store_remove_key_if_present_(KEY_SENSOR_REF) && ok;
+  ok = calibration_store_remove_key_if_present_(KEY_SENSOR_CAND) && ok;
+  ok = calibration_store_remove_key_if_present_(KEY_FAULT) && ok;
+  ok = calibration_store_remove_key_if_present_(KEY_FAULT_REASON) && ok;
+  return ok;
+}
+
+bool calibration_store_clear_installation(void){
+  if(!s_cal_storage_ready){
+    return false;
+  }
+  return calibration_store_remove_key_if_present_(KEY_INSTALL);
 }
 
 bool calibration_store_clear(void){

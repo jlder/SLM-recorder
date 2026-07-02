@@ -77,6 +77,21 @@ bool accel_drv_init(void) {
  * Inputs: `out`.
  * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
  */
+
+bool accel_read_temperature_c(float *out_c){
+  if((out_c == nullptr) || !s_accel_inited){
+    return false;
+  }
+
+  const float t = qmi.getTemperature_C();
+  if(!isfinite(t)){
+    return false;
+  }
+
+  *out_c = t;
+  return true;
+}
+
 bool accel_read_xyz_raw(accel_sample_t *out) {
   if (!out) return false;
   if (!s_accel_inited) return false;

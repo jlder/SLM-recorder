@@ -9,19 +9,19 @@
 
 R"rawliteral(        <div id="accelCalPage" class="hidden section">
             <div class="card workflow-card">
-                <p><b>Workflow:</b> Start calibration, place the recorder still on each of its six faces, and wait for each face to show OK. The recorder automatically keeps the best capture for each face. It is good practice to leave the recorder on a given face until the last best update is more than 10 seconds old. Save calibration when all six faces values are satisfactory.</p>
+                <p><b>Workflow:</b> Start recorder calibration, place the recorder still on each of its six faces, and wait for each face to show OK. The recorder automatically keeps the best capture for each face. Save when all six face values are satisfactory. If no trusted recorder calibration exists, repeat once to confirm.</p>
             </div>
 
             <div class="controls cal-actions">
                 <button class="btn btn-primary" id="btnStart" onclick="calStart()">Start</button>
                 <button class="btn btn-primary" id="btnSave" onclick="calSave()">Save</button>
-                <button class="btn btn-primary" id="btnCancel" onclick="calCancel()">Cancel</button>
                 <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
             </div>
 
-            <div class="card">
+            <div class="card cal-status-card">
                 <div>Status: <span id="calStatus" class="mono">-</span></div>
-                <div>Samples processed: <span id="calSamplesProcessed" class="mono">0</span></div>
+                <div>Samples: <span id="calSamplesProcessed" class="mono">0</span></div>
+                <div>Sensor temperature: <span id="calSensorTemp" class="mono">-</span></div>
                 <div>Lowest stddev: <span id="calLowestNoise" class="mono">-</span></div>
                 <div>Last best update: <span id="calLastBestUpdate" class="mono">-</span></div>
                 <div>Faces:</div>
@@ -51,34 +51,68 @@ R"rawliteral(        <div id="accelCalPage" class="hidden section">
 
         <div id="installCalPage" class="hidden section">
             <div class="card workflow-card">
-                <p><b>Workflow:</b> Put the glider in its flight-level attitude with wings leveled, following the AMM procedure. Sensor calibration must already be valid before attempting installation calibration. Click Start, leave the glider still. It is good practice to wait until the last best update is more than 10 seconds old. Save calibration when noise is satisfactory.</p>
+                <p><b>Workflow:</b> Installation calibration is an aircraft maintenance action. Perform it only for initial installation, recorder reinstallation, or failed calibration retry. Put the glider in flight-level attitude with wings leveled, click Start, leave it still, then Save when noise is satisfactory.</p>
             </div>
             <div class="controls cal-actions">
                 <button class="btn btn-primary" id="btnInstallStart" onclick="installStart()">Start</button>
                 <button class="btn btn-primary" id="btnInstallSave" onclick="installSave()">Save</button>
-                <button class="btn btn-primary" id="btnInstallCancel" onclick="installCancel()">Cancel</button>
                 <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
             </div>
             <div class="card">
+                <div>Reason for calibration: <select id="installReason" onchange="installSample()">
+                    <option value="">Select reason</option>
+                    <option value="initial_installation">Initial installation</option>
+                    <option value="recorder_reinstalled">Recorder reinstalled</option>
+                    <option value="failed_calibration_retry">Failed calibration retry</option>
+                </select></div>
+                <div class="small">This action shall be recorded in the aircraft maintenance documentation.</div>
                 <div>Status: <span id="installStatus" class="mono">-</span></div>
                 <div>Samples processed: <span id="installTotalSamples" class="mono">0</span></div>
-                <div>Lowest noise: <span id="installBestNoise" class="mono">-</span></div>
-                <div>Last best update: <span id="installLastUpdate" class="mono">-</span></div>
-                <pre id="installMatrix">Matrix will appear after a stable candidate is found.</pre>
+                <div>Current noise: <span id="installBestNoise" class="mono">-</span></div>
+                <div>Stability: <span id="installStability" class="mono">-</span></div>
+                <table class="cal-table">
+                    <thead>
+                        <tr>
+                            <th>Angle</th>
+                            <th>Candidate</th>
+                            <th>Current</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Pitch</td><td id="installPitchCandidate">-</td><td id="installPitchStored">-</td></tr>
+                        <tr><td>Roll</td><td id="installRollCandidate">-</td><td id="installRollStored">-</td></tr>
+                    </tbody>
+                </table>
+                <pre id="installLog" class="hidden">Ready.</pre>
+            </div>
+        </div>
+
+
+        <div id="reportSection" class="hidden section">
+            <h2>SLM Report Management</h2>
+            <div class="controls compact-controls cal-actions">
+                <button class="btn btn-primary" onclick="refreshReports()">Refresh</button>
+                <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
+            </div>
+            <div class="card workflow-card">
+                <p>Download calibration reports or archive them after they have been saved in the aircraft maintenance documentation.</p>
+            </div>
+            <div id="reportListContainer">
+                <div class="loading">Loading reports...</div>
             </div>
         </div>
 
         <div id="deleteSection" class="hidden section">
-            <h2>SLM Delete</h2>
+            <h2>SLM Delete Files/Reports</h2>
             <div class="controls cal-actions">
                 <button class="btn btn-primary" id="btnProcessedDelete" onclick="deleteProcessedSelected()">Delete</button>
                 <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
             </div>
             <div class="card workflow-card">
-                <p>Select archived files from <span class="mono">/processed</span>, then press Delete.</p>
+                <p>Select archived files or reports from <span class="mono">/processed</span>, then press Delete.</p>
             </div>
             <div class="delete-warning-window">
-                <b>Important:</b> deleted files are permanently lost and cannot be recovered by the recorder.
+                <b>Important:</b> deleted files/reports are permanently lost and cannot be recovered by the recorder.
             </div>
             <div id="processedDeleteStatus" class="small">Loading...</div>
             <div id="processedFileListContainer">

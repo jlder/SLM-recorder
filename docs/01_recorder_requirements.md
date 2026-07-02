@@ -73,8 +73,8 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_DIMMED` | 60 | legacy dimmed-brightness value; not used by the current display-off standby implementation |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.13` | version text displayed on device |
-| `RECORDER_VERSION_TEXT` | `sw ver 1.13` / `hw ver 1.00` | main display version text |
+| `RECORDER_SOFTWARE_VERSION` | `1.14` | version text displayed on device |
+| `RECORDER_VERSION_TEXT` | `sw ver 1.14` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
 
@@ -94,7 +94,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 |---|---:|---|
 | `CALIBRATION_PREFS_NAMESPACE` | `slm-cal` | calibration NVS namespace |
 | `CALIBRATION_RECORD_VERSION` | 3 | calibration record version written in file block `0x72` |
-| `CALIBRATION_SENSOR_STORAGE_VERSION` | 1 | sensor-calibration NVS storage schema version |
+| `CALIBRATION_SENSOR_STORAGE_VERSION` | 2 | recorder-calibration NVS storage schema version |
 | `CALIBRATION_INSTALL_STORAGE_VERSION` | 1 | installation-calibration NVS storage schema version |
 | `CALIBRATION_GRAVITY_MG` | 1000 mg | calibration reference gravity |
 | `CALIBRATION_VALIDITY_MONTHS` | 12 months | calibration expiration |
@@ -236,7 +236,7 @@ Cleared data shall include:
 - registration;
 - WiFi password;
 - stored calibration record;
-- calibration fault latch.
+- recorder calibration fault latch.
 
 Status:
 
@@ -343,7 +343,7 @@ Status:
 
 #### OP-MENU-002 — Menu access during setup lock
 
-When the recorder is READY but recording is locked due to missing settings, missing/expired calibration, or calibration fault, MENU access shall remain available so the operator can complete setup or retry calibration.
+When the recorder is READY but recording is locked due to missing settings, missing/expired calibration, or recorder calibration fault, MENU access shall remain available so the operator can complete setup or retry calibration.
 
 During setup lock, orange buttons shall guide the operator toward the corrective action:
 
@@ -943,13 +943,13 @@ The table below lists messages rendered in the normal bottom message area of the
 | `SHUTDOWN` | Green | shutdown | normal operator-requested shutdown transition; not an error |
 | `SD OK/CLR` | Green | SD recovered / clear prompt | yes, press clear after the SD condition is gone |
 | `NEED SETTINGS` | Amber | setup required | yes, perform date, time, registration, and password settings |
-| `ACC CAL REQ` | Amber | accelerometer calibration required | yes, perform password-protected Web accelerometer calibration menu (`START WIFI`) |
+| `REC CAL REQ` | Amber | recorder calibration required | yes, perform password-protected Web recorder calibration menu (`START WIFI`) |
 | `INST CAL REQ` | Amber | installation calibration required | yes, perform password-protected Web installation calibration menu (`START WIFI`) |
 | `NO SD` | Amber | SD/storage warning | yes, insert SD card |
 | `SD LOW` | Amber | SD/storage warning | yes, insert an SD card with enough free space; archive alone does not free SD space |
 | `SD FULL (FILES)` | Amber | SD file-count maintenance | yes, archive root files and/or delete files from `/processed` using recorder Web interface (`START WIFI`) |
 | `LOW BATT` | Amber | power warning | yes, connect USB power |
-| `CAL FAULT` | Red | calibration fault | possible, reset if required and repeat settings/calibrations |
+| `REC CAL FAULT` | Red | recorder calibration fault | no normal reset recovery; check calibration setup, retry recorder calibration, contact support if repeated |
 | `ACCEL ERR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
 | `RTC ERROR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
 | `PMU ERROR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
@@ -976,9 +976,9 @@ The following screens are not normal bottom message-area messages.
 | Condition / trigger | Error code | Display message | Triggering logic / source |
 |---|---|---|---|
 | Settings incomplete while READY | none | `NEED SETTINGS` | `state_task` checks `settings_store` completeness |
-| Sensor calibration missing or expired while READY | none | `ACC CAL REQ` | `calibration_service` status consumed by `state_task` |
+| Recorder calibration missing or expired while READY | none | `REC CAL REQ` | `calibration_service` status consumed by `state_task` |
 | Installation calibration missing while READY | none | `INST CAL REQ` | `calibration_service` installation validity consumed by `state_task` |
-| Calibration plausibility fault | `ERR_CALIBRATION_FAULT` | `CAL FAULT` | `calibration_service` / `calibration_store` |
+| Recorder calibration plausibility/delta fault | `ERR_CALIBRATION_FAULT` | `REC CAL FAULT` | `calibration_service` / `calibration_store` |
 | SD card missing | `ERR_SD_NO_CARD` | `NO SD`, then `SD OK/CLR` when recovered | `sd_task` status / recovery path |
 | SD free space below recording-start threshold or below in-recording low-space threshold | `ERR_SD_SPACE_LOW` | `SD LOW` | `sd_task` pre-open check or low-space during write |
 | SD file-count threshold reached | `ERR_SD_FILES_FULL` | `SD FULL (FILES)` | `sd_task` status check; message allows Web maintenance |

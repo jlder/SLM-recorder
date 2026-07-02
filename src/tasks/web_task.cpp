@@ -27,6 +27,7 @@
 #include "src/services/sd_files.h" // authorization gate for file ops
 #include "src/services/task_helpers.h"
 #include "src/services/calibration_service.h"
+#include "src/services/calibration_report_service.h"
 #include "src/services/watchdog_service.h"
 
 #include "src/tasks/sd_task.h"
@@ -130,6 +131,20 @@ static bool cal_password_matches_(const String& password){
     return false;
   }
   return password == String(st.registration);
+}
+
+static bool cal_support_password_matches_(const String& password){
+  settings_t st;
+  if((!settings_get(&st)) || (st.registration[0] == '\0')){
+    return false;
+  }
+
+  String expected = String(st.registration);
+  String reversed = "";
+  for(int i = expected.length() - 1; i >= 0; --i){
+    reversed += expected.charAt((unsigned int)i);
+  }
+  return password == reversed;
 }
 
 /**
@@ -356,6 +371,15 @@ static const char *cal_status_name_(calibration_status_t status){
   }
 }
 
+static const char *cal_fault_reason_name_(calibration_fault_reason_t reason){
+  switch(reason){
+    case CAL_FAULT_PLAUSIBILITY: return "plausibility";
+    case CAL_FAULT_DELTA: return "delta";
+    case CAL_FAULT_NONE:
+    default: return "none";
+  }
+}
+
 static const char *cal_face_name_(calibration_face_t face){
   switch(face){
     case CAL_FACE_PX: return "+X";
@@ -579,6 +603,96 @@ static String rtc_date_json_(const rtc_datetime_t& dt){
 
 static String cal_record_date_json_(const calibration_record_t& rec){
   return rtc_date_json_(rec.sensor.timestamp);
+}
+
+
+static void cal_append_sensor_csv_(String& out, const char *role, const calibration_record_t& rec){
+  if(role == nullptr){
+    role = "unknown";
+  }
+
+  out += role; out += ",valid,"; out += rec.sensor.valid ? "1" : "0"; out += "\n";
+  out += role; out += ",date,"; out += String((unsigned)rec.sensor.timestamp.year); out += "-";
+  if(rec.sensor.timestamp.month < 10u) out += "0"; out += String((unsigned)rec.sensor.timestamp.month); out += "-";
+  if(rec.sensor.timestamp.day < 10u) out += "0"; out += String((unsigned)rec.sensor.timestamp.day); out += "\n";
+  out += role; out += ",time,";
+  if(rec.sensor.timestamp.hour < 10u) out += "0"; out += String((unsigned)rec.sensor.timestamp.hour); out += ":";
+  if(rec.sensor.timestamp.min < 10u) out += "0"; out += String((unsigned)rec.sensor.timestamp.min); out += ":";
+  if(rec.sensor.timestamp.sec < 10u) out += "0"; out += String((unsigned)rec.sensor.timestamp.sec); out += "\n";
+  out += role; out += ",temp_valid,"; out += rec.sensor.temperature_valid ? "1" : "0"; out += "\n";
+  out += role; out += ",temp_c,"; out += String(rec.sensor.temperature_c, 2); out += "\n";
+  out += role; out += ",temp_min_c,"; out += String(rec.sensor.temperature_min_c, 2); out += "\n";
+  out += role; out += ",temp_max_c,"; out += String(rec.sensor.temperature_max_c, 2); out += "\n";
+  out += role; out += ",gain_x,"; out += String(rec.sensor.gain_x, 6); out += "\n";
+  out += role; out += ",gain_y,"; out += String(rec.sensor.gain_y, 6); out += "\n";
+  out += role; out += ",gain_z,"; out += String(rec.sensor.gain_z, 6); out += "\n";
+  out += role; out += ",offset_x_mg,"; out += String(rec.sensor.offset_x_mg, 1); out += "\n";
+  out += role; out += ",offset_y_mg,"; out += String(rec.sensor.offset_y_mg, 1); out += "\n";
+  out += role; out += ",offset_z_mg,"; out += String(rec.sensor.offset_z_mg, 1); out += "\n";
+}
+
+static void cal_append_installation_csv_(String& out, const char *role, const installation_calibration_t& inst){
+  if(role == nullptr){
+    role = "installation";
+  }
+
+  out += role; out += ",valid,"; out += inst.valid ? "1" : "0"; out += "\n";
+  out += role; out += ",date,"; out += String((unsigned)inst.timestamp.year); out += "-";
+  if(inst.timestamp.month < 10u) out += "0"; out += String((unsigned)inst.timestamp.month); out += "-";
+  if(inst.timestamp.day < 10u) out += "0"; out += String((unsigned)inst.timestamp.day); out += "\n";
+  out += role; out += ",time,";
+  if(inst.timestamp.hour < 10u) out += "0"; out += String((unsigned)inst.timestamp.hour); out += ":";
+  if(inst.timestamp.min < 10u) out += "0"; out += String((unsigned)inst.timestamp.min); out += ":";
+  if(inst.timestamp.sec < 10u) out += "0"; out += String((unsigned)inst.timestamp.sec); out += "\n";
+  out += role; out += ",mean_x_mg,"; out += String(inst.mean_mg.x_mg, 1); out += "\n";
+  out += role; out += ",mean_y_mg,"; out += String(inst.mean_mg.y_mg, 1); out += "\n";
+  out += role; out += ",mean_z_mg,"; out += String(inst.mean_mg.z_mg, 1); out += "\n";
+  out += role; out += ",stddev_x_mg,"; out += String(inst.stddev_mg.x_mg, 3); out += "\n";
+  out += role; out += ",stddev_y_mg,"; out += String(inst.stddev_mg.y_mg, 3); out += "\n";
+  out += role; out += ",stddev_z_mg,"; out += String(inst.stddev_mg.z_mg, 3); out += "\n";
+  for(uint32_t i = 0u; i < 9u; ++i){
+    out += role; out += ",matrix_"; out += String((unsigned)i); out += ",";
+    out += String(inst.matrix[i], 6); out += "\n";
+  }
+}
+
+static String cal_export_csv_(){
+  String out = "section,item,value\n";
+  out += "config,sw," RECORDER_SOFTWARE_VERSION "\n";
+  out += "config,hw," RECORDER_HARDWARE_VERSION "\n";
+  out += "config,gain_delta_max,"; out += String(CALIBRATION_GAIN_DELTA_MAX, 6); out += "\n";
+  out += "config,offset_delta_max_mg,"; out += String(CALIBRATION_OFFSET_DELTA_MAX_MG, 1); out += "\n";
+  out += "config,temp_min_c,"; out += String(CALIBRATION_TEMP_MIN_C, 1); out += "\n";
+  out += "config,temp_max_c,"; out += String(CALIBRATION_TEMP_MAX_C, 1); out += "\n";
+  out += "config,temp_max_span_c,"; out += String(CALIBRATION_TEMP_MAX_SPAN_C, 1); out += "\n";
+  out += "status,cal_status,"; out += cal_status_name_(calibration_service_status()); out += "\n";
+  out += "status,fault_reason,"; out += cal_fault_reason_name_(calibration_service_fault_reason()); out += "\n";
+
+  calibration_record_t rec = {};
+  if(calibration_service_get_reference(&rec)){
+    cal_append_sensor_csv_(out, "reference", rec);
+  } else {
+    out += "reference,valid,0\n";
+  }
+  if(calibration_service_get_active(&rec)){
+    cal_append_sensor_csv_(out, "active", rec);
+  } else {
+    out += "active,valid,0\n";
+  }
+  if(calibration_service_get_candidate(&rec)){
+    cal_append_sensor_csv_(out, "candidate", rec);
+  } else {
+    out += "candidate,valid,0\n";
+  }
+
+  installation_calibration_t inst = {};
+  if(calibration_service_get_installation(&inst)){
+    cal_append_installation_csv_(out, "installation", inst);
+  } else {
+    out += "installation,valid,0\n";
+  }
+
+  return out;
 }
 
 /**
@@ -965,6 +1079,70 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   
 
 
+  s_server->on("/api/reports/files", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+    if(!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
+    WebSdBusyScope _sdscope;
+    if(!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
+
+    if(!sd_files_is_authorized()){
+      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"not_authorized\"}");
+      return;
+    }
+
+    static char json[SD_FILE_LIST_JSON_MAX];
+    uint32_t out_len = 0u;
+    const bool ok = sd_files_list_json("/calibration_reports", json, sizeof(json), &out_len);
+    if(!ok){
+      request->send(500, "application/json", "{\"ok\":false,\"reason\":\"sd_list_failed\"}");
+      return;
+    }
+
+    String out = String("{\"ok\":true,\"files\":") + String(json) + String("}");
+    request->send(200, "application/json", out);
+  });
+
+  s_server->on("/api/reports/archive", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+    if(!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
+    WebSdBusyScope _sdscope;
+    if(!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
+
+    if(!sd_files_is_authorized()){
+      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"not_authorized\"}");
+      return;
+    }
+
+    if(!request->hasParam("file") && !request->hasParam("file", true)){
+      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"missing_file\"}");
+      return;
+    }
+
+    const String file = request->hasParam("file") ? request->getParam("file")->value()
+                                                  : request->getParam("file", true)->value();
+    String path;
+    if(file.startsWith("/calibration_reports/")){
+      path = file;
+    } else if(file.indexOf('/') < 0){
+      path = String("/calibration_reports/") + file;
+    } else {
+      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"bad_path\"}");
+      return;
+    }
+
+    if((path.indexOf("..") >= 0) ||
+       (path.length() <= String("/calibration_reports/").length())){
+      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"bad_path\"}");
+      return;
+    }
+
+    const bool ok = sd_files_delete(path.c_str());
+    request->send(ok ? 200 : 500,
+                  "application/json",
+                  ok ? "{\"ok\":true,\"archived\":true}"
+                     : "{\"ok\":false,\"reason\":\"archive_failed\"}");
+  });
+
   s_server->on("/api/processed/files", HTTP_GET, [](AsyncWebServerRequest *request){
     if(!cal_require_auth_(request)) return;
     if(!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
@@ -1045,11 +1223,21 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   });
 
   s_server->on("/api/cal/status", HTTP_GET, [](AsyncWebServerRequest *request){
+    // /api/cal/status is polled periodically by the maintenance page.  When a
+    // client is already authorized, let this poll keep the maintenance
+    // authorization alive while the user navigates between maintenance pages
+    // such as About, Recorder Calibration, and Installation Calibration.
+    (void)cal_client_authorized_(request);
+
     calibration_service_refresh_status();
     const calibration_status_t status = calibration_service_status();
     const bool recording_allowed = calibration_service_is_recording_allowed();
     calibration_record_t active = {};
     const bool active_ok = calibration_service_get_active(&active);
+    calibration_record_t reference = {};
+    const bool reference_ok = calibration_service_get_reference(&reference);
+    char report_path[SD_STORAGE_PATH_MAX];
+    const bool recorder_report_available = calibration_report_get_last_recorder_path(report_path, sizeof(report_path));
 
     String out = "{";
     out += "\"status\":\"";
@@ -1061,14 +1249,27 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     out += calibration_session_active() ? "true" : "false";
     out += ",\"sensor_valid\":";
     out += (active_ok && active.sensor.valid) ? "true" : "false";
+    out += ",\"reference_available\":";
+    out += (reference_ok && reference.sensor.valid) ? "true" : "false";
+    out += ",\"active_available\":";
+    out += (active_ok && active.sensor.valid) ? "true" : "false";
     out += ",\"sensor_date\":";
     out += (active_ok && active.sensor.valid) ? rtc_date_json_(active.sensor.timestamp) : "{}";
+    out += ",\"sensor_temperature_valid\":";
+    out += (active_ok && active.sensor.temperature_valid) ? "true" : "false";
+    out += ",\"sensor_temperature_c\":";
+    out += (active_ok && active.sensor.temperature_valid) ? String(active.sensor.temperature_c, 2) : "null";
+    out += ",\"fault_reason\":\"";
+    out += cal_fault_reason_name_(calibration_service_fault_reason());
+    out += "\"";
     out += ",\"installation_valid\":";
     out += (active_ok && active.installation.valid) ? "true" : "false";
     out += ",\"installation_date\":";
     out += (active_ok && active.installation.valid) ? rtc_date_json_(active.installation.timestamp) : "{}";
     out += ",\"installation_session_active\":";
     out += calibration_installation_session_active() ? "true" : "false";
+    out += ",\"recorder_report_available\":";
+    out += recorder_report_available ? "true" : "false";
     out += "}";
     request->send(200, "application/json", out);
   });
@@ -1165,6 +1366,24 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     out += st.stored_loaded ? "true" : "false";
     out += ",\"stored_face\":";
     out += cal_face_capture_json_(st.stored_face);
+    out += ",\"temperature_available\":";
+    out += st.temperature_available ? "true" : "false";
+    out += ",\"temperature_in_range\":";
+    out += st.temperature_in_range ? "true" : "false";
+    out += ",\"temperature_stable\":";
+    out += st.temperature_stable ? "true" : "false";
+    out += ",\"temperature_c\":";
+    out += st.temperature_available ? String(st.temperature_c, 2) : "null";
+    out += ",\"temperature_min_c\":";
+    out += st.temperature_available ? String(st.temperature_min_c, 2) : "null";
+    out += ",\"temperature_max_c\":";
+    out += st.temperature_available ? String(st.temperature_max_c, 2) : "null";
+    out += ",\"temperature_allowed_min_c\":";
+    out += String(CALIBRATION_TEMP_MIN_C, 1);
+    out += ",\"temperature_allowed_max_c\":";
+    out += String(CALIBRATION_TEMP_MAX_C, 1);
+    out += ",\"temperature_allowed_span_c\":";
+    out += String(CALIBRATION_TEMP_MAX_SPAN_C, 1);
     out += ",\"result_available\":";
     out += result_ok ? "true" : "false";
     out += ",\"result\":";
@@ -1187,24 +1406,300 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
 
   s_server->on("/api/cal/save", HTTP_POST, [](AsyncWebServerRequest *request){
     if(!cal_require_auth_(request)) return;
+
+    recorder_calibration_report_data_t report = {};
+    report.active_before_available = calibration_service_get_active(&report.active_before);
+    report.reference_before_available = calibration_service_get_reference(&report.reference_before);
+
     calibration_record_t rec = {};
-    if(!calibration_session_save(&rec)){
-      request->send(409, "application/json", "{\"ok\":false,\"reason\":\"save_failed\"}");
+    calibration_save_result_t result = CAL_SAVE_NOT_READY;
+    const bool saved = calibration_session_save_with_result(&rec, &result);
+
+    report.result = result;
+    report.candidate_available = rec.sensor.valid;
+    if(report.candidate_available){
+      report.candidate = rec;
+    }
+    report.active_after_available = calibration_service_get_active(&report.active_after);
+    report.reference_after_available = calibration_service_get_reference(&report.reference_after);
+    report.recorder_valid_after = (calibration_service_status() == CAL_STATUS_VALID);
+
+    char report_path[SD_STORAGE_PATH_MAX];
+    report_path[0] = '\0';
+    const bool report_written = calibration_report_write_recorder(&report, report_path, sizeof(report_path));
+
+    if(!saved){
+      String out = "{\"ok\":";
+      const bool handled_save_outcome = ((result == CAL_SAVE_NEED_REPEAT) ||
+                                         (result == CAL_SAVE_DELTA_FAULT));
+      out += handled_save_outcome ? "true" : "false";
+      out += ",\"saved\":false,\"reason\":\"";
+      out += calibration_save_result_name(result);
+      out += "\"";
+      if(result == CAL_SAVE_DELTA_FAULT){
+        out += ",\"message\":\"significant_calibration_drift_calibration_rejected\"";
+        out += ",\"candidate_saved\":true";
+        out += ",\"session_closed\":true";
+      }
+      out += ",\"report_written\":";
+      out += report_written ? "true" : "false";
+      if(report_written){
+        out += ",\"report_path\":\"";
+        out += report_path;
+        out += "\"";
+      }
+      out += "}";
+      const int code = handled_save_outcome ? 200 : 409;
+      request->send(code, "application/json", out);
       return;
     }
 
-    char buf[384];
+    char buf[640];
     const int n = snprintf(buf, sizeof(buf),
-                           "{\"ok\":true,\"saved\":true,\"message\":\"calibration_saved\","
+                           "{\"ok\":true,\"saved\":true,\"message\":\"recorder_calibration_saved\","
+                           "\"temperature_c\":%.2f,"
                            "\"gain\":{\"x\":%.6f,\"y\":%.6f,\"z\":%.6f},"
-                           "\"offset_mg\":{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}}",
+                           "\"offset_mg\":{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f},"
+                           "\"report_written\":%s,\"report_path\":\"%s\"}",
+                           rec.sensor.temperature_c,
                            rec.sensor.gain_x, rec.sensor.gain_y, rec.sensor.gain_z,
-                           rec.sensor.offset_x_mg, rec.sensor.offset_y_mg, rec.sensor.offset_z_mg);
+                           rec.sensor.offset_x_mg, rec.sensor.offset_y_mg, rec.sensor.offset_z_mg,
+                           report_written ? "true" : "false",
+                           report_written ? report_path : "");
     if(!web_snprintf_ok_(n, sizeof(buf))){
       request->send(500, "application/json", "{\"ok\":false,\"reason\":\"format_failed\"}");
       return;
     }
     request->send(200, "application/json", buf);
+  });
+
+  s_server->on("/api/cal/export", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+
+    String password = "";
+    if(request->hasParam("support")){
+      password = request->getParam("support")->value();
+    }
+    if(!cal_support_password_matches_(password)){
+      request->send(403, "text/plain", "bad_support_code");
+      return;
+    }
+
+    String csv = cal_export_csv_();
+    AsyncWebServerResponse *response = request->beginResponse(200, "text/csv", csv);
+    if(response == nullptr){
+      request->send(500, "text/plain", "response_alloc");
+      return;
+    }
+    response->addHeader("Content-Disposition", "attachment; filename=slm_support_data.csv");
+    request->send(response);
+  });
+
+  s_server->on("/api/cal/report/recorder/latest", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+
+    if(!web_single_client_allow(request)){
+      request->send(409, "text/plain", "BUSY");
+      return;
+    }
+
+    if(!web_sd_try_begin()){
+      request->send(409, "text/plain", "BUSY");
+      return;
+    }
+
+    char path_buf[SD_STORAGE_PATH_MAX];
+    if(!calibration_report_get_last_recorder_path(path_buf, sizeof(path_buf))){
+      web_sd_end();
+      request->send(404, "text/plain", "no recorder calibration report available");
+      return;
+    }
+
+    String path = String(path_buf);
+    String file = path;
+    const int slash = file.lastIndexOf('/');
+    if(slash >= 0){
+      file = file.substring(slash + 1);
+    }
+
+    uint32_t file_size = 0u;
+    if(!sd_files_download_begin(path.c_str(), &file_size)){
+      web_sd_end();
+      request->send(404, "text/plain", "not found");
+      return;
+    }
+
+    WebDownloadCtx *ctx = new (std::nothrow) WebDownloadCtx(path, file_size);
+    if(ctx == nullptr){
+      (void)sd_files_download_end();
+      web_sd_end();
+      request->send(500, "text/plain", "oom");
+      return;
+    }
+
+    AsyncWebServerResponse *response = request->beginResponse(
+      "text/plain",
+      (size_t)file_size,
+      [ctx](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+        (void)index;
+
+        if(ctx->sent >= ctx->size){
+          ctx->release_once();
+          return 0;
+        }
+
+        const uint32_t remain = ctx->size - ctx->sent;
+        const uint32_t to_read = (remain < (uint32_t)maxLen) ? remain : (uint32_t)maxLen;
+        uint32_t got = 0u;
+        const bool ok = sd_files_download_read(buffer, to_read, &got);
+        if((!ok) || (got == 0u)){
+          ctx->release_once();
+          return 0;
+        }
+
+        ctx->sent += got;
+        return (size_t)got;
+      });
+
+    if(response == nullptr){
+      ctx->release_once();
+      delete ctx;
+      request->send(500, "text/plain", "response_alloc");
+      return;
+    }
+
+    request->onDisconnect([ctx](){
+      ctx->release_once();
+      delete ctx;
+    });
+
+    response->addHeader("Content-Disposition",
+        (String("attachment; filename=\"") + file + String("\"")).c_str());
+    request->send(response);
+  });
+
+  s_server->on("/api/cal/report/installation/latest", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+
+    if(!web_single_client_allow(request)){
+      request->send(409, "text/plain", "BUSY");
+      return;
+    }
+
+    if(!web_sd_try_begin()){
+      request->send(409, "text/plain", "BUSY");
+      return;
+    }
+
+    char path_buf[SD_STORAGE_PATH_MAX];
+    if(!calibration_report_get_last_installation_path(path_buf, sizeof(path_buf))){
+      web_sd_end();
+      request->send(404, "text/plain", "no installation calibration report available");
+      return;
+    }
+
+    String path = String(path_buf);
+    String file = path;
+    const int slash = file.lastIndexOf('/');
+    if(slash >= 0){
+      file = file.substring(slash + 1);
+    }
+
+    uint32_t file_size = 0u;
+    if(!sd_files_download_begin(path.c_str(), &file_size)){
+      web_sd_end();
+      request->send(404, "text/plain", "not found");
+      return;
+    }
+
+    WebDownloadCtx *ctx = new (std::nothrow) WebDownloadCtx(path, file_size);
+    if(ctx == nullptr){
+      (void)sd_files_download_end();
+      web_sd_end();
+      request->send(500, "text/plain", "oom");
+      return;
+    }
+
+    AsyncWebServerResponse *response = request->beginResponse(
+      "text/plain",
+      (size_t)file_size,
+      [ctx](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+        (void)index;
+
+        if(ctx->sent >= ctx->size){
+          ctx->release_once();
+          return 0;
+        }
+
+        const uint32_t remain = ctx->size - ctx->sent;
+        const uint32_t to_read = (remain < (uint32_t)maxLen) ? remain : (uint32_t)maxLen;
+        uint32_t got = 0u;
+        const bool ok = sd_files_download_read(buffer, to_read, &got);
+        if((!ok) || (got == 0u)){
+          ctx->release_once();
+          return 0;
+        }
+
+        ctx->sent += got;
+        return (size_t)got;
+      });
+
+    if(response == nullptr){
+      ctx->release_once();
+      delete ctx;
+      request->send(500, "text/plain", "response_alloc");
+      return;
+    }
+
+    request->onDisconnect([ctx](){
+      ctx->release_once();
+      delete ctx;
+    });
+
+    response->addHeader("Content-Disposition",
+        (String("attachment; filename=\"") + file + String("\"")).c_str());
+    request->send(response);
+  });
+
+  s_server->on("/api/cal/support_clear", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+    String password = "";
+    if(request->hasParam("support", true)){
+      password = request->getParam("support", true)->value();
+    } else if(request->hasParam("support")){
+      password = request->getParam("support")->value();
+    }
+
+    if(!cal_support_password_matches_(password)){
+      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"bad_support_code\"}");
+      return;
+    }
+
+    const bool ok = calibration_service_support_clear();
+    request->send(ok ? 200 : 500,
+                  "application/json",
+                  ok ? "{\"ok\":true,\"cleared\":true}" : "{\"ok\":false,\"reason\":\"clear_failed\"}");
+  });
+
+
+  s_server->on("/api/install/support_clear", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+    String password = "";
+    if(request->hasParam("support", true)){
+      password = request->getParam("support", true)->value();
+    } else if(request->hasParam("support")){
+      password = request->getParam("support")->value();
+    }
+
+    if(!cal_support_password_matches_(password)){
+      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"bad_support_code\"}");
+      return;
+    }
+
+    const bool ok = calibration_service_support_clear_installation();
+    request->send(ok ? 200 : 500,
+                  "application/json",
+                  ok ? "{\"ok\":true,\"cleared\":true}" : "{\"ok\":false,\"reason\":\"clear_failed\"}");
   });
 
 
@@ -1281,14 +1776,50 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
 
   s_server->on("/api/install/save", HTTP_POST, [](AsyncWebServerRequest *request){
     if(!cal_require_auth_(request)) return;
+
+    String reason_text = "";
+    if(request->hasParam("reason", true)){
+      reason_text = request->getParam("reason", true)->value();
+    } else if(request->hasParam("reason")){
+      reason_text = request->getParam("reason")->value();
+    }
+
+    installation_calibration_reason_t reason = INSTALL_CAL_REASON_INITIAL_INSTALLATION;
+    if(!calibration_report_parse_installation_reason(reason_text.c_str(), &reason)){
+      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"installation_reason_required\"}");
+      return;
+    }
+
+    installation_calibration_report_data_t report = {};
+    report.reason = reason;
+    report.recorder_calibration_available = calibration_service_get_active(&report.recorder_calibration);
+    report.installation_before_available = calibration_service_get_installation(&report.installation_before);
+
     calibration_record_t rec = {};
     if(!calibration_installation_session_save(&rec)){
       request->send(409, "application/json", "{\"ok\":false,\"reason\":\"save_failed\"}");
       return;
     }
 
+    report.saved = true;
+    report.candidate_available = rec.installation.valid;
+    report.candidate = rec.installation;
+    report.installation_after_available = rec.installation.valid;
+    report.installation_after = rec.installation;
+
+    char report_path[SD_STORAGE_PATH_MAX];
+    report_path[0] = '\0';
+    const bool report_written = calibration_report_write_installation(&report, report_path, sizeof(report_path));
+
     String out = "{\"ok\":true,\"saved\":true,\"message\":\"installation_calibration_saved\",\"matrix\":";
     out += cal_matrix_json_(rec.installation.matrix);
+    out += ",\"report_written\":";
+    out += report_written ? "true" : "false";
+    if(report_written){
+      out += ",\"report_path\":\"";
+      out += report_path;
+      out += "\"";
+    }
     out += "}";
     request->send(200, "application/json", out);
   });

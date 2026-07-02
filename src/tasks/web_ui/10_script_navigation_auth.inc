@@ -10,12 +10,15 @@
 R"rawliteral(    <script>
         let allFiles = [];
         let processedFiles = [];
+        let reportFiles = [];
         let calPoll = null;
         let calAuth = false;
         let calView = 'menu';
         let calLastBestLocalMs = 0;
         let calLastBestLocalUpdates = 0;
         let calLastBestLocalFace = -1;
+        let calRecorderSaveMessageSticky = false;
+        let installSampleRequestActive = false;
 
         function setPageTitle(title) {
             document.getElementById('pageTitle').textContent = title;
@@ -29,6 +32,7 @@ R"rawliteral(    <script>
             document.getElementById('installCalPage').classList.add('hidden');
             document.getElementById('healthSection').classList.add('hidden');
             document.getElementById('otaSection').classList.add('hidden');
+            document.getElementById('reportSection').classList.add('hidden');
             document.getElementById('deleteSection').classList.add('hidden');
         }
 
@@ -112,12 +116,21 @@ R"rawliteral(    <script>
         }
 
         function openHealthPage() {
-            setPageTitle('SLM Health');
+            setPageTitle('SLM About');
             if (!calAuth) { showMaintenanceLocked(); return; }
             stopCalPolling();
             hideAllPages();
             document.getElementById('healthSection').classList.remove('hidden');
             updateWatchdogDiag();
+        }
+
+        function openReportPage() {
+            setPageTitle('SLM Report Management');
+            if (!calAuth) { showMaintenanceLocked(); return; }
+            stopCalPolling();
+            hideAllPages();
+            document.getElementById('reportSection').classList.remove('hidden');
+            refreshReports();
         }
 
         function openOtaPage() {
@@ -129,7 +142,7 @@ R"rawliteral(    <script>
         }
 
         function openDeletePage() {
-            setPageTitle('SLM Delete');
+            setPageTitle('SLM Delete Files/Reports');
             if (!calAuth) { showMaintenanceLocked(); return; }
             stopCalPolling();
             hideAllPages();
@@ -160,21 +173,61 @@ R"rawliteral(    <script>
         }
 
         function logCal(text) {
-            document.getElementById('calLog').textContent = text;
+            const el = document.getElementById('calLog');
+            if (!el) return;
+            el.classList.remove('hidden');
+            el.textContent = text;
         }
 
         function prettyJson(obj) {
             return JSON.stringify(obj, null, 2);
         }
 
+        function setRecorderStartButton(active, busy) {
+            const start = document.getElementById('btnStart');
+            if (!start) return;
+            start.disabled = !!busy;
+            start.textContent = active ? 'Cancel' : 'Start';
+            start.dataset.active = active ? '1' : '0';
+            if (active) setButtonWarning('btnStart', false);
+        }
+
+        function setInstallStartButton(active, busy) {
+            const start = document.getElementById('btnInstallStart');
+            if (!start) return;
+            start.disabled = !!busy;
+            start.textContent = active ? 'Cancel' : 'Start';
+            start.dataset.active = active ? '1' : '0';
+            if (active) setButtonWarning('btnInstallStart', false);
+        }
+
         function setCalSavedUi(saved) {
             const save = document.getElementById('btnSave');
 
             if (saved) {
-                save.disabled = true;
+                setRecorderStartButton(false, false);
+                if (save) save.disabled = true;
                 stopCalPolling();
             } else {
-                save.disabled = false;
+                if (save) save.disabled = false;
+            }
+        }
+
+        function clearAccelCalMeasurementUi() {
+            document.getElementById('calStatus').textContent = '-';
+            document.getElementById('calSamplesProcessed').textContent = '0';
+            document.getElementById('calSensorTemp').textContent = '-';
+            document.getElementById('calLowestNoise').textContent = '-';
+            document.getElementById('calLastBestUpdate').textContent = '-';
+            updateFaceSummary(null, -1, false);
+            calLastBestLocalMs = 0;
+            calLastBestLocalUpdates = 0;
+            calLastBestLocalFace = -1;
+            for (let i = 0; i < 3; i++) {
+                document.getElementById('resGain' + i).textContent = '-';
+                document.getElementById('resOffset' + i).textContent = '-';
+                document.getElementById('nvsGain' + i).textContent = '-';
+                document.getElementById('nvsOffset' + i).textContent = '-';
             }
         }
 

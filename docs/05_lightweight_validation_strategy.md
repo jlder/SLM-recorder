@@ -135,8 +135,8 @@ Procedure:
 3. Confirm message is one of expected startup/setup messages:
    - `READY`;
    - `NEED SETTINGS`;
-   - `ACC CAL REQ`;
-   - `CAL FAULT`;
+   - `REC CAL REQ`;
+   - `REC CAL FAULT`;
    - SD-related error if SD is intentionally absent.
 
 Expected result:
@@ -224,7 +224,7 @@ Procedure:
 Expected result:
 
 - Required settings are cleared.
-- Stored calibration and calibration fault latch are cleared.
+- Stored calibration and recorder calibration fault latch are cleared.
 - Recorder requires setup/calibration again before recording can be authorized.
 
 ### VAL-WIFI-001 — WiFi/Web access
@@ -272,7 +272,7 @@ Procedure:
 
 Expected result:
 
-- Device displays `ACC CAL REQ`.
+- Device displays `REC CAL REQ`.
 - MENU/WiFi access remains available.
 - Recording does not start.
 
@@ -334,7 +334,7 @@ Procedure:
 
 Expected result:
 
-- `ACC CAL REQ` is not shown.
+- `REC CAL REQ` is not shown.
 - Recording start is authorized if SD/settings/error conditions are also satisfied.
 
 ### VAL-CAL-005 — Calibration expiration review
@@ -352,7 +352,7 @@ Procedure:
 Expected result:
 
 - Calibration older than `CALIBRATION_VALIDITY_MONTHS` is treated as expired.
-- Device displays `ACC CAL REQ`.
+- Device displays `REC CAL REQ`.
 - Recording is locked.
 
 Note:
@@ -374,7 +374,7 @@ Expected result:
 
 - Calibration save is rejected.
 - Calibration fault latch is set.
-- Device displays `CAL FAULT`.
+- Device displays `REC CAL FAULT`.
 - The stored valid calibration is retained.
 - Successful later calibration clears the fault latch.
 
@@ -477,7 +477,7 @@ Procedure:
 Expected result:
 
 - Device acknowledges SD recovery.
-- After clear, device returns to READY or setup-lock message such as `ACC CAL REQ` or `INST CAL REQ`.
+- After clear, device returns to READY or setup-lock message such as `REC CAL REQ` or `INST CAL REQ`.
 
 ### VAL-SD-003 — Low-space and file-count review
 
@@ -731,7 +731,7 @@ Verify that the 0x72 calibration block contains the saved installation calibrati
 
 ## VAL-CAL-QUALITY-001 — Calibration rolling-window quality selection
 
-Verify that accelerometer calibration keeps sampling a stable face after the first capture and stores an improved candidate only when the dominant face-axis noise improves. Verify that the Web page reports a simplified progress summary: validity status with NVS date when valid, session state, current face, samples processed on the current face, lowest stddev for the current face, current-face best-update count, and time since the last best update. Verify that the six-face summary shows captured faces as OK and missing faces as —, with unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. Verify that the workflow text advises leaving a face still until the last best update is more than 10 seconds old and saving when all six face values are satisfactory.
+Verify that recorder calibration keeps sampling a stable face after the first capture and stores an improved candidate only when the dominant face-axis noise improves. Verify that the Web page reports a simplified progress summary: validity status with NVS date when valid, session state, current face, samples processed on the current face, lowest stddev for the current face, current-face best-update count, and time since the last best update. Verify that the six-face summary shows captured faces as OK and missing faces as —, with unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. Verify that the workflow text advises leaving a face still until the last best update is more than 10 seconds old and saving when all six face values are satisfactory.
 
 Verify that installation calibration keeps sampling after a valid candidate is found and updates the complete candidate, including the matrix, only when the quadratic stddev quality improves.
 

@@ -1,6 +1,6 @@
 {
   "name": "SLM Recorder -",
-  "version": "1.13",
+  "version": "1.14",
   "builds": [{
     "chipFamily": "ESP32-S3",
     "parts": [{

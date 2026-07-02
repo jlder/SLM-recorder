@@ -33,9 +33,10 @@ R"rawliteral(        <div id="maintenanceSection" class="hidden section">
                         <div class="small mono last-cal-date" id="installationCalDate">-</div>
                         <div class="small mono last-cal-date" id="installationCalTime">-</div>
                     </div>
-                    <button class="btn btn-primary" onclick="openHealthPage()">Health</button>
+                    <button class="btn btn-primary" onclick="openReportPage()">Report Management</button>
+                    <button class="btn btn-primary" onclick="openDeletePage()">Delete Files/Reports</button>
                     <button class="btn btn-primary" onclick="openOtaPage()">Firmware Update</button>
-                    <button class="btn btn-primary" onclick="openDeletePage()">Delete</button>
+                    <button class="btn btn-primary" onclick="openHealthPage()">About</button>
                     <button class="btn btn-return" onclick="showHome()">Return</button>
                 </div>
             </div>

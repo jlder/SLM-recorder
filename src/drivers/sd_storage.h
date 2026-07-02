@@ -149,10 +149,19 @@ bool sd_storage_download_read(uint8_t *out, uint32_t len, uint32_t *out_len);
  */
 void sd_storage_download_end(void);
 
+/**
+ * Write a complete text file from SD-task context.
+ *
+ * Inputs: `path`, `text`, `len`.
+ * Returns: `true` when the text was written and flushed.
+ */
+bool sd_storage_write_text_file(const char *path, const char *text, uint32_t len);
+
 
 /**
- * Archive a root-level file by moving it into /processed.  If the destination
- * name already exists, append _N before the extension.
+ * Archive a root-level recording file or calibration report by moving it into
+ * /processed.  If the destination name already exists, append _N before the
+ * extension.
  *
  * Inputs: `path`.
  * Returns: `true` when the file was moved to /processed; otherwise `false`.

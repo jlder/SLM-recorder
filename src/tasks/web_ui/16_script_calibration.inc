@@ -21,9 +21,17 @@ R"rawliteral(        function calStatus() {
                     document.getElementById('installationCalDate').textContent = installParts.date;
                     document.getElementById('installationCalTime').textContent = installParts.time;
                     updateMaintenanceButtonState(data);
-                    const accelStatus = data.sensor_valid ? ('valid since ' + sensorDateText) : data.status;
+                    const faultText = (data.fault_reason && data.fault_reason !== 'none') ? (' fault: ' + data.fault_reason) : '';
+                    let accelStatus = data.sensor_valid ? ('valid since ' + sensorDateText) : (data.status + faultText);
+                    if (!data.sensor_valid && data.reference_available && !data.active_available) {
+                        accelStatus = 'repeat recorder calibration required';
+                    } else if (!data.sensor_valid && !data.reference_available) {
+                        accelStatus = 'first recorder calibration required';
+                    }
                     const installStatus = data.installation_valid ? ('valid since ' + installDateText) : 'missing';
-                    document.getElementById('calStatus').textContent = accelStatus;
+                    if (!(calView === 'accel' && calRecorderSaveMessageSticky)) {
+                        document.getElementById('calStatus').textContent = accelStatus;
+                    }
                     document.getElementById('installStatus').textContent = installStatus;
                 })
                 .catch(err => console.error(err));
@@ -47,23 +55,10 @@ R"rawliteral(        function calStatus() {
         }
 
         function resetAccelCalUi() {
-            document.getElementById('calStatus').textContent = '-';
-            document.getElementById('calSamplesProcessed').textContent = '0';
-            document.getElementById('calLowestNoise').textContent = '-';
-            document.getElementById('calLastBestUpdate').textContent = '-';
-            updateFaceSummary(null, -1, false);
-            calLastBestLocalMs = 0;
-            calLastBestLocalUpdates = 0;
-            calLastBestLocalFace = -1;
-            for (let i = 0; i < 3; i++) {
-                document.getElementById('resGain' + i).textContent = '-';
-                document.getElementById('resOffset' + i).textContent = '-';
-                document.getElementById('nvsGain' + i).textContent = '-';
-                document.getElementById('nvsOffset' + i).textContent = '-';
-            }
-            document.getElementById('btnStart').disabled = false;
+            clearAccelCalMeasurementUi();
+            calRecorderSaveMessageSticky = false;
+            setRecorderStartButton(false, false);
             document.getElementById('btnSave').disabled = true;
-            document.getElementById('btnCancel').disabled = true;
             logCal('Ready.');
         }
 
@@ -71,11 +66,14 @@ R"rawliteral(        function calStatus() {
             document.getElementById('installStatus').textContent = '-';
             document.getElementById('installTotalSamples').textContent = '0';
             document.getElementById('installBestNoise').textContent = '-';
-            document.getElementById('installLastUpdate').textContent = '-';
-            document.getElementById('installMatrix').textContent = 'Matrix will appear after a stable candidate is found.';
-            document.getElementById('btnInstallStart').disabled = false;
+            document.getElementById('installStability').textContent = '-';
+            document.getElementById('installPitchCandidate').textContent = '-';
+            document.getElementById('installRollCandidate').textContent = '-';
+            document.getElementById('installPitchStored').textContent = '-';
+            document.getElementById('installRollStored').textContent = '-';
+            logInstall('Ready.');
+            setInstallStartButton(false, false);
             document.getElementById('btnInstallSave').disabled = true;
-            document.getElementById('btnInstallCancel').disabled = true;
         }
 
         function faceIndexFromName(name) {
@@ -105,6 +103,35 @@ R"rawliteral(        function calStatus() {
             return Number(v).toFixed(2) + ' mg';
         }
 
+        function fmtTemperature(v) {
+            if (v === null || v === undefined || !isFinite(Number(v))) return '-';
+            return Number(v).toFixed(1) + ' °C';
+        }
+
+        function updateCalibrationTemperature(data) {
+            const available = !!data.temperature_available;
+            const stable = !!data.temperature_stable;
+            const minAllowed = data.temperature_allowed_min_c;
+            const maxAllowed = data.temperature_allowed_max_c;
+            const spanAllowed = data.temperature_allowed_span_c;
+            let status = 'OK';
+            if (!available) {
+                status = 'UNAVAILABLE';
+            } else if (minAllowed !== undefined && Number(data.temperature_c) < Number(minAllowed)) {
+                status = 'TOO LOW';
+            } else if (maxAllowed !== undefined && Number(data.temperature_c) > Number(maxAllowed)) {
+                status = 'TOO HIGH';
+            } else if (!stable) {
+                status = 'WAIT STABLE';
+            }
+
+            let text = available ? (fmtTemperature(data.temperature_c) + ' ' + status) : status;
+            if (available && !stable && spanAllowed !== undefined) {
+                text += ' (span max ' + Number(spanAllowed).toFixed(1) + ' °C)';
+            }
+            document.getElementById('calSensorTemp').textContent = text;
+        }
+
         function updateFaceSummary(faceValid, activeIdx, active) {
             const names = ['+X', '-X', '+Y', '-Y', '+Z', '-Z'];
             const parts = [];
@@ -131,9 +158,9 @@ R"rawliteral(        function calStatus() {
         }
 
         function updateResultTable(data) {
-            document.getElementById('btnStart').disabled = !!data.active;
-            document.getElementById('btnCancel').disabled = !data.active;
-            document.getElementById('btnSave').disabled = !data.result_available;
+            setRecorderStartButton(!!data.active, false);
+            const temperatureOk = !!data.temperature_available && !!data.temperature_in_range && !!data.temperature_stable;
+            document.getElementById('btnSave').disabled = !data.result_available || !temperatureOk;
 
             for (let i = 0; i < 3; i++) {
                 const r = data.result_available && data.result ? data.result[i] : null;
@@ -154,7 +181,7 @@ R"rawliteral(        function calStatus() {
                     handleCalibrationAuthError(res);
                     const data = res.json;
                     if (!data.ok) {
-                        logCal(JSON.stringify(data, null, 2));
+                        logCal('Recorder calibration status unavailable.');
                         return;
                     }
 
@@ -175,33 +202,56 @@ R"rawliteral(        function calStatus() {
                         calLastBestLocalFace = activeIdx;
                     }
                     document.getElementById('calLastBestUpdate').textContent = activeUpdates > 0 ? fmtAgeFromLocal(calLastBestLocalMs) : '-';
+                    updateCalibrationTemperature(data);
 
                     updateFaceSummary(data.face_valid, activeIdx, !!data.active);
                     updateResultTable(data);
+
+                    const temperatureOk = !!data.temperature_available && !!data.temperature_in_range && !!data.temperature_stable;
+                    if (data.active && data.result_available && temperatureOk && !calRecorderSaveMessageSticky) {
+                        logCal('Valid calibration solution, continue to optimize or Save.');
+                    }
                 })
-                .catch(err => logCal('sample error: ' + err));
+                .catch(err => logCal('Recorder calibration communication error: ' + err));
         }
 
         function calStart() {
+            const start = document.getElementById('btnStart');
+            if (start && start.dataset.active === '1') {
+                calCancel();
+                return;
+            }
+            calRecorderSaveMessageSticky = false;
             setCalSavedUi(false);
-            document.getElementById('btnStart').disabled = true;
-            document.getElementById('btnCancel').disabled = false;
+            setRecorderStartButton(false, true);
             postJson('/api/cal/start')
                 .then(res => {
-                    logCal(prettyJson(res.json));
+                    if (!res.ok || !res.json || !res.json.ok) {
+                        setRecorderStartButton(false, false);
+                        logCal('Recorder calibration could not start.');
+                        calStatus();
+                        calSample();
+                        return;
+                    }
+                    setRecorderStartButton(true, false);
+                    logCal('Recorder calibration started. Place the recorder on each face until all six faces show OK.');
                     calStatus();
                     startCalPolling();
+                })
+                .catch(err => {
+                    setRecorderStartButton(false, false);
+                    logCal('Recorder calibration start error: ' + err);
                 });
         }
 
 
         function calCancel() {
+            calRecorderSaveMessageSticky = false;
             postJson('/api/cal/cancel')
                 .then(res => {
                     setCalSavedUi(false);
-                    document.getElementById('btnStart').disabled = false;
-                    document.getElementById('btnCancel').disabled = true;
-                    logCal(prettyJson(res.json));
+                    setRecorderStartButton(false, false);
+                    logCal('Recorder calibration cancelled.');
                     calStatus();
                     calSample();
                 });
@@ -210,34 +260,151 @@ R"rawliteral(        function calStatus() {
         function calSave() {
             const save = document.getElementById('btnSave');
             save.disabled = true;
+            calRecorderSaveMessageSticky = true;
 
             postJson('/api/cal/save')
                 .then(res => {
                     if (res.ok && res.json && res.json.saved) {
-                        logCal('SAVED SUCCESSFULLY\\n' + prettyJson(res.json));
+                        logCal('Recorder calibration saved. Calibration report downloading.');
                         setCalSavedUi(true);
+                        clearAccelCalMeasurementUi();
                         calStatus();
+                        if (res.json && res.json.report_written) setTimeout(calDownloadLastReport, 1000);
+                        return;
+                    }
+
+                    if (res.ok && res.json && res.json.reason === 'repeat_required') {
+                        save.disabled = true;
+                        logCal('First recorder calibration stored. Repeat recorder calibration once to confirm repeatability. Calibration report downloading.');
+                        setCalSavedUi(true);
+                        clearAccelCalMeasurementUi();
+                        calStatus();
+                        if (res.json && res.json.report_written) setTimeout(calDownloadLastReport, 1000);
+                        return;
+                    }
+
+                    if (res.json && res.json.reason === 'delta_fault') {
+                        logCal('SIGNIFICANT CALIBRATION DRIFT - CALIBRATION REJECTED. Candidate saved for support diagnostics but not used as current calibration. Flight records since the last valid recorder calibration should be considered suspect and potentially discarded unless another recorder calibration is successful. Check recorder seating in the calibration support, support condition, horizontal stable test surface, and temperature range. Retry calibration. If it repeats, contact support.');
+                        const status = document.getElementById('calStatus');
+                        if (status) status.textContent = 'SIGNIFICANT CALIBRATION DRIFT - CALIBRATION REJECTED';
+                        setCalSavedUi(true);
+                        clearAccelCalMeasurementUi();
+                        calStatus();
+                        if (res.json && res.json.report_written) setTimeout(calDownloadLastReport, 1000);
                         return;
                     }
 
                     save.disabled = false;
-                    logCal('SAVE FAILED\\n' + prettyJson(res.json));
+                    calRecorderSaveMessageSticky = false;
+                    if (res.json && (res.json.reason === 'temperature_out_of_range' || res.json.reason === 'temperature_unavailable' || res.json.reason === 'temperature_unstable')) {
+                        logCal('Temperature not acceptable for recorder calibration. Place recorder at room temperature and wait before retrying.');
+                    } else {
+                        logCal('Recorder calibration save failed. Check that all six faces are OK and retry.');
+                    }
                     calStatus();
+                    if (res.json && res.json.report_written) setTimeout(calDownloadLastReport, 1000);
                     calSample();
                 })
                 .catch(err => {
                     save.disabled = false;
-                    logCal('SAVE ERROR: ' + err);
+                    calRecorderSaveMessageSticky = false;
+                    logCal('Recorder calibration save error: ' + err);
                 });
         }
 
-
-        function fmtMatrix(m) {
-            if (!m || m.length < 9) return '-';
-            return '[' + Number(m[0]).toFixed(6) + ' ' + Number(m[1]).toFixed(6) + ' ' + Number(m[2]).toFixed(6) + ']\n' +
-                   '[' + Number(m[3]).toFixed(6) + ' ' + Number(m[4]).toFixed(6) + ' ' + Number(m[5]).toFixed(6) + ']\n' +
-                   '[' + Number(m[6]).toFixed(6) + ' ' + Number(m[7]).toFixed(6) + ' ' + Number(m[8]).toFixed(6) + ']';
+        function aboutStatus(text) {
+            const el = document.getElementById('aboutSupportStatus');
+            if (el) el.textContent = text;
         }
+
+        function supportDownloadData() {
+            const code = prompt('Support code required to download support data');
+            if (!code) return;
+            window.location = '/api/cal/export?support=' + encodeURIComponent(code);
+        }
+
+        function calDownloadLastReport() {
+            window.location = '/api/cal/report/recorder/latest';
+        }
+
+
+        function supportClearRecorderCalibration() {
+            const code = prompt('Support code required to clear recorder calibration history');
+            if (!code) return;
+            aboutStatus('Clearing recorder calibration...');
+            postJson('/api/cal/support_clear?support=' + encodeURIComponent(code))
+                .then(res => {
+                    if (res.ok && res.json && res.json.cleared) {
+                        aboutStatus('Recorder calibration history cleared. Recorder calibration is required.');
+                        calStatus();
+                    } else {
+                        aboutStatus('Recorder calibration clear failed: ' + prettyJson(res.json));
+                    }
+                })
+                .catch(err => aboutStatus('Recorder calibration clear error: ' + err));
+        }
+
+        function supportClearInstallationCalibration() {
+            const code = prompt('Support code required to clear installation calibration');
+            if (!code) return;
+            aboutStatus('Clearing installation calibration...');
+            postJson('/api/install/support_clear?support=' + encodeURIComponent(code))
+                .then(res => {
+                    if (res.ok && res.json && res.json.cleared) {
+                        aboutStatus('Installation calibration cleared. Installation calibration is required.');
+                        calStatus();
+                    } else {
+                        aboutStatus('Installation calibration clear failed: ' + prettyJson(res.json));
+                    }
+                })
+                .catch(err => aboutStatus('Installation calibration clear error: ' + err));
+        }
+
+
+        function logInstall(text) {
+            const el = document.getElementById('installLog');
+            if (!el) return;
+            el.classList.remove('hidden');
+            el.textContent = text;
+        }
+
+        function fmtAngle(v) {
+            if (v === null || v === undefined || !isFinite(Number(v))) return '-';
+            return Number(v).toFixed(2) + '°';
+        }
+
+        function installAnglesFromMatrix(matrix) {
+            if (!Array.isArray(matrix) || matrix.length < 9) return null;
+            const m00 = Number(matrix[0]);
+            const m11 = Number(matrix[4]);
+            const m12 = Number(matrix[5]);
+            const m20 = Number(matrix[6]);
+            if (!isFinite(m00) || !isFinite(m11) || !isFinite(m12) || !isFinite(m20)) return null;
+
+            // Display the pitch/roll correction represented by the actual
+            // installation matrix, not the raw accelerometer attitude formula.
+            // The installation matrix is the rotation applied to recorder data
+            // to align measured gravity with aircraft +Z.  With the convention
+            // R = Ry(pitch) * Rx(roll):
+            //   pitch = atan2(-R20, R00)
+            //   roll  = atan2(-R12, R11)
+            // This gives pitch = -90 deg and roll = 0 deg when gravity is
+            // aligned with recorder +X, matching the applied minimal rotation.
+            const rad2deg = 180.0 / Math.PI;
+            const pitch = Math.atan2(-m20, m00) * rad2deg;
+            const roll = Math.atan2(-m12, m11) * rad2deg;
+            return { pitch: pitch, roll: roll };
+        }
+
+        function updateInstallAngles(data) {
+            const candidate = data.candidate_valid ? installAnglesFromMatrix(data.matrix) : null;
+            const stored = data.stored_valid ? installAnglesFromMatrix(data.stored_matrix) : null;
+            document.getElementById('installPitchCandidate').textContent = candidate ? fmtAngle(candidate.pitch) : '-';
+            document.getElementById('installRollCandidate').textContent = candidate ? fmtAngle(candidate.roll) : '-';
+            document.getElementById('installPitchStored').textContent = stored ? fmtAngle(stored.pitch) : '-';
+            document.getElementById('installRollStored').textContent = stored ? fmtAngle(stored.roll) : '-';
+        }
+
 
         function fmtAge(ms) {
             if (ms === undefined || ms === null) return '-';
@@ -256,6 +423,8 @@ R"rawliteral(        function calStatus() {
         }
 
         function installSample() {
+            if (installSampleRequestActive) return;
+            installSampleRequestActive = true;
             fetch('/api/install/sample')
                 .then(r => r.json().then(j => ({ok:r.ok, status:r.status, json:j})))
                 .then(res => {
@@ -264,62 +433,93 @@ R"rawliteral(        function calStatus() {
                     if (!data.ok) return;
                     document.getElementById('installTotalSamples').textContent = data.total_samples || 0;
                     document.getElementById('installBestNoise').textContent = data.candidate_valid ? fmtNoise(data.quality_mg) : '-';
-                    document.getElementById('installLastUpdate').textContent = (data.update_count || 0) > 0 ? fmtAge(data.last_update_age_ms) : '-';
+                    document.getElementById('installStability').textContent = data.candidate_valid ? 'stable' : 'not stable';
                     document.getElementById('installStatus').textContent = data.stored_valid ? ('valid since ' + fmtDate(data.stored_date)) : 'missing';
-                    if (data.candidate_valid) {
-                        document.getElementById('installMatrix').textContent = fmtMatrix(data.matrix);
-                    } else if (data.stored_valid) {
-                        document.getElementById('installMatrix').textContent = fmtMatrix(data.stored_matrix);
-                    } else {
-                        document.getElementById('installMatrix').textContent = 'Waiting for stable level-flight attitude.';
-                    }
-                    document.getElementById('btnInstallStart').disabled = !!data.active;
-                    document.getElementById('btnInstallCancel').disabled = !data.active;
-                    document.getElementById('btnInstallSave').disabled = !data.candidate_valid;
+                    updateInstallAngles(data);
+                    setInstallStartButton(!!data.active, false);
+                    const reasonEl = document.getElementById('installReason');
+                    const reasonOk = !!(reasonEl && reasonEl.value);
+                    document.getElementById('btnInstallSave').disabled = (!data.candidate_valid) || (!reasonOk);
                 })
-                .catch(err => console.error(err));
+                .catch(err => logInstall('Installation calibration communication error: ' + err))
+                .then(() => { installSampleRequestActive = false; });
         }
 
         function installStart() {
-            document.getElementById('btnInstallStart').disabled = false;
+            const start = document.getElementById('btnInstallStart');
+            if (start && start.dataset.active === '1') {
+                installCancel();
+                return;
+            }
+            setInstallStartButton(false, true);
             document.getElementById('btnInstallSave').disabled = true;
-            document.getElementById('btnInstallCancel').disabled = true;
             postJson('/api/install/start')
                 .then(res => {
-                    document.getElementById('installMatrix').textContent = 'Waiting for stable level-flight attitude.';
+                    if (!res.ok || !res.json || !res.json.ok) {
+                        setInstallStartButton(false, false);
+                        const reason = res.json ? res.json.reason : '';
+                        if (reason === 'sensor_cal_required') {
+                            logInstall('Recorder calibration is required before installation calibration.');
+                        } else if (reason === 'recording') {
+                            logInstall('Installation calibration cannot start while recording is active.');
+                        } else if (reason) {
+                            logInstall('Installation calibration could not start: ' + reason + '.');
+                        } else {
+                            logInstall('Installation calibration could not start.');
+                        }
+                        calStatus();
+                        installSample();
+                        return;
+                    }
+                    setInstallStartButton(true, false);
+                    logInstall('Installation calibration started. Put the glider in flight-level attitude with wings level and keep it still.');
                     calStatus();
                     installSample();
                     startCalPolling();
+                })
+                .catch(err => {
+                    setInstallStartButton(false, false);
+                    logInstall('Installation calibration start error: ' + err);
                 });
         }
 
         function installCancel() {
             postJson('/api/install/cancel')
                 .then(res => {
-                    document.getElementById('btnInstallStart').disabled = false;
-                    document.getElementById('btnInstallCancel').disabled = true;
-                    document.getElementById('installMatrix').textContent = 'Waiting for stable level-flight attitude.';
+                    setInstallStartButton(false, false);
+                    logInstall('Installation calibration cancelled.');
                     calStatus();
                     installSample();
                 });
         }
 
+        function installDownloadLastReport() {
+            window.location = '/api/cal/report/installation/latest';
+        }
+
         function installSave() {
             const save = document.getElementById('btnInstallSave');
+            const reasonEl = document.getElementById('installReason');
+            const reason = reasonEl ? reasonEl.value : '';
+            if (!reason) {
+                logInstall('Select an installation calibration reason before saving.');
+                return;
+            }
             save.disabled = true;
-            postJson('/api/install/save')
+            postJson('/api/install/save?reason=' + encodeURIComponent(reason))
                 .then(res => {
                     if (res.ok && res.json && res.json.matrix) {
-                        document.getElementById('installMatrix').textContent = fmtMatrix(res.json.matrix);
+                        logInstall('Installation calibration saved. Calibration report downloading.');
+                        if (res.json && res.json.report_written) setTimeout(installDownloadLastReport, 250);
                     } else {
-                        document.getElementById('installMatrix').textContent = prettyJson(res.json);
+                        logInstall('Installation calibration save failed. Check that the glider is stable, wings are level, the selected reason is correct, and retry.');
                     }
                     calStatus();
                     installSample();
                     if (!res.ok) save.disabled = false;
                 })
                 .catch(err => {
-                    document.getElementById('installMatrix').textContent = 'SAVE ERROR: ' + err;
+                    logInstall('Installation calibration save error: ' + err);
                     save.disabled = false;
                 });
         }

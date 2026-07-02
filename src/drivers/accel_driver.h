@@ -64,6 +64,9 @@ bool accel_read_xyz_raw(accel_sample_t *out);
  */
 bool accel_read_xyz_sensor_corrected(accel_sample_t *out);
 
+/** Read QMI8658 internal sensor temperature in degrees Celsius. */
+bool accel_read_temperature_c(float *out_c);
+
 /**
  * Set the calibration used by normal corrected accelerometer reads.
  *

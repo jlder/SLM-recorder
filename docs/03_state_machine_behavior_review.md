@@ -132,9 +132,9 @@ Setup lock behavior:
 | Setup condition | READY behavior |
 |---|---|
 | settings incomplete | remain READY, show `NEED SETTINGS`, recording locked |
-| sensor calibration missing/expired | remain READY, show `ACC CAL REQ`, recording locked |
+| recorder calibration missing/expired | remain READY, show `REC CAL REQ`, recording locked |
 | installation calibration missing | remain READY, show `INST CAL REQ`, recording locked |
-| calibration fault latched | remain READY, show `CAL FAULT`, recording locked |
+| recorder calibration fault latched | remain READY, show `REC CAL FAULT`, recording locked |
 | setup complete | show `READY`, recording may be authorized if other conditions are met |
 
 Menu behavior:
@@ -337,7 +337,7 @@ Calibration session behavior:
 10. Stored/NVS values are not used for this selection decision.
 11. A valid face capture does not reset the rolling window. The service continues evaluating overlapping windows until the operator moves the recorder, the window becomes unstable, or the session ends.
 12. Once all six faces are captured, gains/offsets are computed and displayed.
-13. Web Save stores the accepted calibration in NVS and clears any calibration fault latch.
+13. Web Save stores the accepted calibration in NVS and clears any recorder calibration fault latch.
 
 Calibration Web display behavior:
 
@@ -428,7 +428,7 @@ Installation calibration is controlled from the Web interface while the recorder
 
 During the installation session, the calibration service maintains a rolling sample window. When the standard deviation is below the configured stability threshold and the measured gravity magnitude is within `INSTALLATION_GRAVITY_TOL_PCT`, the service computes a 3 x 3 matrix that rotates the measured gravity vector to +Z. The installation quality metric is the quadratic sum `sqrt(stddev_x^2 + stddev_y^2 + stddev_z^2)`. If a later stable window has lower quality, the complete candidate is updated, including mean, stddev, quality, update counters, and matrix. A valid candidate does not reset the rolling window; invalid samples, unstable windows, invalid mean gravity, or matrix-computation failure reset it.
 
-Sensor calibration preview/result endpoints compute candidate gains and offsets without saving to NVS and without latching calibration faults. Only the save path is allowed to persist the calibration or latch a calibration plausibility fault.
+Sensor calibration preview/result endpoints compute candidate gains and offsets without saving to NVS and without latching recorder calibration faults. Only the save path is allowed to persist the calibration or latch a calibration plausibility fault.
 
 Saving the installation calibration stores the matrix in NVS as the installation-calibration part of the active calibration record and applies it to normal accelerometer reads. Recording remains blocked until both the sensor calibration and installation calibration are valid. Sensor calibration and installation calibration have independent validity and timestamp fields.
 

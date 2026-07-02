@@ -262,6 +262,7 @@ R"rawliteral(    <style>
         }
         .workflow-card { font-size: 13px; }
         .workflow-card p { line-height: 1.3; }
+        .cal-status-card { font-size: 13px; line-height: 1.3; }
         .candidate {
             font-size: 16px;
             margin: 8px 0;

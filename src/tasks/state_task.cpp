@@ -857,20 +857,26 @@ static void state_task_main(void *arg){
 
         const bool trig_pwr  = (test_power_button(POWER_SHUTDOWN_HOLD_MS) == true);
 
-        if(trig_usb || trig_pwr){
+        // USB removal powers the recorder down only from normal READY.
+        // When WiFi/Web access is active, USB can be intentionally removed
+        // while file management or maintenance actions are in progress; in
+        // that READY special case the recorder shall stay powered.
+        const bool trig_usb_shutdown = trig_usb && (!wifi_active);
+
+        if(trig_usb_shutdown || trig_pwr){
           ready_exit_cleanup();
           state_set(ST_OFF);
           break;
         }
 
-        // Combined record-hold plus power-pressed gesture clears settings and
-        // calibration NVS data, then shuts down. If either clear fails, report
-        // a fatal generic error.
+        // Combined record-hold plus power-pressed gesture clears user settings
+        // and cancels calibration sessions, then shuts down. Recorder and
+        // installation calibration histories are not erased by this gesture.
         if(clear_settings_requested){
           const bool settings_cleared = settings_clear();
-          const bool calibration_cleared = calibration_service_clear();
+          const bool calibration_sessions_cancelled = calibration_service_clear();
 
-          if(settings_cleared && calibration_cleared){
+          if(settings_cleared && calibration_sessions_cancelled){
             ready_exit_cleanup();
             state_set(ST_OFF);
           } else {

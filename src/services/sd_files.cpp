@@ -33,6 +33,7 @@ static volatile bool s_space_requested = false;
 static volatile bool s_download_begin_requested = false;
 static volatile bool s_download_read_requested = false;
 static volatile bool s_download_end_requested = false;
+static volatile bool s_write_text_requested = false;
 static volatile bool s_delete_requested = false;
 static volatile bool s_delete_processed_requested = false;
 
@@ -45,6 +46,7 @@ static char s_path[SD_STORAGE_PATH_MAX];
 static char *s_out_json = nullptr;
 static uint32_t s_out_json_cap = 0u;
 static uint8_t *s_out_buf = nullptr;
+static const char *s_in_text = nullptr;
 static uint32_t s_len = 0u;
 static uint32_t *s_out_len = nullptr;
 static uint32_t *s_out_size = nullptr;
@@ -68,6 +70,7 @@ static void request_clear_(void){
   s_download_begin_requested = false;
   s_download_read_requested = false;
   s_download_end_requested = false;
+  s_write_text_requested = false;
   s_delete_requested = false;
   s_delete_processed_requested = false;
 
@@ -75,6 +78,7 @@ static void request_clear_(void){
   s_out_json = nullptr;
   s_out_json_cap = 0u;
   s_out_buf = nullptr;
+  s_in_text = nullptr;
   s_len = 0u;
   s_out_len = nullptr;
   s_out_size = nullptr;
@@ -276,6 +280,28 @@ static bool request_download_end_(void){
   return true;
 }
 
+/** Queue writing of a complete SD text file. */
+static bool request_write_text_file_(const char *path, const char *text, uint32_t len){
+  if((text == nullptr) && (len > 0u)){
+    return false;
+  }
+
+  if(!request_begin_()){
+    return false;
+  }
+
+  if(!copy_path_(s_path, sizeof(s_path), path)){
+    request_cancel_();
+    return false;
+  }
+
+  s_in_text = text;
+  s_len = len;
+  s_write_text_requested = true;
+  s_request_pending = true;
+  return true;
+}
+
 /** List root recording files as compact JSON. */
 bool sd_files_list_json(const char *dir_path,
                         char *out_json,
@@ -346,6 +372,19 @@ bool sd_files_download_end(void){
   const bool ok = request_wait_(SD_FILE_WAIT_TICKS);
   s_download_active = false;
   return ok;
+}
+
+/** Write a complete text file through the SD task. */
+bool sd_files_write_text_file(const char *path, const char *text, uint32_t len){
+  if(!sd_files_is_authorized()){
+    return false;
+  }
+
+  if(!request_write_text_file_(path, text, len)){
+    return false;
+  }
+
+  return request_wait_(SD_FILE_WAIT_TICKS);
 }
 
 /** Return true while a web download session is open or being serviced. */
@@ -421,6 +460,10 @@ void sd_file_ops_service(void){
     s_download_end_requested = false;
     sd_storage_download_end();
     s_request_ok = true;
+
+  } else if(s_write_text_requested){
+    s_write_text_requested = false;
+    s_request_ok = sd_storage_write_text_file(s_path, s_in_text, s_len);
 
   } else if(s_list_requested){
     s_list_requested = false;

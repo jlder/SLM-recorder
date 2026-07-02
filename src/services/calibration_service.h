@@ -47,6 +47,8 @@ void calibration_service_refresh_status(void);
  *   calibration status.
  */
 calibration_status_t calibration_service_status(void);
+calibration_fault_reason_t calibration_service_fault_reason(void);
+const char *calibration_save_result_name(calibration_save_result_t result);
 
 /**
  * Return whether recording is allowed from the calibration point of view.
@@ -69,6 +71,9 @@ bool calibration_service_is_recording_allowed(void);
  *   true if a calibration record is available, false otherwise.
  */
 bool calibration_service_get_active(calibration_record_t *out);
+bool calibration_service_get_reference(calibration_record_t *out);
+bool calibration_service_get_candidate(calibration_record_t *out);
+bool calibration_service_get_installation(installation_calibration_t *out);
 
 /**
  * Latch a calibration fault.
@@ -80,9 +85,22 @@ bool calibration_service_get_active(calibration_record_t *out);
  *   none.
  */
 void calibration_service_latch_fault(void);
+void calibration_service_latch_fault_reason(calibration_fault_reason_t reason);
 
 /**
- * Clear stored calibration data and reset active calibration status.
+ * Cancel active calibration sessions without erasing recorder calibration history.
+ * Generic field reset uses this path.
+ *
+ * Parameters:
+ *   none
+ *
+ * Return:
+ *   true if sessions were cancelled.
+ */
+bool calibration_service_clear(void);
+
+/**
+ * Support-only clear of recorder calibration NVS/history.
  *
  * Parameters:
  *   none
@@ -90,7 +108,13 @@ void calibration_service_latch_fault(void);
  * Return:
  *   true if calibration storage was cleared successfully, false otherwise.
  */
-bool calibration_service_clear(void);
+bool calibration_service_support_clear(void);
+
+/**
+ * Support-only clear of installation calibration. Recorder calibration history
+ * is preserved.
+ */
+bool calibration_service_support_clear_installation(void);
 
 typedef struct {
   bool session_active;
@@ -118,6 +142,13 @@ typedef struct {
 
   bool stored_loaded;
   calibration_face_capture_t stored_face[CAL_FACE_COUNT];
+
+  bool temperature_available;
+  bool temperature_in_range;
+  bool temperature_stable;
+  float temperature_c;
+  float temperature_min_c;
+  float temperature_max_c;
 } calibration_sample_status_t;
 
 /**
@@ -218,6 +249,7 @@ bool calibration_session_compute(calibration_record_t *out);
  *   true if calibration was saved, false otherwise.
  */
 bool calibration_session_save(calibration_record_t *out_saved);
+bool calibration_session_save_with_result(calibration_record_t *out_saved, calibration_save_result_t *out_result);
 
 typedef struct {
   bool session_active;
@@ -252,7 +284,7 @@ bool calibration_installation_session_active(void);
 /** Copy current installation calibration sample/status. */
 bool calibration_installation_session_get_status(installation_calibration_status_t *out);
 
-/** Save the best current installation calibration candidate. */
+/** Save the most recent stable installation calibration candidate. */
 bool calibration_installation_session_save(calibration_record_t *out_saved);
 
 /** Return whether the active calibration record includes installation correction. */

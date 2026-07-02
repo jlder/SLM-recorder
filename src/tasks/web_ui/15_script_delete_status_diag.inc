@@ -35,7 +35,7 @@ R"rawliteral(        function deleteFile(filename) {
                     }
 
                     processedFiles = res.json.files || [];
-                    status.textContent = processedFiles.length + ' file(s) in /processed.';
+                    status.textContent = processedFiles.length + ' file(s)/report(s) in /processed.';
                     displayProcessedFiles(processedFiles);
                 })
                 .catch(err => {
@@ -116,7 +116,7 @@ R"rawliteral(        function deleteFile(filename) {
             const status = document.getElementById('processedDeleteStatus');
             const button = document.getElementById('btnProcessedDelete');
             if (selected.length === 0) {
-                status.textContent = 'No files selected.';
+                status.textContent = 'No files/reports selected.';
                 return;
             }
 
@@ -166,6 +166,80 @@ R"rawliteral(        function deleteFile(filename) {
             });
         }
 
+        function refreshReports() {
+            const container = document.getElementById('reportListContainer');
+            if (!container) return;
+            container.innerHTML = '<div class="loading">Loading reports...</div>';
+
+            fetch('/api/reports/files')
+                .then(r => r.json().then(j => ({ok:r.ok, json:j})))
+                .then(res => {
+                    if (!res.ok || !res.json || !res.json.ok) {
+                        reportFiles = [];
+                        container.innerHTML = '<div class="loading">Report list unavailable</div>';
+                        return;
+                    }
+
+                    reportFiles = res.json.files || [];
+                    displayReports(reportFiles);
+                })
+                .catch(err => {
+                    reportFiles = [];
+                    container.innerHTML = '<div class="loading">Report list unavailable</div>';
+                    console.error(err);
+                });
+        }
+
+        function displayReports(files) {
+            const container = document.getElementById('reportListContainer');
+            if (!container) return;
+            if (!files || files.length === 0) {
+                container.innerHTML = '<div class="loading">No calibration reports found</div>';
+                return;
+            }
+
+            let html = '<div class="file-list">';
+            files.forEach(file => {
+                const name = String(file.name || '');
+                const safeName = escapeHtml(name);
+                const jsName = JSON.stringify(name);
+                const sizeKb = Math.round((file.size || 0) / 1000);
+
+                html += `<div class="file-item">
+                    <div class="file-row">
+                        <div class="file-name">${safeName}</div>
+                        <button class="btn btn-primary file-btn" onclick='downloadReport(${jsName})'>Download</button>
+                    </div>
+                    <div class="file-row">
+                        <div class="file-size">Size: ${sizeKb} kB</div>
+                        <button class="btn btn-primary file-btn" onclick='archiveReport(${jsName})'>Archive</button>
+                    </div>
+                </div>`;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function downloadReport(filename) {
+            window.location = '/api/download?file=' + encodeURIComponent('/calibration_reports/' + filename);
+        }
+
+        function archiveReport(filename) {
+            if (!confirm('Archive report ' + filename + '?')) return;
+            fetch('/api/reports/archive?file=' + encodeURIComponent(filename), { method: 'POST' })
+                .then(r => r.json().then(j => ({ok:r.ok, json:j})))
+                .then(res => {
+                    refreshReports();
+                    if (!res.ok || !res.json || !res.json.ok) {
+                        alert('Report archive failed.');
+                    }
+                })
+                .catch(err => {
+                    console.error('Report archive error:', err);
+                    alert('Report archive error.');
+                });
+        }
+
         function updateSDInfo() {
             fetch('/api/info')
                 .then(r => r.json())
@@ -192,18 +266,36 @@ R"rawliteral(        function deleteFile(filename) {
         function setButtonWarning(id, warning) {
             const btn = document.getElementById(id);
             if (!btn) return;
-            btn.classList.toggle('btn-warning', !!warning);
-            btn.classList.toggle('btn-primary', !warning);
+
+            // Start buttons become Cancel while a calibration is running.
+            // Cancel is not the corrective action for a missing calibration,
+            // so the active/Cancel state must override the amber warning cue.
+            const isCancel = (btn.dataset && btn.dataset.active === '1') ||
+                             (btn.textContent && btn.textContent.trim() === 'Cancel');
+            const showWarning = !!warning && !isCancel;
+
+            btn.classList.toggle('btn-warning', showWarning);
+            btn.classList.toggle('btn-primary', !showWarning);
         }
 
         function updateMaintenanceButtonState(data) {
             // Match the device UI convention: a button leading to a required
             // configuration/calibration action is amber instead of blue.
-            const calRequired = !(data && data.sensor_valid && data.installation_valid);
+            const sensorRequired = !(data && data.sensor_valid);
+            const installRequired = !(data && data.installation_valid);
+            const calRequired = sensorRequired || installRequired;
             setButtonWarning('btnHomeMaintenance', calRequired);
             setButtonWarning('btnMaintenanceUnlock', calRequired);
-            setButtonWarning('btnMenuRecorderCal', !(data && data.sensor_valid));
-            setButtonWarning('btnMenuInstallCal', !(data && data.installation_valid));
+            setButtonWarning('btnMenuRecorderCal', sensorRequired);
+            setButtonWarning('btnMenuInstallCal', installRequired);
+
+            // Apply the same rule inside the calibration pages.  Disabled
+            // buttons still appear grey because .btn:disabled takes precedence,
+            // but when Start/Save becomes enabled it keeps the amber action cue.
+            setButtonWarning('btnStart', sensorRequired);
+            setButtonWarning('btnSave', sensorRequired);
+            setButtonWarning('btnInstallStart', installRequired);
+            setButtonWarning('btnInstallSave', installRequired);
         }
 
         function fmtBool(v) {

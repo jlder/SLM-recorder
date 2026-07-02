@@ -3,7 +3,7 @@
 
 /**
  * @file src/services/calibration_store.h
- * @brief Persistent storage for the latest accelerometer calibration.
+ * @brief Persistent storage for recorder calibration history and installation calibration.
  */
 
 #pragma once
@@ -48,6 +48,12 @@ bool calibration_store_load(calibration_record_t *out);
  */
 bool calibration_store_save_latest(const calibration_record_t *rec);
 
+bool calibration_store_load_reference(calibration_record_t *out);
+bool calibration_store_save_reference(const calibration_record_t *rec);
+bool calibration_store_load_candidate(calibration_record_t *out);
+bool calibration_store_save_candidate(const calibration_record_t *rec);
+bool calibration_store_load_installation(installation_calibration_t *out);
+
 /**
  * Return the stored calibration-fault latch.
  *
@@ -55,9 +61,10 @@ bool calibration_store_save_latest(const calibration_record_t *rec);
  *   none
  *
  * Return:
- *   true if a calibration plausibility fault is latched, false otherwise.
+ *   true if a calibration fault is latched, false otherwise.
  */
 bool calibration_store_fault_get(void);
+calibration_fault_reason_t calibration_store_fault_reason_get(void);
 
 /**
  * Store or clear the calibration-fault latch.
@@ -69,6 +76,7 @@ bool calibration_store_fault_get(void);
  *   true if written successfully, false otherwise.
  */
 bool calibration_store_fault_set(bool fault);
+bool calibration_store_fault_reason_set(calibration_fault_reason_t reason);
 
 /**
  * Clear all calibration data stored in the calibration Preferences namespace.
@@ -80,6 +88,24 @@ bool calibration_store_fault_set(bool fault);
  *   true if the namespace was cleared successfully, false otherwise.
  */
 bool calibration_store_clear(void);
+
+/**
+ * Clear recorder calibration history and recorder calibration fault state while
+ * preserving the stored installation calibration. This is a support-only action.
+ *
+ * Parameters:
+ *   none
+ *
+ * Return:
+ *   true if the recorder calibration keys were removed successfully, false otherwise.
+ */
+bool calibration_store_clear_recorder(void);
+
+/**
+ * Clear only the stored installation calibration. This is a support-only action.
+ * Recorder calibration history and fault state are preserved.
+ */
+bool calibration_store_clear_installation(void);
 
 #ifdef __cplusplus
 }

@@ -2,12 +2,25 @@
  * HEALTH AND FIRMWARE-UPDATE PAGES
  * Static HTML for watchdog diagnostic and OTA firmware upload pages.
  *
- * Byte-stability rule: this file contains one raw string literal fragment.
+ * Byte-stability rule: this file contains adjacent string literal fragments.
  * Do not add comments or whitespace inside the raw string literal
  * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
 R"rawliteral(        <div id="healthSection" class="hidden section">
+            <div class="card workflow-card">
+                <h2>About</h2>
+                <div>Software version: <span class="mono">)rawliteral" RECORDER_SOFTWARE_VERSION R"rawliteral(</span></div>
+                <div>Hardware version: <span class="mono">)rawliteral" RECORDER_HARDWARE_VERSION R"rawliteral(</span></div>
+            </div>
+
+            <div class="controls cal-actions">
+                <button class="btn btn-primary" onclick="supportDownloadData()">Download Support Data</button>
+                <button class="btn btn-primary" onclick="supportClearRecorderCalibration()">Clear Recorder Calibration</button>
+                <button class="btn btn-primary" onclick="supportClearInstallationCalibration()">Clear Installation Calibration</button>
+            </div>
+            <div id="aboutSupportStatus" class="small">Support actions require support authorization.</div>
+
             <div id="watchdogDiagPanel" class="card">
                 <h2>Watchdog Diagnostic</h2>
                 <div id="watchdogDiagText" class="small mono">Loading...</div>

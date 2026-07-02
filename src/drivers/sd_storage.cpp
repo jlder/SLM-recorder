@@ -131,6 +131,8 @@ static const char* sd_norm_sdmmc_path_(const char *in, char *out, size_t out_sz)
  * Inputs: None.
  * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
  */
+static bool sd_ensure_calibration_reports_dir_(void);
+
 static bool sd_card_access_ok(void) {
   if (SD_MMC.cardType() == CARD_NONE) {
     return false;
@@ -578,6 +580,35 @@ void sd_storage_download_end(void) {
   s_download_offset = 0u;
 }
 
+/** Write a complete text file into /calibration_reports from SD-task context. */
+bool sd_storage_write_text_file(const char *path, const char *text, uint32_t len){
+  if(sd_check_present() != ERR_NONE) return false;
+  if((path == nullptr) || (text == nullptr)) return false;
+  if(s_file || s_download_file) return false;
+
+  char tmp[SD_STORAGE_PATH_MAX];
+  const char *p = sd_norm_sdmmc_path_(path, tmp, sizeof(tmp));
+  if(p == nullptr) return false;
+
+  if(strncmp(p, "/calibration_reports/", 21) != 0){
+    return false;
+  }
+
+  if(!sd_ensure_calibration_reports_dir_()){
+    return false;
+  }
+
+  File f = SD_MMC.open(p, FILE_WRITE);
+  if(!f){
+    return false;
+  }
+
+  const size_t wr = (len > 0u) ? f.write((const uint8_t*)text, (size_t)len) : 0u;
+  f.flush();
+  f.close();
+  return wr == (size_t)len;
+}
+
 static bool sd_path_is_root_file_(const char *p){
   if((p == nullptr) || (p[0] != '/') || (p[1] == '\0')){
     return false;
@@ -603,6 +634,24 @@ static bool sd_path_is_processed_file_(const char *p){
 
   // Only a direct child of /processed is accepted.  This prevents directory
   // traversal and keeps this API limited to archived recorder files.
+  return (strchr(name, '/') == nullptr) &&
+         (strcmp(name, ".") != 0) &&
+         (strcmp(name, "..") != 0);
+}
+
+static bool sd_path_is_calibration_report_file_(const char *p){
+  static const char prefix[] = "/calibration_reports/";
+  const size_t prefix_len = sizeof(prefix) - 1u;
+
+  if((p == nullptr) || (strncmp(p, prefix, prefix_len) != 0)){
+    return false;
+  }
+
+  const char *name = p + prefix_len;
+  if(name[0] == '\0'){
+    return false;
+  }
+
   return (strchr(name, '/') == nullptr) &&
          (strcmp(name, ".") != 0) &&
          (strcmp(name, "..") != 0);
@@ -691,6 +740,17 @@ static bool sd_ensure_processed_dir_(void){
   }
 
   return SD_MMC.mkdir("/processed");
+}
+
+static bool sd_ensure_calibration_reports_dir_(void){
+  File d = SD_MMC.open("/calibration_reports");
+  if(d){
+    const bool is_dir = d.isDirectory();
+    d.close();
+    return is_dir;
+  }
+
+  return SD_MMC.mkdir("/calibration_reports");
 }
 
 
@@ -904,8 +964,9 @@ error_code_t sd_open_record_daily(const char *prefix){
 
 
 /**
- * Archive a root-level file by moving it into /processed.  Name collisions are
- * resolved by appending _N before the extension.
+ * Archive a root-level recording file or calibration report by moving it into
+ * /processed.  Name collisions are resolved by appending _N before the
+ * extension.
  *
  * Inputs: `path`.
  * Returns: `true` when the file was moved; otherwise `false`.
@@ -918,7 +979,8 @@ bool sd_storage_archive_to_processed(const char *path) {
   const char *src = sd_norm_sdmmc_path_(path, src_tmp, sizeof(src_tmp));
   if(src == nullptr) return false;
 
-  if(!sd_path_is_root_file_(src)){
+  if((!sd_path_is_root_file_(src)) &&
+     (!sd_path_is_calibration_report_file_(src))){
     return false;
   }
 
@@ -1029,19 +1091,21 @@ bool sd_storage_list_json(const char *dir_path, char *out_json, uint32_t out_cap
     return false;
   }
 
-  // Web file management lists either the root recording area or /processed.
-  // Other directories are intentionally not exposed through the Web API.
+  // Web file management lists the root recording area, /processed, or the
+  // calibration report folder. Other directories are intentionally not exposed
+  // through the Web API.
   const bool list_root = (strcmp(dir, "/") == 0);
   const bool list_processed = (strcmp(dir, "/processed") == 0);
-  if((!list_root) && (!list_processed)){
+  const bool list_reports = (strcmp(dir, "/calibration_reports") == 0);
+  if((!list_root) && (!list_processed) && (!list_reports)){
     return false;
   }
 
   File root = SD_MMC.open(dir);
   if(!root){
-    // /processed is created on first archive operation.  Before that, the
-    // maintenance delete page simply has no files to show.
-    return list_processed;
+    // /processed and /calibration_reports are created on first use. Before
+    // that, the corresponding maintenance pages simply have no files to show.
+    return list_processed || list_reports;
   }
 
   if(!root.isDirectory()){

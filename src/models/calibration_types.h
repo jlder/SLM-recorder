@@ -60,6 +60,11 @@ typedef struct {
   float offset_y_mg;
   float offset_z_mg;
 
+  bool temperature_valid;
+  float temperature_c;
+  float temperature_min_c;
+  float temperature_max_c;
+
   calibration_face_capture_t face[CAL_FACE_COUNT];
 } sensor_calibration_t;
 
@@ -78,6 +83,24 @@ typedef enum {
   CAL_STATUS_EXPIRED,
   CAL_STATUS_FAULT
 } calibration_status_t;
+
+typedef enum {
+  CAL_FAULT_NONE = 0,
+  CAL_FAULT_PLAUSIBILITY,
+  CAL_FAULT_DELTA
+} calibration_fault_reason_t;
+
+typedef enum {
+  CAL_SAVE_OK = 0,
+  CAL_SAVE_NOT_READY,
+  CAL_SAVE_TEMP_UNAVAILABLE,
+  CAL_SAVE_TEMP_RANGE,
+  CAL_SAVE_TEMP_UNSTABLE,
+  CAL_SAVE_PLAUSIBILITY_FAULT,
+  CAL_SAVE_DELTA_FAULT,
+  CAL_SAVE_NEED_REPEAT,
+  CAL_SAVE_STORAGE_FAILED
+} calibration_save_result_t;
 
 #ifdef __cplusplus
 }
