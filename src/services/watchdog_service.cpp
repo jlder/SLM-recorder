@@ -40,9 +40,8 @@ static bool s_prefs_open = false;
 static bool s_fault_handling = false;
 static watchdog_entry_t s_wd[WD_COUNT];
 
-// Persistent diagnostic format version.  Older records are ignored so stale
-// NVS data from previous watchdog algorithms cannot be displayed as a current
-// Health-page diagnostic after a firmware update.
+// Persistent diagnostic format version.  Stored watchdog records are accepted
+// only when their version matches the current diagnostic schema.
 static const uint8_t WATCHDOG_DIAG_RECORD_VERSION = 1u;
 
 static portMUX_TYPE s_wd_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -271,9 +270,8 @@ bool watchdog_persistent_fault_present(void){
     return false;
   }
 
-  // Ignore active latches from older diagnostic formats.  This prevents a
-  // stale fault stored before a watchdog algorithm change from forcing the
-  // device into FATAL WDG/CLR after the update.
+  // Ignore active latches whose stored format does not match the current
+  // watchdog diagnostic schema.
   return watchdog_persistent_diag_valid_() &&
          s_prefs.getBool(WATCHDOG_PREFS_KEY, false);
 }

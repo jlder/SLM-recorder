@@ -29,7 +29,7 @@ static XPowersPMU s_pmu;
  * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
  */
 bool pmu_drv_init(void) {
-  // Prototype: PMU.begin(Wire, AXP2101_ADDRESS, IIC_SDA, IIC_SCL);
+  // Initialize the AXP2101 PMU on the board I2C bus.
   if (!s_pmu.begin(Wire, AXP2101_ADDRESS, IIC_SDA, IIC_SCL)) {
     return false;
   }
@@ -111,24 +111,6 @@ bool pmu_read_usb_present(bool* out_present){
  */
 bool pmu_is_usb_connected(void) {
   return s_pmu.isVbusIn();
-}
-
-
-/**
- * PMU battery low performs the pmu driver operation represented by this
- * function and keeps the module state consistent with recorder ownership
- * rules.
- *
- * Inputs: None.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
- */
-bool pmu_battery_low(void) {
-  int16_t pct = 0;
-  if(!pmu_read_battery_percent(&pct)){
-    // Invalid sample: caller decides how to handle error.
-    return false;
-  }
-  return ((uint16_t)pct <= (uint16_t)PMU_BATT_LOW_THRESHOLD_PCT) && !pmu_is_usb_connected();
 }
 
 

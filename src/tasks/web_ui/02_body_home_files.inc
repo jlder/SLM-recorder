@@ -9,11 +9,13 @@
 
 R"rawliteral(<body>
     <div class="container">
+        <!-- Shared page header. JavaScript updates pageTitle and statusBadge. -->
         <div class="header">
             <h1 id="pageTitle">SLM Recorder</h1>
             <span id="statusBadge"></span>
         </div>
 
+        <!-- Main landing page. Maintenance is amber when calibration is required. -->
         <div id="homeSection" class="section">
             <h2>Main Menu</h2>
             <div class="button-grid main-menu-grid">
@@ -22,6 +24,7 @@ R"rawliteral(<body>
             </div>
         </div>
 
+        <!-- File-management page. JavaScript fills SD info, file rows, and analysis output. -->
         <div id="filesSection" class="hidden">
             <div class="info-bar">
                 <span class="info-item">SD Card: <span class="info-value" id="sdSize">-</span></span>
@@ -38,6 +41,7 @@ R"rawliteral(<body>
             <div id="fileListContainer">
                 <div class="loading">Loading files...</div>
             </div>
+            <!-- Analysis window is hidden until a binary file is downloaded for browser-side decoding. -->
             <div id="flightAnalysisWindow" class="analysis-window hidden">
                 <h2>SLM Flight Analysis</h2>
                 <div id="flightAnalysisStatus" class="small">No analysis available.</div>

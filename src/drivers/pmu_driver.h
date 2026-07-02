@@ -51,12 +51,3 @@ bool pmu_read_usb_present(bool* out_present);
  * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
  */
 bool pmu_is_usb_connected(void);
-
-/**
- * @brief PMU battery low.
- *
- * Inputs: None.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
- */
-bool pmu_battery_low(void);
-

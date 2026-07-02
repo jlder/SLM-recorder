@@ -8,6 +8,7 @@
  ******************************************************************************/
 
 R"rawliteral(    <style>
+        /* Global page shell and base typography. */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: Arial, sans-serif;
@@ -51,6 +52,9 @@ R"rawliteral(    <style>
         h2 { font-size: 18px; margin: 2px 0 8px; }
         p { margin: 6px 0; line-height: 1.35; }
         .hidden { display: none; }
+
+        /* Shared button colors: blue for normal actions, amber for required
+           maintenance/calibration actions, green for returns, grey when disabled. */
         .btn {
             padding: 7px 10px;
             margin: 2px;
@@ -72,15 +76,9 @@ R"rawliteral(    <style>
             padding: 10px 12px;
             margin: 8px 0;
         }
-        .delete-warning-window {
-            border: 1px solid #f1c40f;
-            background: #fff8e1;
-            color: #5d4600;
-            border-radius: 8px;
-            padding: 10px 12px;
-            margin: 8px 0;
-        }
         .btn-return { background: #27ae60; color: white; }
+
+        /* File, report, and processed-delete lists use the same compact rows. */
         input[type="password"], input[type="file"] {
             max-width: 100%;
             min-height: 40px;
@@ -105,6 +103,8 @@ R"rawliteral(    <style>
             overflow-wrap: anywhere;
         }
         .file-size { font-size: 13px; color: #555; }
+
+        /* Browser-side flight-analysis panel shown after a recorder file download. */
         .analysis-window {
             border: 1px solid #3498db;
             background: #eef7ff;
@@ -173,6 +173,8 @@ R"rawliteral(    <style>
             width: 22px;
             height: 22px;
         }
+
+        /* Calibration tables and face chips display live recorder/installation status. */
         .cal-table {
             width: 100%;
             border-collapse: collapse;
@@ -225,6 +227,7 @@ R"rawliteral(    <style>
         .face-chip-ok { color: #27ae60; border-color: #27ae60; }
         .face-chip-active { border-width: 4px; padding: 2px 4px; }
 
+        /* Button grids keep maintenance and calibration actions usable on touch screens. */
         .button-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(120px, 180px));
@@ -267,6 +270,7 @@ R"rawliteral(    <style>
             font-size: 16px;
             margin: 8px 0;
         }
+        /* Log/status windows for calibration and support actions. */
         pre {
             white-space: pre-wrap;
             background: #2c3e50;
@@ -277,6 +281,7 @@ R"rawliteral(    <style>
             overflow: auto;
             font-size: 13px;
         }
+        /* Narrow-screen adjustments for phone use when connected to the recorder AP. */
         @media (max-width: 600px) {
             body { padding: 6px; font-size: 15px; }
             .container { border-radius: 6px; }

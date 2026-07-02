@@ -78,8 +78,7 @@ void watchdog_set_required(watchdog_source_t source, bool required);
 void watchdog_service_check(void);
 
 /**
- * Reports whether a persistent watchdog fault was stored before the previous
- * shutdown.
+ * Reports whether a persistent watchdog fault is stored in NVS.
  *
  * Inputs: None.
  * Returns: `true` when the persistent watchdog fault flag is present.

@@ -79,13 +79,6 @@ bool usb_present(bool* out_present);
  */
 bool battery_percent(uint8_t* out_percent);
 /**
- * @brief Battery low.
- *
- * Inputs: None.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
- */
-bool battery_low(void);
-/**
  * @brief Shutdown device.
  *
  * Inputs: None.

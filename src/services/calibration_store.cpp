@@ -25,10 +25,9 @@ static bool s_cal_storage_ready = false;
 //   coverage, or key meaning must be accompanied by a matching bump of
 //   CALIBRATION_SENSOR_STORAGE_VERSION or CALIBRATION_INSTALL_STORAGE_VERSION
 //   in config.h.
-// - The load path shall reject incompatible old versions unless an explicit
-//   migration is implemented and documented. v1.14 changes recorder calibration
-//   storage and acceptance semantics; installation calibration storage remains
-//   version 1 because its payload format is unchanged.
+// - The load path shall reject incompatible versions unless an explicit
+//   migration is implemented and documented. Recorder and installation records
+//   have independent version numbers.
 static const char *KEY_SENSOR = "sensor";
 static const char *KEY_SENSOR_REF = "sensor_ref";
 static const char *KEY_SENSOR_CAND = "sensor_cand";
@@ -299,9 +298,6 @@ static bool calibration_store_save_sensor_key_(const char *key, const sensor_cal
   return (n == sizeof(stored));
 }
 
-static bool calibration_store_save_sensor_(const sensor_calibration_t *sensor){
-  return calibration_store_save_sensor_key_(KEY_SENSOR, sensor);
-}
 
 static bool calibration_store_save_installation_(const installation_calibration_t *installation){
   if((installation == nullptr) || !installation->valid || !s_cal_storage_ready){
@@ -334,16 +330,13 @@ static bool calibration_store_load_sensor_key_(const char *key, sensor_calibrati
     }
   }
 
-  // Legacy v1 records did not include mandatory temperature/history
-  // semantics. Reject them so v1.14 forces fresh recorder calibration.
+  // Reject sensor records whose stored schema does not contain all mandatory
+  // validation fields for the current recorder-calibration rules.
   return false;
 }
 
-static bool calibration_store_load_sensor_(sensor_calibration_t *out){
-  return calibration_store_load_sensor_key_(KEY_SENSOR, out);
-}
 
-static bool calibration_store_load_installation_(installation_calibration_t *out){
+bool calibration_store_load_installation(installation_calibration_t *out){
   if((out == nullptr) || !s_cal_storage_ready || !s_cal_prefs.isKey(KEY_INSTALL)){
     return false;
   }
@@ -361,9 +354,6 @@ static bool calibration_store_load_installation_(installation_calibration_t *out
   return true;
 }
 
-bool calibration_store_load_installation(installation_calibration_t *out){
-  return calibration_store_load_installation_(out);
-}
 
 bool calibration_store_init(void){
   s_cal_storage_ready = s_cal_prefs.begin(CALIBRATION_PREFS_NAMESPACE, false);
@@ -378,13 +368,13 @@ bool calibration_store_load(calibration_record_t *out){
   memset(out, 0, sizeof(*out));
   out->version = (uint32_t)CALIBRATION_RECORD_VERSION;
 
-  if(!calibration_store_load_sensor_(&out->sensor)){
+  if(!calibration_store_load_sensor_key_(KEY_SENSOR, &out->sensor)){
     return false;
   }
 
   // Installation calibration is independent. Missing/invalid installation
   // calibration shall not invalidate an otherwise valid sensor calibration.
-  (void)calibration_store_load_installation_(&out->installation);
+  (void)calibration_store_load_installation(&out->installation);
   return true;
 }
 
@@ -433,7 +423,7 @@ bool calibration_store_save_latest(const calibration_record_t *rec){
     return false;
   }
 
-  if(!calibration_store_save_sensor_(&rec->sensor)){
+  if(!calibration_store_save_sensor_key_(KEY_SENSOR, &rec->sensor)){
     return false;
   }
 
@@ -448,7 +438,7 @@ bool calibration_store_save_latest(const calibration_record_t *rec){
   // represents the physical mounting orientation and can remain valid across a
   // sensor recalibration.
 
-  // A successful calibration write clears any previous calibration fault latch.
+  // A successful calibration write clears the calibration fault latch.
   (void)calibration_store_fault_set(false);
   return true;
 }
@@ -516,9 +506,3 @@ bool calibration_store_clear_installation(void){
   return calibration_store_remove_key_if_present_(KEY_INSTALL);
 }
 
-bool calibration_store_clear(void){
-  if(!s_cal_storage_ready){
-    return false;
-  }
-  return s_cal_prefs.clear();
-}

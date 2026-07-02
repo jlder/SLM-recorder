@@ -92,7 +92,7 @@ static bool rtc_equal_allowing_1s(const rtc_datetime_t& set_time, const rtc_date
  * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
  */
 bool rtc_drv_init(void) {
-  // Prototype: rtc.begin(Wire, IIC_SDA, IIC_SCL);
+  // Initialize the PCF85063 RTC on the board I2C bus.
   s_rtc.begin(Wire, IIC_SDA, IIC_SCL);
   // The library does not return a status for begin(), so we perform a bounded
   // post-condition check by reading back the current datetime and validating

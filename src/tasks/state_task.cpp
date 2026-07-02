@@ -386,11 +386,11 @@ static void update_battery_snapshot(void){
   s_st.battery_percent_valid = ok;
   if(ok){
     s_st.battery_percent = pct;
+    s_battery_low_cached = ((uint16_t)pct <= (uint16_t)PMU_BATT_LOW_THRESHOLD_PCT);
   } else {
+    s_battery_low_cached = false;
     error_manager_raise(ERR_PMU_FAULT);
   }
-
-  s_battery_low_cached = battery_low();
 }
 
 
@@ -481,9 +481,23 @@ static msg_id_t sd_maintenance_msg_(error_code_t err){
 }
 
 static bool low_power_on_battery_(void){
-  return s_battery_low_cached &&
-         s_st.usb_present_valid &&
-         (!s_st.usb_present);
+  if(!s_battery_low_cached){
+    return false;
+  }
+
+  // Battery threshold and USB-source detection are intentionally evaluated
+  // separately.  The low-battery threshold is based only on the battery
+  // percentage; this function then decides whether the recorder is operating
+  // from battery using the state-task USB snapshot.  This prevents Web/WiFi
+  // USB-removal handling from masking battery protection.
+  if(s_st.usb_present_valid){
+    return !s_st.usb_present;
+  }
+
+  // If the latest USB read is invalid, use the last published USB level.  When
+  // the last known state is absent, continue with battery protection rather
+  // than keeping the recorder alive on a low battery.
+  return !s_st.usb_present;
 }
 
 /**

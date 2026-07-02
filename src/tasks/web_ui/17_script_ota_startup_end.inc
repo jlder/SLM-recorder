@@ -7,7 +7,8 @@
  * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
-R"rawliteral(        function otaUpload() {
+R"rawliteral(        // Upload one firmware image to the recorder and keep the user informed during transfer.
+        function otaUpload() {
             const fileInput = document.getElementById('otaFile');
             const status = document.getElementById('otaStatus');
             const button = document.getElementById('btnOtaUpload');
@@ -63,6 +64,8 @@ R"rawliteral(        function otaUpload() {
             xhr.send(form);
         }
 
+        // Low-rate background refresh keeps badges and required-action colors current
+        // even when the user is not on a live calibration page.
         setInterval(updateStatus, 5000);
         setInterval(calStatus, 5000);
 

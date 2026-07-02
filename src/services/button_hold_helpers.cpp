@@ -54,7 +54,7 @@ static inline TickType_t ms_to_ticks_(uint32_t ms)
  */
 static bool read_power_pressed_(void)
 {
-  // Matches the board wiring used by the existing prototype.
+  // Match the board wiring: power button active level is HIGH.
   return (digitalRead(GPIO_POWER_BUTTON) == HIGH);
 }
 

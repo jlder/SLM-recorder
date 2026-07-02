@@ -19,17 +19,13 @@
 #include "config.h"
 
 // FT3168 / FT3x68 register subset used by this firmware.
-#define FT3168_REG_XH            0x03u
-#define FT3168_REG_XL            0x04u
-#define FT3168_REG_YH            0x05u
-#define FT3168_REG_YL            0x06u
-#define FT3168_REG_POWER_MODE    0xA5u
-
-// DriveBus initializes FT3x68 by writing 0xA5 = 0x01, then delaying 20 ms.
-// The retry delay is kept longer to tolerate Arduino IDE upload/reset startup.
-#define TOUCH_INIT_POST_WRITE_DELAY_MS 50u
-#define TOUCH_INIT_RETRY_DELAY_MS      250u
-#define TOUCH_INIT_ATTEMPTS            4u
+// These are driver-internal register addresses; operational touch timing
+// remains configured in config.h.
+static constexpr uint8_t FT3168_REG_XH = 0x03u;
+static constexpr uint8_t FT3168_REG_XL = 0x04u;
+static constexpr uint8_t FT3168_REG_YH = 0x05u;
+static constexpr uint8_t FT3168_REG_YL = 0x06u;
+static constexpr uint8_t FT3168_REG_POWER_MODE = 0xA5u;
 
 static volatile bool s_touch_ready = false;
 static volatile bool s_touch_irq_pending = false;
@@ -105,9 +101,8 @@ static bool ft3168_read_u8_(uint8_t reg, uint8_t *out) {
  *          initialization write.
  */
 static bool ft3168_init_attempt_(void) {
-  // Match the DriveBus FT3x68 initialization behavior used by the previous
-  // implementation.  The previous code passed DRIVEBUS_DEFAULT_VALUE as reset
-  // pin, so DriveBus did not toggle TP_RESET.
+  // Initialize the FT3168 through its power-mode register.  TP_RESET is not
+  // driven by this driver path.
   if(!ft3168_write_u8_(FT3168_REG_POWER_MODE, 0x01u)){
     return false;
   }

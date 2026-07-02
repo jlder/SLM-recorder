@@ -11,10 +11,10 @@
 
 /*******************************************************************************
  * UI HELPERS v2 - UNIFIED & SIMPLIFIED
- * 
+ *
  * Single button helper, single label helper - parameterized for flexibility
  * Type-safe roller creation with constants
- * 
+ *
  * Version: 1.11
  * Date: 2026-01-24
  ******************************************************************************/
@@ -41,17 +41,17 @@ typedef enum {
     ROLLER_HOUR,          // 00-23
     ROLLER_MINUTE,        // 00-59
     ROLLER_SECOND,        // 00-59
-    
+
     // Character sets
     ROLLER_ALPHA_UPPER,   // A-Z
     ROLLER_ALPHA_LOWER,   // a-z
     ROLLER_ALPHA_MIXED,   // A-Z + a-z
-    
+
     // Application-specific
     ROLLER_REG_CHAR,      // Space + 0-9 + A-Z
     ROLLER_PWD_CHAR,      // 0-9 + a-z + A-Z
     ROLLER_ALPHANUM,      // Space + 0-9 + A-Z + a-z
-    
+
     ROLLER_CUSTOM
 } RollerType;
 
@@ -68,7 +68,7 @@ typedef struct {
 
 /**
  * Create a button with label - ONE FUNCTION FOR ALL BUTTONS
- * 
+ *
  * @param parent Parent screen
  * @param text Button label text
  * @param text_style Text style (or use font directly with NULL style)
@@ -82,16 +82,16 @@ typedef struct {
  * @param bg_color Background color
  * @param enabled Initial enabled state
  * @return Button object pointer
- * 
+ *
  * Examples:
  *   // Action button (160×70)
- *   createButton(screen, "SAVE", NULL, FONT_LARGE, 160, 70, 
+ *   createButton(screen, "SAVE", NULL, FONT_LARGE, 160, 70,
  *                LV_ALIGN_BOTTOM_LEFT, 30, -30, save_cb);
- * 
+ *
  *   // Menu button (340×80)
  *   createButton(screen, "SETTINGS", &style_huge, NULL, 340, 80,
  *                LV_ALIGN_TOP_MID, 0, 170, settings_cb);
- * 
+ *
  *   // Main MENU button (200×80)
  *   createButton(screen, "MENU", &style_huge, NULL, 200, 80,
  *                LV_ALIGN_TOP_MID, 0, 140, menu_cb);
@@ -111,22 +111,13 @@ lv_obj_t* createButton(
     bool enabled = true
 );
 
-// Convenience wrappers for common button types
-#define createActionButton(parent, text, style, align, x, y, cb, color) \
-    createButton(parent, text, style, NULL, BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT, \
-                 align, x, y, cb, color, true)
-
-#define createMenuButton(parent, text, style, y_offset, cb) \
-    createButton(parent, text, style, NULL, BTN_MENU_WIDTH, BTN_MENU_HEIGHT, \
-                 LV_ALIGN_TOP_MID, 0, y_offset, cb, lv_palette_main(LV_PALETTE_BLUE), true)
-
 // =============================================================================
 // UNIFIED LABEL HELPER
 // =============================================================================
 
 /**
  * Create a label - ONE FUNCTION FOR ALL LABELS
- * 
+ *
  * @param parent Parent screen
  * @param text Label text
  * @param text_style Text style (or NULL to use font directly)
@@ -137,16 +128,16 @@ lv_obj_t* createButton(
  * @param width Label width (0 = auto)
  * @param text_align Text alignment (LV_TEXT_ALIGN_LEFT/CENTER/RIGHT)
  * @return Label object pointer
- * 
+ *
  * Examples:
  *   // Title (centered, 32pt)
  *   createLabel(screen, "SET DATE", NULL, FONT_MEDIUM,
  *               LV_ALIGN_TOP_MID, 0, 20, 0, LV_TEXT_ALIGN_CENTER);
- * 
+ *
  *   // Field label (smaller, 24pt)
  *   createLabel(screen, "Year", &style_large, NULL,
  *               LV_ALIGN_TOP_MID, -130, 70, 0, LV_TEXT_ALIGN_CENTER);
- * 
+ *
  *   // Status (large, 36pt, centered, wide)
  *   createLabel(screen, "", NULL, FONT_LARGE,
  *               LV_ALIGN_BOTTOM_MID, 0, -25, 380, LV_TEXT_ALIGN_CENTER);
@@ -163,10 +154,6 @@ lv_obj_t* createLabel(
     lv_text_align_t text_align = LV_TEXT_ALIGN_LEFT,
     int16_t letter_spacing = 0
 );
-
-// Convenience wrappers
-#define createScreenTitle(parent, text, y_offset) \
-    createLabel(parent, text, NULL, FONT_MEDIUM, LV_ALIGN_TOP_MID, 0, y_offset, 0, LV_TEXT_ALIGN_CENTER, 0)
 
 // =============================================================================
 // ROLLER FUNCTIONS
@@ -280,21 +267,21 @@ typedef struct {
 
 /**
  * Create battery graphic component
- * 
+ *
  * Creates a vertical battery indicator with:
  * - 4-bar level indicator (color coded)
  * - Percentage text below
  * - Lightning symbol when charging
- * 
+ *
  * @param parent Parent screen
  * @param x_offset X position from LV_ALIGN_BOTTOM_LEFT
  * @param y_offset Y position from LV_ALIGN_BOTTOM_LEFT (negative = up from bottom)
  * @param battery Output structure (store for later updates)
- * 
+ *
  * @req UI-BATT-001 Battery graphic shall display level with 4 bars
  * @req UI-BATT-002 Battery graphic shall show percentage text
  * @req UI-BATT-003 Battery graphic shall indicate charging state
- * 
+ *
  * Example:
  *   static BatteryGraphic battery_graphic;
  *   createBatteryGraphic(main_screen, 30, -95, &battery_graphic);
@@ -309,20 +296,20 @@ void createBatteryGraphic(
 
 /**
  * Update battery graphic display
- * 
+ *
  * Updates bars, percentage, and charging indicator based on current state
- * 
+ *
  * Color coding:
  * - 76-100%: Green (4 bars)
  * - 51-75%: Yellow (3 bars)
  * - 26-50%: Orange (2 bars)
  * - 0-25%: Red (1 bar)
  * - Charging: Purple lightning indicator; battery bars keep level color
- * 
+ *
  * @param battery Battery graphic structure
  * @param battery_percent Battery percentage (0-100)
  * @param is_charging True if charging detected
- * 
+ *
  * Example:
  *   int level = safeBatteryPercent();
  *   bool charging = safeIsVbusIn();
@@ -354,33 +341,33 @@ enum StatusPriority {
 
 /**
  * Status Message Manager - Centralized status message handling with priorities
- * 
+ *
  * Features:
  * - Priority-based message system
  * - Automatic expiry for temporary messages
  * - Blinking support
  * - Color coding
  * - Thread-safe (LVGL is single-threaded)
- * 
+ *
  * Example:
  *   StatusManager statusMgr;
  *   statusMgr.setLabel(lbl_status);
- *   
+ *
  *   // Temporary notification (2 seconds)
  *   statusMgr.setStatus(STATUS_PRIO_NOTIFICATION, "Date saved",
  *                       lv_palette_main(LV_PALETTE_DEEP_PURPLE), false, 2000);
- *   
+ *
  *   // Persistent state (until cleared)
  *   statusMgr.setStatus(STATUS_PRIO_CRITICAL, "RECORDING",
  *                       lv_palette_main(LV_PALETTE_RED), true);
- *   
+ *
  *   // In main loop
  *   statusMgr.update(blink_state);
  */
 class StatusManager {
 private:
     lv_obj_t* lbl_status;
-    
+
     // Current status
     StatusPriority current_priority;
     char current_message[32];
@@ -388,55 +375,55 @@ private:
     bool current_blink;
     uint32_t expiry_time;
     bool show_immediately;  // NEW: Force show on next update (fixes blink timing)
-    
+
 public:
     StatusManager();
-    
+
     /**
      * Set the status label to manage
      * Call once during initialization
      */
     void setLabel(lv_obj_t* label);
-    
+
     /**
      * Set status message with priority
      * Only updates if priority >= current priority or current has expired
-     * 
+     *
      * @param priority Message priority
      * @param msg Message text (max 31 chars)
      * @param color Text color
      * @param blink True to blink the message
      * @param duration_ms Duration in milliseconds (0 = permanent until cleared)
      */
-    void setStatus(StatusPriority priority, const char* msg, 
+    void setStatus(StatusPriority priority, const char* msg,
                    lv_color_t color, bool blink = false, uint32_t duration_ms = 0);
-    
+
     /**
      * Update display (call from main loop)
      * Handles blinking and expiry
-     * 
+     *
      * @param blink_state Current blink state (true/false, toggles each second)
      */
     void update(bool blink_state);
-    
+
     /**
      * Clear status (only if priority matches or is lower)
-     * 
+     *
      * @param priority Priority to clear
      */
     void clear(StatusPriority priority);
-    
+
     /**
      * Force clear (clears regardless of priority)
      * Use with caution!
      */
     void forceClear();
-    
+
     /**
      * Get current priority (for external checks)
      */
     StatusPriority getPriority() const { return current_priority; }
-    
+
     /**
      * Check if status is active
      */

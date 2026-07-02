@@ -70,7 +70,6 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | Configuration | Current value | Requirement use |
 |---|---:|---|
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
-| `DISPLAY_BRIGHTNESS_DIMMED` | 60 | legacy dimmed-brightness value; not used by the current display-off standby implementation |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
 | `RECORDER_SOFTWARE_VERSION` | `1.14` | version text displayed on device |
@@ -163,6 +162,9 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `PMU_BATT_PCT_MAX_RETRIES` | 3 | PMU battery percentage read retries |
 | `PMU_USB_MAX_RETRIES` | 3 | PMU USB status read retries |
 | `TOUCH_READ_MAX_RETRIES` | 3 | touch read retries |
+| `TOUCH_INIT_POST_WRITE_DELAY_MS` | 50 ms | delay after the FT3168 initialization write |
+| `TOUCH_INIT_RETRY_DELAY_MS` | 250 ms | delay between FT3168 initialization attempts |
+| `TOUCH_INIT_ATTEMPTS` | 4 | maximum FT3168 initialization attempts |
 | `RTC_READ_MAX_RETRIES` | 3 | RTC read retries |
 | `WATCHDOG_TIMEOUT_MS` | 3000 ms | software watchdog timeout |
 | `WATCHDOG_CHECK_PERIOD_MS` | 1000 ms | watchdog checker period |

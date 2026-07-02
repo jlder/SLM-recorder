@@ -23,13 +23,6 @@ typedef enum {
 
 
 /**
- * @brief SD begin.
- *
- * Inputs: None.
- * Returns: `ERR_NONE` on success; otherwise an error code that explains the failure.
- */
-error_code_t sd_begin(void);
-/**
  * @brief SD end.
  *
  * Inputs: None.

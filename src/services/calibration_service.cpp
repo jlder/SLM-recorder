@@ -485,9 +485,6 @@ void calibration_service_latch_fault_reason(calibration_fault_reason_t reason){
   calibration_apply_driver_state_();
 }
 
-void calibration_service_latch_fault(void){
-  calibration_service_latch_fault_reason(CAL_FAULT_PLAUSIBILITY);
-}
 
 /**
  * Cancels calibration sessions during a generic field reset.
@@ -1268,12 +1265,10 @@ static void installation_session_service_(uint32_t now_ms){
 
   s_install_valid_windows++;
 
-  // Installation calibration represents the recorder attitude now, while the
-  // glider is held in its reference flight-level attitude.  Unlike the
-  // six-face accelerometer calibration, do not retain a best-ever/lowest-noise
-  // matrix from an earlier physical position.  Every stable rolling window
-  // becomes the current candidate, and Save is allowed only while the current
-  // rolling window remains stable.
+  // Installation calibration represents the current recorder attitude while the
+  // glider is held in its reference flight-level attitude.  Each stable rolling
+  // window becomes the candidate; Save is allowed only while the current window
+  // is stable.
   s_install_candidate_valid = true;
   s_install_candidate_mean = mean;
   s_install_candidate_stddev = stddev;
@@ -1397,8 +1392,8 @@ bool calibration_session_get_status(calibration_sample_status_t *out){
 }
 
 /**
- * Legacy manual-accept hook retained for compatibility; current auto-capture
- * workflow does not require per-face manual acceptance.
+ * Accept the currently detected recorder-calibration face, if one is available.
+ * The normal workflow stores stable face captures automatically.
  *
  * Inputs: None.
  * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
@@ -1406,8 +1401,8 @@ bool calibration_session_get_status(calibration_sample_status_t *out){
 bool calibration_session_accept_candidate(void){
   CalibrationLockGuard_ guard;
 
-  // Manual acceptance is retained for API compatibility. The rolling-window
-  // service now stores valid face captures automatically.
+  // Automatic rolling-window capture is the normal recorder-calibration path;
+  // this endpoint accepts the current candidate when explicitly requested.
   if(!s_session_active || !s_candidate_valid){
     return false;
   }
@@ -1659,8 +1654,8 @@ bool calibration_session_save_with_result(calibration_record_t *out_saved, calib
     rec.installation = s_active_cal.installation;
   }
 
-  // Migration path: if an active calibration existed before reference/history
-  // records were introduced, store that active calibration as the reference.
+  // If a latest calibration record exists but no reference record exists,
+  // initialize the reference record from the latest record.
   if(s_active_loaded && !s_reference_loaded){
     (void)calibration_store_save_reference(&s_active_cal);
   }
@@ -1694,11 +1689,6 @@ bool calibration_session_save_with_result(calibration_record_t *out_saved, calib
   }
 
   return true;
-}
-
-bool calibration_session_save(calibration_record_t *out_saved){
-  calibration_save_result_t result = CAL_SAVE_NOT_READY;
-  return calibration_session_save_with_result(out_saved, &result);
 }
 
 
@@ -1737,10 +1727,8 @@ bool calibration_installation_session_get_status(installation_calibration_status
   const uint32_t candidate_age_ms =
       (s_install_last_update_ms == 0u) ? 0u : (uint32_t)(now_ms - s_install_last_update_ms);
 
-  // For installation calibration the candidate is valid only while the current
-  // rolling window is stable.  Do not keep a time-aged stable candidate for
-  // Save, because that would permit saving an attitude captured before the
-  // recorder was moved.
+  // For installation calibration, Save is valid only while the current rolling
+  // window is stable.  An unstable window invalidates the candidate immediately.
   const bool current_candidate_valid =
       s_install_session_active &&
       s_latest_stable &&

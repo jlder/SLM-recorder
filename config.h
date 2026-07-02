@@ -30,6 +30,9 @@
 #define PMU_BATT_LOW_THRESHOLD_PCT 5u
 #define TOUCH_READ_MAX_RETRIES   3
 #define RTC_READ_MAX_RETRIES     3
+#define TOUCH_INIT_POST_WRITE_DELAY_MS 50u
+#define TOUCH_INIT_RETRY_DELAY_MS      250u
+#define TOUCH_INIT_ATTEMPTS            4u
 
 // Packet format
 #define PACKET_SYNC_BYTE     0x55
@@ -60,7 +63,6 @@
 
 // Display brightness management
 #define DISPLAY_BRIGHTNESS_ACTIVE      255u
-#define DISPLAY_BRIGHTNESS_DIMMED      60u
 #define DISPLAY_DIM_TIMEOUT_MS         10000u
 
 // Accelerometer calibration
@@ -96,10 +98,10 @@
 
 
 // Product version displayed on the device main screen.
-// Hardware version identifies the recorder hardware/prototype revision.
-// Software version is incremented during prototype development and before release.
+// Hardware version identifies the recorder hardware configuration.
+// Software version identifies the firmware build.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.14"
+#define RECORDER_SOFTWARE_VERSION      "1.15"
 #define RECORDER_VERSION_TEXT          "sw ver " RECORDER_SOFTWARE_VERSION "\nhw ver " RECORDER_HARDWARE_VERSION
 
 // Storage / SD

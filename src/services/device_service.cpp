@@ -138,19 +138,6 @@ bool battery_percent(uint8_t* out_percent){
 }
 
 /**
- * Battery low performs the device service operation represented by this
- * function and keeps the module state consistent with recorder ownership
- * rules.
- *
- * Inputs: None.
- * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
- */
-bool battery_low(void){
-  return pmu_ok ? pmu_battery_low() : false;
-}
-
-
-/**
  * Shutdown device performs the device service operation represented by this
  * function and keeps the module state consistent with recorder ownership
  * rules.

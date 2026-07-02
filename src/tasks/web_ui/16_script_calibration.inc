@@ -7,7 +7,9 @@
  * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
-R"rawliteral(        function calStatus() {
+R"rawliteral(        // Global calibration status refresh. This drives menu dates, amber action cues,
+        // top status text, and stored-calibration status fields.
+        function calStatus() {
             fetch('/api/cal/status')
                 .then(r => r.json())
                 .then(data => {
@@ -37,6 +39,7 @@ R"rawliteral(        function calStatus() {
                 .catch(err => console.error(err));
         }
 
+        // High-rate polling is enabled only while a live calibration page is visible.
         function startCalPolling() {
             if (calPoll) return;
             calPoll = setInterval(function(){
@@ -54,6 +57,7 @@ R"rawliteral(        function calStatus() {
             }
         }
 
+        // Reset recorder-calibration controls when leaving/entering the page.
         function resetAccelCalUi() {
             clearAccelCalMeasurementUi();
             calRecorderSaveMessageSticky = false;
@@ -76,6 +80,7 @@ R"rawliteral(        function calStatus() {
             document.getElementById('btnInstallSave').disabled = true;
         }
 
+        // Recorder-calibration display helpers.
         function faceIndexFromName(name) {
             const names = ['+X','-X','+Y','-Y','+Z','-Z'];
             return names.indexOf(name);
@@ -108,6 +113,7 @@ R"rawliteral(        function calStatus() {
             return Number(v).toFixed(1) + ' °C';
         }
 
+        // Display the temperature gate that must be satisfied before recorder calibration can be saved.
         function updateCalibrationTemperature(data) {
             const available = !!data.temperature_available;
             const stable = !!data.temperature_stable;
@@ -132,6 +138,7 @@ R"rawliteral(        function calStatus() {
             document.getElementById('calSensorTemp').textContent = text;
         }
 
+        // Render the six recorder faces with active and completed state.
         function updateFaceSummary(faceValid, activeIdx, active) {
             const names = ['+X', '-X', '+Y', '-Y', '+Z', '-Z'];
             const parts = [];
@@ -157,6 +164,7 @@ R"rawliteral(        function calStatus() {
             document.getElementById('calFaceSummary').innerHTML = parts.join('');
         }
 
+        // Update candidate and stored recorder-calibration gain/offset values.
         function updateResultTable(data) {
             setRecorderStartButton(!!data.active, false);
             const temperatureOk = !!data.temperature_available && !!data.temperature_in_range && !!data.temperature_stable;
@@ -174,6 +182,7 @@ R"rawliteral(        function calStatus() {
             }
         }
 
+        // Poll the live recorder-calibration session. The service keeps best captures per face.
         function calSample() {
             fetch('/api/cal/sample')
                 .then(r => r.json().then(j => ({ok:r.ok, status:r.status, json:j})))
@@ -215,6 +224,7 @@ R"rawliteral(        function calStatus() {
                 .catch(err => logCal('Recorder calibration communication error: ' + err));
         }
 
+        // Start or cancel recorder calibration depending on the current Start/Cancel button state.
         function calStart() {
             const start = document.getElementById('btnStart');
             if (start && start.dataset.active === '1') {
@@ -257,6 +267,8 @@ R"rawliteral(        function calStatus() {
                 });
         }
 
+        // Save the recorder calibration result. The server decides whether this is a first pass,
+        // confirmed pass, drift rejection, or failure and returns the matching reason.
         function calSave() {
             const save = document.getElementById('btnSave');
             save.disabled = true;
@@ -312,6 +324,7 @@ R"rawliteral(        function calStatus() {
                 });
         }
 
+        // Support actions are grouped on the About page and require an additional support code.
         function aboutStatus(text) {
             const el = document.getElementById('aboutSupportStatus');
             if (el) el.textContent = text;
@@ -361,6 +374,7 @@ R"rawliteral(        function calStatus() {
         }
 
 
+        // Installation-calibration display and action helpers.
         function logInstall(text) {
             const el = document.getElementById('installLog');
             if (!el) return;
@@ -373,6 +387,7 @@ R"rawliteral(        function calStatus() {
             return Number(v).toFixed(2) + '°';
         }
 
+        // Convert an installation rotation matrix into pitch/roll correction angles for display.
         function installAnglesFromMatrix(matrix) {
             if (!Array.isArray(matrix) || matrix.length < 9) return null;
             const m00 = Number(matrix[0]);
@@ -396,6 +411,7 @@ R"rawliteral(        function calStatus() {
             return { pitch: pitch, roll: roll };
         }
 
+        // Display both the current stable candidate and the stored NVS installation calibration.
         function updateInstallAngles(data) {
             const candidate = data.candidate_valid ? installAnglesFromMatrix(data.matrix) : null;
             const stored = data.stored_valid ? installAnglesFromMatrix(data.stored_matrix) : null;
@@ -422,6 +438,8 @@ R"rawliteral(        function calStatus() {
             return fmtAge(Date.now() - startMs);
         }
 
+        // Poll the live installation session. Only the current stable rolling window is saveable.
+        // Overlapping requests are skipped so an older response cannot overwrite newer state.
         function installSample() {
             if (installSampleRequestActive) return;
             installSampleRequestActive = true;
@@ -445,6 +463,7 @@ R"rawliteral(        function calStatus() {
                 .then(() => { installSampleRequestActive = false; });
         }
 
+        // Start or cancel installation calibration depending on the current Start/Cancel button state.
         function installStart() {
             const start = document.getElementById('btnInstallStart');
             if (start && start.dataset.active === '1') {
@@ -497,6 +516,7 @@ R"rawliteral(        function calStatus() {
             window.location = '/api/cal/report/installation/latest';
         }
 
+        // Save the current stable installation candidate with the selected maintenance reason.
         function installSave() {
             const save = document.getElementById('btnInstallSave');
             const reasonEl = document.getElementById('installReason');

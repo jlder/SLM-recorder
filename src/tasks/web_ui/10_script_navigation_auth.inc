@@ -8,6 +8,8 @@
  ******************************************************************************/
 
 R"rawliteral(    <script>
+        // Shared client-side state for the single-page interface.
+        // Page sections are static HTML; navigation only hides/shows sections and starts/stops polling.
         let allFiles = [];
         let processedFiles = [];
         let reportFiles = [];
@@ -20,6 +22,9 @@ R"rawliteral(    <script>
         let calRecorderSaveMessageSticky = false;
         let installSampleRequestActive = false;
 
+        // -----------------------------------------------------------------
+        // Page navigation
+        // -----------------------------------------------------------------
         function setPageTitle(title) {
             document.getElementById('pageTitle').textContent = title;
         }
@@ -150,6 +155,9 @@ R"rawliteral(    <script>
             refreshProcessedFiles();
         }
 
+        // -----------------------------------------------------------------
+        // Maintenance authentication and common API helpers
+        // -----------------------------------------------------------------
         function calUnlock() {
             const password = document.getElementById('calPassword').value || '';
             const status = document.getElementById('calAuthStatus');
@@ -183,6 +191,11 @@ R"rawliteral(    <script>
             return JSON.stringify(obj, null, 2);
         }
 
+        // -----------------------------------------------------------------
+        // Shared calibration-button state
+        // Start buttons become Cancel while the matching calibration is active.
+        // Warning color is handled separately by updateMaintenanceButtonState().
+        // -----------------------------------------------------------------
         function setRecorderStartButton(active, busy) {
             const start = document.getElementById('btnStart');
             if (!start) return;
@@ -213,6 +226,7 @@ R"rawliteral(    <script>
             }
         }
 
+        // Clear only live measurement fields. Stored-calibration dates are refreshed by calStatus().
         function clearAccelCalMeasurementUi() {
             document.getElementById('calStatus').textContent = '-';
             document.getElementById('calSamplesProcessed').textContent = '0';
@@ -238,6 +252,7 @@ R"rawliteral(    <script>
             }
         }
 
+        // POST helper used by maintenance actions that return JSON and may fail if auth expired.
         function postJson(url) {
             return fetch(url, { method: 'POST' }).then(r => r.json().then(j => {
                 const res = {ok:r.ok, status:r.status, json:j};

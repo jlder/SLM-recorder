@@ -36,13 +36,9 @@
 // the AsyncWebServer listener is intentionally created and started once.
 //
 // Important lifecycle note:
-// Tests on the target ESP32-S3 / Arduino / AsyncWebServer / AsyncTCP stack
-// showed that calling AsyncWebServer::end() after real HTTP traffic prevents
-// the port-80 server from dispatching requests after a later begin(), although
-// AP association, DHCP, raw TCP, and AsyncWebServer on other ports still work.
-// Therefore this module does not call end() or delete/recreate the server during
-// normal Web OFF.  Web OFF only disables the SoftAP and clears application-side
-// locks/state.
+// On the selected ESP32-S3 / Arduino / AsyncWebServer / AsyncTCP stack, the
+// supported Web OFF lifecycle is to disable the SoftAP and clear application
+// locks/state while keeping the port-80 listener allocated and started.
 static AsyncWebServer *s_server = nullptr;
 static bool s_server_routes_registered = false;
 static bool s_server_listener_started = false;
@@ -601,9 +597,6 @@ static String rtc_date_json_(const rtc_datetime_t& dt){
   return web_snprintf_ok_(n, sizeof(buf)) ? String(buf) : String("{}");
 }
 
-static String cal_record_date_json_(const calibration_record_t& rec){
-  return rtc_date_json_(rec.sensor.timestamp);
-}
 
 
 static void cal_append_sensor_csv_(String& out, const char *role, const calibration_record_t& rec){
@@ -717,9 +710,8 @@ static void register_routes(){
     request->send_P(200, "text/html", HTML_PAGE);
   });
 
-  // Lightweight health-check endpoint.  This route is intentionally kept even
-  // in production builds because it is useful to verify AP, DHCP, and HTTP
-  // reachability without loading the full HTML page.
+  // Lightweight health-check endpoint for AP, DHCP, and HTTP reachability
+  // without loading the full HTML page.
   s_server->on("/diag", HTTP_GET, [](AsyncWebServerRequest *request){
     char buf[256];
     const IPAddress ap_ip = WiFi.softAPIP();
@@ -822,7 +814,7 @@ static void register_routes(){
     });
 
 
-  // API endpoints expected by the embedded HTML interface (prototype-compatible)
+  // API endpoints used by the embedded HTML interface.
   s_server->on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
     const system_status_t st = state_task_get_status();
     const bool recording = (st.state == ST_RECORDING) || (st.state == ST_STARTING) || (st.state == ST_STOPPING);
@@ -1061,7 +1053,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
       request->send(403, "application/json", "{\"ok\":false,\"reason\":\"not_authorized\"}");
       return;
     }
-    // Prototype UI sends ?file=... as query parameter.
+    // Browser UI sends ?file=... as query parameter.
     // AsyncWebServer: for POST query params may appear as "file" (query string)
     // or "file" in body; accept either.
     if(!request->hasParam("file") && !request->hasParam("file", true)){
@@ -1076,7 +1068,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(ok ? 200 : 403, "application/json", ok ? "{\"ok\":true,\"archived\":true}" : "{\"ok\":false}");
   });
 
-  
+
 
 
   s_server->on("/api/reports/files", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -1391,7 +1383,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     out += ",\"nvs_result_available\":";
     out += nvs_result_ok ? "true" : "false";
     out += ",\"nvs_date\":";
-    out += nvs_result_ok ? cal_record_date_json_(stored_result) : "{}";
+    out += nvs_result_ok ? rtc_date_json_(stored_result.sensor.timestamp) : "{}";
     out += ",\"nvs_result\":";
     out += nvs_result_ok ? cal_record_axis_result_json_(stored_result) : "[]";
     out += "}";
@@ -1830,9 +1822,8 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
 /**
  * Ensure that the persistent AsyncWebServer object exists and has its routes.
  *
- * The server is intentionally allocated once and reused for the lifetime of
- * the recorder.  It is not deleted on Web OFF because the tested AsyncTCP /
- * AsyncWebServer stack does not restart port 80 reliably after end().
+ * The server is allocated once and reused for the lifetime of the recorder.
+ * Web OFF disables the SoftAP but leaves the HTTP listener running.
  *
  * Inputs: None.
  * Returns: `true` when the server object is ready; otherwise `false`.
@@ -1856,9 +1847,8 @@ static bool ensure_server_ready_(){
  * Starts the WiFi access point and, on the first successful Web ON, starts the
  * persistent HTTP listener.
  *
- * AP enable/disable is the only lifecycle that is repeated.  The HTTP listener
- * is started once and is left alive across Web OFF cycles to avoid the observed
- * AsyncWebServer::end() restart failure on port 80 after real client traffic.
+ * AP enable/disable is the repeated lifecycle.  The HTTP listener is started
+ * once and remains alive across Web OFF cycles.
  *
  * Inputs: None.
  * Returns: None.
@@ -1873,8 +1863,8 @@ static void start_ap_and_server(){
 
   // Configure the AP address before starting the AP.
   // The Arduino WiFi layer may internally emit AP_START/AP_STOP/AP_START while
-  // applying the configuration.  This has been observed and is tolerated; the
-  // HTTP listener is kept independent of those AP-side transitions.
+  // applying the configuration; the HTTP listener is independent of those
+  // AP-side transitions.
   WiFi.softAPConfig(s_ap_ip, s_gateway, s_subnet);
 
   String ssid = make_ssid();
@@ -1900,9 +1890,8 @@ static void start_ap_and_server(){
   s_web_start_cycle++;
 
   // Give the AP/IP stack time to settle before binding the HTTP server.
-  // Poll until softAPIP() returns the configured address, or give up after
-  // AP_START_TIMEOUT_MS and proceed anyway.  This reduces the observed window
-  // where the AP is joinable but HTTP is not immediately reachable.
+  // Poll until softAPIP() returns the configured address, or proceed after
+  // AP_START_TIMEOUT_MS to keep Web startup bounded.
   static const uint32_t AP_START_TIMEOUT_MS = 3000u;
   static const uint32_t AP_START_POLL_MS    = 10u;
   const uint32_t t0 = (uint32_t)millis();
@@ -1925,10 +1914,8 @@ static void start_ap_and_server(){
 /**
  * Stops Web availability by disabling the SoftAP and clearing Web-side state.
  *
- * The AsyncWebServer listener is deliberately left running.  Calling
- * AsyncWebServer::end() after real HTTP traffic was proven to break later
- * port-80 dispatch on the tested stack, while leaving the listener alive and
- * toggling only the AP allowed repeated Web ON/OFF cycles to work.
+ * The AsyncWebServer listener remains running while Web availability is
+ * controlled by the SoftAP and application-side authorization state.
  *
  * Inputs: None.
  * Returns: None.

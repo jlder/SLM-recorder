@@ -7,7 +7,8 @@
  * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
-R"rawliteral(        function refreshFiles() {
+R"rawliteral(        // Root recorder-file list. Refresh also updates SD, recording, and calibration badges.
+        function refreshFiles() {
             fetch('/api/files')
                 .then(r => r.json())
                 .then(data => {
@@ -23,6 +24,7 @@ R"rawliteral(        function refreshFiles() {
                 });
         }
 
+        // Escape text before inserting file names or diagnostic strings into generated HTML.
         function escapeHtml(text) {
             return String(text)
                 .replace(/&/g, '&amp;')
@@ -32,6 +34,7 @@ R"rawliteral(        function refreshFiles() {
                 .replace(/'/g, '&#39;');
         }
 
+        // Build the visible root file list. File names are preserved for API calls and shortened only for display.
         function displayFiles(files) {
             const container = document.getElementById('fileListContainer');
             document.getElementById('fileCount').textContent = files.length;
@@ -64,6 +67,7 @@ R"rawliteral(        function refreshFiles() {
             container.innerHTML = html;
         }
 
+        // Download one binary recording, save it locally, then analyze the same buffer in the browser.
         function downloadFile(filename) {
             const status = document.getElementById('flightAnalysisStatus');
             const panel = document.getElementById('flightAnalysisWindow');
@@ -82,7 +86,6 @@ R"rawliteral(        function refreshFiles() {
                 setProgress('downloadProgressBar', 'downloadProgressText', percent, text);
             })
                 .then(buffer => {
-                    const downloadMs = performance.now() - downloadStartMs;
                     setProgress(
                         'downloadProgressBar',
                         'downloadProgressText',
@@ -108,6 +111,7 @@ R"rawliteral(        function refreshFiles() {
                 });
         }
 
+        // XMLHttpRequest is used here because fetch does not provide simple progress callbacks.
         function downloadFileBuffer(filename, progressCb) {
             return new Promise(function(resolve, reject) {
                 const xhr = new XMLHttpRequest();
@@ -143,6 +147,7 @@ R"rawliteral(        function refreshFiles() {
             });
         }
 
+        // Shared progress-bar helper for download and analysis progress.
         function setProgress(barId, textId, percent, text) {
             const bar = document.getElementById(barId);
             const label = document.getElementById(textId);
@@ -160,10 +165,12 @@ R"rawliteral(        function refreshFiles() {
         }
 
 
+        // Yield to the browser so long analysis steps do not freeze the page completely.
         function analysisYield() {
             return new Promise(resolve => setTimeout(resolve, 0));
         }
 
+        // Local browser save helpers. The recorder is not involved after the buffer has arrived.
         function saveDownloadedBuffer(filename, buffer) {
             const blob = new Blob([buffer], { type: 'application/octet-stream' });
             saveBlobFile(filename, blob);
@@ -180,6 +187,7 @@ R"rawliteral(        function refreshFiles() {
             setTimeout(() => URL.revokeObjectURL(url), 30000);
         }
 
+        // Render the compact flight-time table from the normalized analysis result.
         function showFlightAnalysis(filename, analysis) {
             const status = document.getElementById('flightAnalysisStatus');
             const table = document.getElementById('flightAnalysisTable');
@@ -237,9 +245,8 @@ R"rawliteral(        function refreshFiles() {
         // Both decoders produce the same internal acceleration timeline:
         //   { absMs, axG, ayG, azG }
         //
-        // The flight analysis is common to both formats and implements the
-        // Python method used during development: HIRMS (>3 Hz), LOWRMS
-        // (0.5..3 Hz), FlightGround = normalized LOWRMS - normalized HIRMS,
+        // The flight analysis is common to both formats: HIRMS (>3 Hz),
+        // LOWRMS (0.5..3 Hz), FlightGround = normalized LOWRMS - normalized HIRMS,
         // hysteresis flight/ground state, then roll-phase timing from
         // normalized HIRMS thresholds.
         // ---------------------------------------------------------------------

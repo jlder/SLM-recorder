@@ -84,7 +84,6 @@ bool calibration_service_get_installation(installation_calibration_t *out);
  * Return:
  *   none.
  */
-void calibration_service_latch_fault(void);
 void calibration_service_latch_fault_reason(calibration_fault_reason_t reason);
 
 /**
@@ -248,7 +247,6 @@ bool calibration_session_compute(calibration_record_t *out);
  * Return:
  *   true if calibration was saved, false otherwise.
  */
-bool calibration_session_save(calibration_record_t *out_saved);
 bool calibration_session_save_with_result(calibration_record_t *out_saved, calibration_save_result_t *out_result);
 
 typedef struct {

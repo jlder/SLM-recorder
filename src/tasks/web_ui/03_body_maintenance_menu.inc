@@ -7,7 +7,9 @@
  * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
-R"rawliteral(        <div id="maintenanceSection" class="hidden section">
+R"rawliteral(        <!-- Protected maintenance area. JavaScript switches between this login panel and the unlocked menu. -->
+        <div id="maintenanceSection" class="hidden section">
+            <!-- Registration/password gate for calibration, support, delete, report, and OTA actions. -->
             <div id="calAuthPanel" class="card">
                 <h2>Maintenance Access</h2>
                 <p><b>Maintenance is restricted.</b> Enter the recorder registration to unlock calibration and firmware update functions.</p>
@@ -19,6 +21,7 @@ R"rawliteral(        <div id="maintenanceSection" class="hidden section">
                 <div id="calAuthStatus" class="small">Locked.</div>
             </div>
 
+            <!-- Unlocked maintenance menu. Calibration buttons show last saved dates and amber required-action cues. -->
             <div id="calMenuPanel" class="hidden">
                 <div class="button-grid maintenance-grid">
                     <div class="cal-menu-item">

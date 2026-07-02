@@ -7,7 +7,8 @@
  * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
-R"rawliteral(        <div id="healthSection" class="hidden section">
+R"rawliteral(        <!-- About/support page. Support actions require an additional support authorization code. -->
+        <div id="healthSection" class="hidden section">
             <div class="card workflow-card">
                 <h2>About</h2>
                 <div>Software version: <span class="mono">)rawliteral" RECORDER_SOFTWARE_VERSION R"rawliteral(</span></div>
@@ -21,6 +22,7 @@ R"rawliteral(        <div id="healthSection" class="hidden section">
             </div>
             <div id="aboutSupportStatus" class="small">Support actions require support authorization.</div>
 
+            <!-- Watchdog diagnostic exposes the last supervision fault captured by firmware. -->
             <div id="watchdogDiagPanel" class="card">
                 <h2>Watchdog Diagnostic</h2>
                 <div id="watchdogDiagText" class="small mono">Loading...</div>
@@ -31,6 +33,7 @@ R"rawliteral(        <div id="healthSection" class="hidden section">
             </div>
         </div>
 
+        <!-- OTA page. Upload is deliberately simple: one firmware .bin file posted to /api/ota. -->
         <div id="otaSection" class="hidden section">
             <div class="card workflow-card">
                 <p><b>USB power is required for firmware update.</b></p>

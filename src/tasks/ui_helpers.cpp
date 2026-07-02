@@ -595,7 +595,7 @@ void createBatteryGraphic(
     // NOTE: bar fill logic is handled in updateBatteryGraphic().
     for (int i = 0; i < 4; i++) {
         battery->bars[i] = lv_obj_create(battery->container);
-        // Match prototype sizing
+        // Apply standard battery-segment sizing.
         lv_obj_set_size(battery->bars[i], 22, 15);
         lv_obj_align(battery->bars[i], LV_ALIGN_TOP_MID, 0, 2 + (i * 18));
         lv_obj_set_style_border_width(battery->bars[i], 0, 0);

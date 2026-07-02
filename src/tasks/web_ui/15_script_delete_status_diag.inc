@@ -7,7 +7,8 @@
  * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
-R"rawliteral(        function deleteFile(filename) {
+R"rawliteral(        // Archive a root recording into /processed. Permanent deletion is handled on the processed page.
+        function deleteFile(filename) {
             if (!confirm('Archive ' + filename + '?')) return;
             fetch('/api/delete?file=' + encodeURIComponent(filename), { method: 'POST' })
                 .then(r => r.json())
@@ -18,6 +19,7 @@ R"rawliteral(        function deleteFile(filename) {
                 .catch(err => console.error('Delete error:', err));
         }
 
+        // Load files/reports already in /processed for permanent deletion.
         function refreshProcessedFiles() {
             const status = document.getElementById('processedDeleteStatus');
             const container = document.getElementById('processedFileListContainer');
@@ -54,7 +56,7 @@ R"rawliteral(        function deleteFile(filename) {
             }
 
             let html = '<div class="file-list">';
-            files.forEach((file, index) => {
+            files.forEach(file => {
                 const name = String(file.name || '');
                 const safeName = escapeHtml(name);
                 const sizeKb = Math.round((file.size || 0) / 1000);
@@ -68,6 +70,7 @@ R"rawliteral(        function deleteFile(filename) {
             container.innerHTML = html;
         }
 
+        // Read selected processed-file checkboxes built by displayProcessedFiles().
         function selectedProcessedFiles() {
             return Array.from(document.querySelectorAll('.processed-delete-check:checked'))
                 .map(cb => cb.value)
@@ -78,6 +81,7 @@ R"rawliteral(        function deleteFile(filename) {
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
+        // Delete one /processed item with bounded retry for transient SD-operation conflicts.
         function deleteProcessedOne(name, attempt) {
             const tryNumber = attempt || 1;
             return fetch('/api/processed/delete?file=' + encodeURIComponent(name), {
@@ -92,10 +96,9 @@ R"rawliteral(        function deleteFile(filename) {
                 })))
                 .then(res => {
                     // The recorder accepts only one SD-backed web operation at a
-                    // time.  During bulk deletion, the next HTTP request can
-                    // occasionally reach the ESP32 before the previous request has
-                    // fully released its BUSY state.  Retry transient BUSY/failed
-                    // responses instead of declaring the whole batch failed.
+                    // time.  During bulk deletion, requests can briefly overlap
+                    // the server-side BUSY release.  Retry transient BUSY/failed
+                    // responses before declaring the batch failed.
                     const retryable = (res.status === 409) || (res.status === 500) ||
                                       (res.json && res.json.reason === 'delete_failed');
                     if ((!res.ok || !(res.json && res.json.ok)) && retryable && tryNumber < 5) {
@@ -147,8 +150,8 @@ R"rawliteral(        function deleteFile(filename) {
                         if (res.ok && res.json && res.json.ok) deleted++;
                         else failed++;
                         updateDeleteStatus('');
-                        // Give AsyncWebServer time to close/release the previous
-                        // response before the next delete request is sent.
+                        // Pace consecutive delete requests so the server-side SD
+                        // operation gate can return to idle.
                         return delayMs(75);
                     })
                     .catch(err => {
@@ -166,6 +169,7 @@ R"rawliteral(        function deleteFile(filename) {
             });
         }
 
+        // Calibration reports are listed separately from root recordings.
         function refreshReports() {
             const container = document.getElementById('reportListContainer');
             if (!container) return;
@@ -240,6 +244,7 @@ R"rawliteral(        function deleteFile(filename) {
                 });
         }
 
+        // Lightweight SD-capacity refresh used by file page updates.
         function updateSDInfo() {
             fetch('/api/info')
                 .then(r => r.json())
@@ -263,6 +268,7 @@ R"rawliteral(        function deleteFile(filename) {
                 });
         }
 
+        // Apply the amber required-action cue without overriding disabled or Cancel behavior.
         function setButtonWarning(id, warning) {
             const btn = document.getElementById(id);
             if (!btn) return;
@@ -302,6 +308,7 @@ R"rawliteral(        function deleteFile(filename) {
             return v ? 'yes' : 'no';
         }
 
+        // Render the last watchdog supervision fault, if one has been captured.
         function updateWatchdogDiag() {
             fetch('/api/watchdog')
                 .then(r => r.json())

@@ -8,6 +8,7 @@
  ******************************************************************************/
 
 R"rawliteral(
+        // Small numeric helpers shared by the browser-side analysis pipeline.
         function maxIndexInRange(data, start, end) {
             let bestIdx = -1;
             let bestVal = -Infinity;
@@ -30,6 +31,7 @@ R"rawliteral(
             return data.reduce((a, b) => Math.max(a, b), -Infinity);
         }
 
+        // Clock formatting wraps recorder milliseconds at 24 h because records store time-of-day.
         function formatClockMs(absMs) {
             let totalSeconds = Math.round(absMs / 1000.0);
             totalSeconds = ((totalSeconds % 86400) + 86400) % 86400;
@@ -47,6 +49,7 @@ R"rawliteral(
             return pad2(h) + ':' + pad2(m);
         }
 
+        // Duration formatting does not wrap at 24 h.
         function formatDurationMs(ms) {
             let totalSeconds = Math.round(ms / 1000.0);
             const h = Math.floor(totalSeconds / 3600);

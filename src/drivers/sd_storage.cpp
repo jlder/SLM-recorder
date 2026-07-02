@@ -175,7 +175,7 @@ static error_code_t sd_classify_io_fault(void) {
  * Inputs: None.
  * Returns: `ERR_NONE` on success; otherwise an error code that explains the failure.
  */
-error_code_t sd_begin(void) {
+static error_code_t sd_begin_(void) {
   SD_MMC.setPins(SDMMC_CLK, SDMMC_CMD, SDMMC_DATA);
 
   if (!SD_MMC.begin("/sdcard", true)) {
@@ -220,7 +220,7 @@ void sd_end(void) {
  */
 error_code_t sd_reinit(void) {
   sd_end();
-  return sd_begin();
+  return sd_begin_();
 }
 
 /**
@@ -799,9 +799,8 @@ static bool sd_daily_suffix_from_name_(const char *name,
   }
 
   // New daily files use a small session counter: _1.bin, _2.bin, ...
-  // Older per-recording files used a six-digit time suffix such as
-  // _103012.bin.  Limit the accepted suffix to three digits so old files are
-  // ignored instead of being mistaken for the new daily file.
+  // Accepted daily-session suffixes are one to three decimal digits.  Six-digit
+  // time suffixes are outside the daily-file naming scheme and are ignored.
   static const uint32_t DAILY_SESSION_SUFFIX_MAX = 999u;
   uint32_t value = 0u;
   uint32_t digit_count = 0u;

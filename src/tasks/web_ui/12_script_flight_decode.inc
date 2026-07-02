@@ -1,13 +1,15 @@
 /*******************************************************************************
  * SCRIPT: FLIGHT-ANALYSIS CONSTANTS AND DECODERS
- * Constants and decoders for SLM 0x70 records and supported legacy WIT packets.
+ * Constants and decoders for SLM 0x70 records and supported WIT packets.
  *
  * Byte-stability rule: this file contains one raw string literal fragment.
  * Do not add comments or whitespace inside the raw string literal
  * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
-R"rawliteral(        const SLM_ANALYSIS_FS = 20.0;
+R"rawliteral(        // Browser analysis constants. Keep these aligned with the recorder sampling rate
+        // and the validated flight-time extraction thresholds.
+        const SLM_ANALYSIS_FS = 20.0;
         const SLM_ANALYSIS_HIRMS_WINDOW_S = 4.0;
         const SLM_ANALYSIS_LOWRMS_WINDOW_S = 10.0;
         const SLM_ANALYSIS_FLIGHTGROUND_LPF_PERIOD_S = 20.0;
@@ -31,6 +33,7 @@ R"rawliteral(        const SLM_ANALYSIS_FS = 20.0;
         const WIT_PACKET_LENGTH = 11;
         const WIT_SCALE_G = 16.0 / 32768.0;
 
+        // Top-level decoder/analysis entry point used by downloadFile().
         async function analyzeRecorderFileAsync(buffer, progressCb) {
             const progress = progressCb || function(){};
 
@@ -64,6 +67,7 @@ R"rawliteral(        const SLM_ANALYSIS_FS = 20.0;
             };
         }
 
+        // Report sample-period quality using only plausible adjacent sample deltas.
         function computeSamplePeriodStats(records) {
             if (!records || records.length < 2) {
                 return { ok: false, count: 0, excluded: 0 };
@@ -131,6 +135,7 @@ R"rawliteral(        const SLM_ANALYSIS_FS = 20.0;
                 ' ms, std ' + stats.stdMs.toFixed(2) + ' ms';
         }
 
+        // Try all supported binary decoders and select the longest valid acceleration timeline.
         function decodeRecorderTimeline(buffer) {
             const slm = decodeSlmTimeline(buffer);
             const wit = decodeWitTimeline(buffer);
@@ -140,12 +145,12 @@ R"rawliteral(        const SLM_ANALYSIS_FS = 20.0;
             }
 
             // The formats use distinct packet IDs.  Select the decoder that
-            // produced the largest valid acceleration timeline.  This keeps the
-            // analysis independent of file extension and supports old WIT files
-            // directly from the phone download page.
+            // produced the largest valid acceleration timeline so analysis is
+            // independent of file extension.
             return (slm.records.length >= wit.records.length) ? slm : wit;
         }
 
+        // Decode native SLM 0x70 acceleration records with checksum and midnight rollover handling.
         function decodeSlmTimeline(buffer) {
             const bytes = new Uint8Array(buffer);
             const view = new DataView(buffer);
@@ -193,6 +198,7 @@ R"rawliteral(        const SLM_ANALYSIS_FS = 20.0;
             return { formatName: 'SLM 0x70', records: records };
         }
 
+        // Decode supported WIT packets. Time anchors are used when present; otherwise 20 Hz spacing is assumed.
         function decodeWitTimeline(buffer) {
             const bytes = new Uint8Array(buffer);
             const view = new DataView(buffer);
@@ -279,6 +285,7 @@ R"rawliteral(        const SLM_ANALYSIS_FS = 20.0;
             return ((hour * 3600 + minute * 60 + second) * 1000 + millisecond);
         }
 
+        // Common flight-detection pipeline after file-format-specific decoding.
         async function analyzeAccelerationTimelineAsync(records, progressCb) {
             const progress = progressCb || function(){};
 

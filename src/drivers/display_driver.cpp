@@ -15,7 +15,7 @@
 #include <Arduino_GFX_Library.h>
 #include "config.h"
 
-// The prototype uses CO5300 over QSPI.
+// Display controller connected through the CO5300 QSPI interface.
 static Arduino_DataBus *s_bus = nullptr;
 static Arduino_CO5300  *s_gfx = nullptr;
 extern "C" {

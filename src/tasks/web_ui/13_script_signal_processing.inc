@@ -7,7 +7,8 @@
  * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
-R"rawliteral(        function makeBiquad(type, cutoffHz, fs, q) {
+R"rawliteral(        // Fourth-order filters are built from cascaded second-order sections.
+        function makeBiquad(type, cutoffHz, fs, q) {
             const w0 = 2.0 * Math.PI * cutoffHz / fs;
             const cosw0 = Math.cos(w0);
             const sinw0 = Math.sin(w0);
@@ -37,6 +38,7 @@ R"rawliteral(        function makeBiquad(type, cutoffHz, fs, q) {
             };
         }
 
+        // Apply one direct-form IIR section to a scalar array.
         function applyBiquad(data, coeff) {
             const out = new Array(data.length);
             let x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0;
@@ -58,6 +60,7 @@ R"rawliteral(        function makeBiquad(type, cutoffHz, fs, q) {
             return out;
         }
 
+        // Forward/reverse filtering removes phase delay for event timing.
         function applyZeroPhase(data, sections) {
             const fwd = applyCascade(data, sections);
             const rev = applyCascade(fwd.slice().reverse(), sections);
@@ -78,6 +81,7 @@ R"rawliteral(        function makeBiquad(type, cutoffHz, fs, q) {
             return butterLowpass4ZeroPhase(butterHighpass4ZeroPhase(data, lowHz, fs), highHz, fs);
         }
 
+        // Centered RMS window used to estimate high-frequency and low-frequency activity.
         function movingRms(data, windowTimeS, fs) {
             const n = Math.max(1, Math.round(windowTimeS * fs));
             const half = Math.floor(n / 2);
@@ -108,6 +112,7 @@ R"rawliteral(        function makeBiquad(type, cutoffHz, fs, q) {
             return data.map(v => (v - minVal) / (maxVal - minVal));
         }
 
+        // Convert a continuous flight/ground score into a state with hysteresis.
         function calculateBooleanState(data, threshold, hysteresis) {
             const tUp = threshold + hysteresis / 2.0;
             const tDown = threshold - hysteresis / 2.0;
@@ -120,6 +125,7 @@ R"rawliteral(        function makeBiquad(type, cutoffHz, fs, q) {
             });
         }
 
+        // Pair flight/ground transitions and locate nearby activity peaks for roll timing.
         function findTransitionPeaks(booleanArray, signalToPeak, fs, windowTimeS) {
             const transitions = [];
             for (let i = 1; i < booleanArray.length; i++) {
@@ -161,6 +167,7 @@ R"rawliteral(        function makeBiquad(type, cutoffHz, fs, q) {
             return segments;
         }
 
+        // Convert transition/peak segments into takeoff roll, landing roll, and flight duration fields.
         function findRollPhases(segments, hirmsNorm, records) {
             const results = [];
 

@@ -87,7 +87,6 @@ bool calibration_store_fault_reason_set(calibration_fault_reason_t reason);
  * Return:
  *   true if the namespace was cleared successfully, false otherwise.
  */
-bool calibration_store_clear(void);
 
 /**
  * Clear recorder calibration history and recorder calibration fault state while

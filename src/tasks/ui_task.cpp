@@ -10,18 +10,10 @@
  */
 
 /*******************************************************************************
- * USER INTERFACE v1.11
- * 
- * Unified helpers, battery enhancements, bug fixes
- * 
- * Version: 1.11
- * Changes:
- * - Unified button/label helpers (one function each)
- * - Battery helper moved to ui_helpers
- * - Battery shows percentage & charging indicator
- * - Battery moved up 25px for better visibility
- * - Main screen now uses helpers
- * - Bug fixes: recording button state, status font
+ * USER INTERFACE
+ *
+ * LVGL screen construction, UI input handling, and periodic synchronization
+ * between recorder state and visible controls/messages.
  ******************************************************************************/
 
 #include <Arduino.h>
@@ -74,8 +66,6 @@ extern lv_obj_t *pwd_rollers[8];
 #include "Arduino_GFX_Library.h"
 #include "src/services/ui_message.h"
 
-#define UI_DRAW_BUF_LINES     40u
-#define UI_DRAW_BUF_MAX_WIDTH 410u
 
 static volatile bool s_touch_activity_detected = false;
 static uint32_t s_display_last_activity_ms = 0u;
@@ -632,7 +622,7 @@ static void refreshSettingsButtons(void) {
 }
 
 // =============================================================================
-// SCREEN: MAIN (NOW USING UNIFIED HELPERS!)
+// SCREEN: MAIN
 // =============================================================================
 
 /**
@@ -645,18 +635,18 @@ static void refreshSettingsButtons(void) {
 void createMainScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     main_screen = lv_obj_create(NULL);
     apply_global_background(main_screen);
-    
-    // Time label - using unified helper
+
+    // Time label.
     lbl_main_time = createLabel(main_screen, "", NULL, FONT_HUGE,
         LV_ALIGN_TOP_MID, 0, 10, 380, LV_TEXT_ALIGN_CENTER);
-    
-    // Date label - using unified helper
+
+    // Date label.
     lbl_main_date = createLabel(main_screen, "", NULL, FONT_MEDIUM,
         LV_ALIGN_TOP_MID, 0, 65, 380, LV_TEXT_ALIGN_CENTER);
 
     create_wifi_graphic_(main_screen);
-    
-    // Menu button - using unified helper (was 8 lines, now 1!)
+
+    // Main menu entry button.
     btn_main_menu = createButton(main_screen, "MENU", &style_huge, NULL,
         BTN_MAIN_WIDTH, BTN_MAIN_HEIGHT,
         LV_ALIGN_TOP_MID, 0, 105,
@@ -665,11 +655,11 @@ void createMainScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     // Hardware/software version displayed under the MENU button.
     lbl_main_version = createLabel(main_screen, RECORDER_VERSION_TEXT, NULL, FONT_SMALL,
         LV_ALIGN_TOP_MID, 0, 190, 380, LV_TEXT_ALIGN_CENTER);
-    
-    // Battery graphic - NEW: using helper with percentage & charging
+
+    // Battery graphic with percentage and charging indicator.
     createBatteryGraphic(main_screen, 30, -95, &battery_graphic);
-    
-    // Status label - using unified helper with letter spacing
+
+    // Status label with letter spacing.
     lbl_status = createLabel(main_screen, "", NULL, FONT_LARGE,
         LV_ALIGN_BOTTOM_MID, 0, -25, 380, LV_TEXT_ALIGN_CENTER, 2);
 }
@@ -710,28 +700,41 @@ void createLowBatteryScreen(lv_style_t &style_huge) {
  */
 void createMenuScreen(lv_style_t &style_huge) {
     menu_screen = lv_obj_create(NULL);
-    
-    createScreenTitle(menu_screen, "MENU", 20);
-    
-    btn_record = createMenuButton(menu_screen, "START RECORD", &style_huge, MENU_BUTTON_FIRST_Y, NULL);
+
+    (void)createLabel(menu_screen, "MENU", NULL, FONT_MEDIUM,
+                      LV_ALIGN_TOP_MID, 0, 20, 0, LV_TEXT_ALIGN_CENTER);
+
+    btn_record = createButton(menu_screen, "START RECORD", &style_huge, NULL,
+                              BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
+                              LV_ALIGN_TOP_MID, 0, MENU_BUTTON_FIRST_Y,
+                              NULL, lv_palette_main(LV_PALETTE_BLUE));
     btn_record_label = lv_obj_get_child(btn_record, 0);
     lv_obj_add_event_cb(btn_record, record_btn_event_cb, LV_EVENT_ALL, NULL);
 
-    btn_wifi = createMenuButton(menu_screen, "START WIFI", &style_huge, MENU_BUTTON_FIRST_Y + MENU_BUTTON_STEP_Y, wifi_btn_cb);
+    btn_wifi = createButton(menu_screen, "START WIFI", &style_huge, NULL,
+                            BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
+                            LV_ALIGN_TOP_MID, 0, MENU_BUTTON_FIRST_Y + MENU_BUTTON_STEP_Y,
+                            wifi_btn_cb, lv_palette_main(LV_PALETTE_BLUE));
     btn_wifi_label = lv_obj_get_child(btn_wifi, 0);
-    
-    btn_set = createMenuButton(menu_screen, "SETTINGS", &style_huge, MENU_BUTTON_FIRST_Y + (2 * MENU_BUTTON_STEP_Y), 
-        [](lv_event_t* e){ lv_scr_load(settings_menu_screen); });
-    
-    // BACK button - use createButton directly (needs green color)
-    createButton(menu_screen, "BACK", &style_huge, NULL,
-        BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
-        LV_ALIGN_TOP_MID, 0, MENU_BUTTON_FIRST_Y + (3 * MENU_BUTTON_STEP_Y),
-        [](lv_event_t*e){
-            (void)e;
-            lv_scr_load(main_screen);
-        },
-        lv_palette_main(LV_PALETTE_GREEN));
+
+    btn_set = createButton(menu_screen, "SETTINGS", &style_huge, NULL,
+                           BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
+                           LV_ALIGN_TOP_MID, 0, MENU_BUTTON_FIRST_Y + (2 * MENU_BUTTON_STEP_Y),
+                           [](lv_event_t* e){
+                               (void)e;
+                               lv_scr_load(settings_menu_screen);
+                           },
+                           lv_palette_main(LV_PALETTE_BLUE));
+
+    // BACK is a navigation action, not a corrective action, so it remains green.
+    (void)createButton(menu_screen, "BACK", &style_huge, NULL,
+                       BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
+                       LV_ALIGN_TOP_MID, 0, MENU_BUTTON_FIRST_Y + (3 * MENU_BUTTON_STEP_Y),
+                       [](lv_event_t* e){
+                           (void)e;
+                           lv_scr_load(main_screen);
+                       },
+                       lv_palette_main(LV_PALETTE_GREEN));
 }
 
 // =============================================================================
@@ -747,51 +750,69 @@ void createMenuScreen(lv_style_t &style_huge) {
  */
 void createSettingsMenuScreen(lv_style_t &style_huge) {
     settings_menu_screen = lv_obj_create(NULL);
-    
-    createScreenTitle(settings_menu_screen, "SETTINGS", 20);
-    
-    btn_settings_date = createMenuButton(settings_menu_screen, "DATE", &style_huge, 70,
-        [](lv_event_t* e){ 
-            rtc_datetime_t dt = {};
-            (void)ui_rtc_from_status(&dt);
-            int y = (int)dt.year - 2000;
-            if (y < 0) y = 0;
-            if (y > 99) y = 99;
-            lv_roller_set_selected(y_roller, y, LV_ANIM_OFF);
-            lv_roller_set_selected(mo_roller, (int)dt.month - 1, LV_ANIM_OFF);
-            lv_roller_set_selected(d_roller, (int)dt.day - 1, LV_ANIM_OFF);
-            lv_scr_load(set_date_screen);
-        });
-    
-    btn_settings_time = createMenuButton(settings_menu_screen, "TIME", &style_huge, 160,
-        [](lv_event_t* e){ 
-            rtc_datetime_t dt = {};
-            (void)ui_rtc_from_status(&dt);
-            lv_roller_set_selected(h_roller, (int)dt.hour, LV_ANIM_OFF);
-            lv_roller_set_selected(m_roller, (int)dt.min, LV_ANIM_OFF);
-            lv_scr_load(set_time_screen);
-        });
-    
-    btn_settings_reg = createMenuButton(settings_menu_screen, "REGISTRATION", &style_huge, 250,
-        [](lv_event_t* e){
-            (void)e;
-            load_registration_into_rollers();
-            lv_scr_load(set_reg_screen);
-        });
-    
-    btn_settings_wifi = createMenuButton(settings_menu_screen, "WIFI PWD", &style_huge, 340,
-        [](lv_event_t* e){
-            (void)e;
-            load_wifi_pwd_into_rollers();
-            lv_scr_load(set_wifi_pwd_screen);
-        });
-    
-    // BACK button - use createButton directly (needs green color)
-    createButton(settings_menu_screen, "BACK", &style_huge, NULL,
-        BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
-        LV_ALIGN_TOP_MID, 0, 430,
-        [](lv_event_t*e){ lv_scr_load(menu_screen); },
-        lv_palette_main(LV_PALETTE_GREEN));
+
+    (void)createLabel(settings_menu_screen, "SETTINGS", NULL, FONT_MEDIUM,
+                      LV_ALIGN_TOP_MID, 0, 20, 0, LV_TEXT_ALIGN_CENTER);
+
+    btn_settings_date = createButton(settings_menu_screen, "DATE", &style_huge, NULL,
+                                     BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
+                                     LV_ALIGN_TOP_MID, 0, 70,
+                                     [](lv_event_t* e){
+                                         (void)e;
+                                         rtc_datetime_t dt = {};
+                                         (void)ui_rtc_from_status(&dt);
+                                         int y = (int)dt.year - 2000;
+                                         if (y < 0) y = 0;
+                                         if (y > 99) y = 99;
+                                         lv_roller_set_selected(y_roller, y, LV_ANIM_OFF);
+                                         lv_roller_set_selected(mo_roller, (int)dt.month - 1, LV_ANIM_OFF);
+                                         lv_roller_set_selected(d_roller, (int)dt.day - 1, LV_ANIM_OFF);
+                                         lv_scr_load(set_date_screen);
+                                     },
+                                     lv_palette_main(LV_PALETTE_BLUE));
+
+    btn_settings_time = createButton(settings_menu_screen, "TIME", &style_huge, NULL,
+                                     BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
+                                     LV_ALIGN_TOP_MID, 0, 160,
+                                     [](lv_event_t* e){
+                                         (void)e;
+                                         rtc_datetime_t dt = {};
+                                         (void)ui_rtc_from_status(&dt);
+                                         lv_roller_set_selected(h_roller, (int)dt.hour, LV_ANIM_OFF);
+                                         lv_roller_set_selected(m_roller, (int)dt.min, LV_ANIM_OFF);
+                                         lv_scr_load(set_time_screen);
+                                     },
+                                     lv_palette_main(LV_PALETTE_BLUE));
+
+    btn_settings_reg = createButton(settings_menu_screen, "REGISTRATION", &style_huge, NULL,
+                                    BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
+                                    LV_ALIGN_TOP_MID, 0, 250,
+                                    [](lv_event_t* e){
+                                        (void)e;
+                                        load_registration_into_rollers();
+                                        lv_scr_load(set_reg_screen);
+                                    },
+                                    lv_palette_main(LV_PALETTE_BLUE));
+
+    btn_settings_wifi = createButton(settings_menu_screen, "WIFI PWD", &style_huge, NULL,
+                                     BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
+                                     LV_ALIGN_TOP_MID, 0, 340,
+                                     [](lv_event_t* e){
+                                         (void)e;
+                                         load_wifi_pwd_into_rollers();
+                                         lv_scr_load(set_wifi_pwd_screen);
+                                     },
+                                     lv_palette_main(LV_PALETTE_BLUE));
+
+    // BACK is a navigation action, not a corrective action, so it remains green.
+    (void)createButton(settings_menu_screen, "BACK", &style_huge, NULL,
+                       BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
+                       LV_ALIGN_TOP_MID, 0, 430,
+                       [](lv_event_t* e){
+                           (void)e;
+                           lv_scr_load(menu_screen);
+                       },
+                       lv_palette_main(LV_PALETTE_GREEN));
 }
 
 // =============================================================================
@@ -807,8 +828,9 @@ void createSettingsMenuScreen(lv_style_t &style_huge) {
  */
 void createSetDateScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     set_date_screen = lv_obj_create(NULL);
-    
-    createScreenTitle(set_date_screen, "SET DATE", 20);
+
+    (void)createLabel(set_date_screen, "SET DATE", NULL, FONT_MEDIUM,
+                      LV_ALIGN_TOP_MID, 0, 20, 0, LV_TEXT_ALIGN_CENTER);
 
     // Maximize roller size: 1 row up to 5 rollers, 2 rows up to 10 rollers.
     static const RollerType kTypes[3] = { ROLLER_YEAR, ROLLER_MONTH, ROLLER_DAY };
@@ -839,14 +861,19 @@ void createSetDateScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     y_roller  = rollers[0];
     mo_roller = rollers[1];
     d_roller  = rollers[2];
-    
-    createActionButton(set_date_screen, "SAVE", &style_huge, 
-        LV_ALIGN_BOTTOM_LEFT, 30, -30, save_date_cb,
-        lv_palette_main(LV_PALETTE_BLUE));
-    createActionButton(set_date_screen, "BACK", &style_huge,
-        LV_ALIGN_BOTTOM_RIGHT, -30, -30,
-        [](lv_event_t*e){ lv_scr_load(settings_menu_screen); },
-        lv_palette_main(LV_PALETTE_GREEN));
+
+    (void)createButton(set_date_screen, "SAVE", &style_huge, NULL,
+                       BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
+                       LV_ALIGN_BOTTOM_LEFT, 30, -30, save_date_cb,
+                       lv_palette_main(LV_PALETTE_BLUE));
+    (void)createButton(set_date_screen, "BACK", &style_huge, NULL,
+                       BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
+                       LV_ALIGN_BOTTOM_RIGHT, -30, -30,
+                       [](lv_event_t*e){
+                           (void)e;
+                           lv_scr_load(settings_menu_screen);
+                       },
+                       lv_palette_main(LV_PALETTE_GREEN));
 }
 
 // =============================================================================
@@ -862,8 +889,9 @@ void createSetDateScreen(lv_style_t &style_huge, lv_style_t &style_large) {
  */
 void createSetTimeScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     set_time_screen = lv_obj_create(NULL);
-    
-    createScreenTitle(set_time_screen, "SET TIME", 20);
+
+    (void)createLabel(set_time_screen, "SET TIME", NULL, FONT_MEDIUM,
+                      LV_ALIGN_TOP_MID, 0, 20, 0, LV_TEXT_ALIGN_CENTER);
 
     static const RollerType kTypes[2] = { ROLLER_HOUR, ROLLER_MINUTE };
     ui_roller_grid_layout_t lay = ui_calc_roller_grid(set_time_screen,
@@ -887,14 +915,19 @@ void createSetTimeScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     ui_create_typed_roller_grid(set_time_screen, rollers, 2, kTypes, &style_huge, &lay, nullptr);
     h_roller = rollers[0];
     m_roller = rollers[1];
-    
-    createActionButton(set_time_screen, "SAVE", &style_huge, 
-        LV_ALIGN_BOTTOM_LEFT, 30, -30, save_time_cb,
-        lv_palette_main(LV_PALETTE_BLUE));
-    createActionButton(set_time_screen, "BACK", &style_huge,
-        LV_ALIGN_BOTTOM_RIGHT, -30, -30,
-        [](lv_event_t*e){ lv_scr_load(settings_menu_screen); },
-        lv_palette_main(LV_PALETTE_GREEN));
+
+    (void)createButton(set_time_screen, "SAVE", &style_huge, NULL,
+                       BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
+                       LV_ALIGN_BOTTOM_LEFT, 30, -30, save_time_cb,
+                       lv_palette_main(LV_PALETTE_BLUE));
+    (void)createButton(set_time_screen, "BACK", &style_huge, NULL,
+                       BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
+                       LV_ALIGN_BOTTOM_RIGHT, -30, -30,
+                       [](lv_event_t*e){
+                           (void)e;
+                           lv_scr_load(settings_menu_screen);
+                       },
+                       lv_palette_main(LV_PALETTE_GREEN));
 }
 
 // =============================================================================
@@ -910,12 +943,13 @@ void createSetTimeScreen(lv_style_t &style_huge, lv_style_t &style_large) {
  */
 void createSetRegScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     set_reg_screen = lv_obj_create(NULL);
-    
-    createScreenTitle(set_reg_screen, "SET REGISTRATION", 20);
-    
-    lv_obj_t *subtitle = createLabel(set_reg_screen, "Aircraft Registration (5 chars)",
+
+    (void)createLabel(set_reg_screen, "SET REGISTRATION", NULL, FONT_MEDIUM,
+                      LV_ALIGN_TOP_MID, 0, 20, 0, LV_TEXT_ALIGN_CENTER);
+
+    (void)createLabel(set_reg_screen, "Aircraft Registration (5 chars)",
         NULL, FONT_SMALL, LV_ALIGN_TOP_MID, 0, 60, 0, LV_TEXT_ALIGN_CENTER);
-    
+
     static const RollerType kTypes[5] = { ROLLER_REG_CHAR, ROLLER_REG_CHAR, ROLLER_REG_CHAR, ROLLER_REG_CHAR, ROLLER_REG_CHAR };
     ui_roller_grid_layout_t lay = ui_calc_roller_grid(set_reg_screen,
                                                      5,
@@ -925,14 +959,19 @@ void createSetRegScreen(lv_style_t &style_huge, lv_style_t &style_large) {
                                                      /*col_gap*/8,
                                                      /*row_gap*/8);
     ui_create_typed_roller_grid(set_reg_screen, reg_rollers, 5, kTypes, &style_huge, &lay, nullptr);
-    
-    createActionButton(set_reg_screen, "SAVE", &style_huge, 
-        LV_ALIGN_BOTTOM_LEFT, 30, -30, save_reg_cb,
-        lv_palette_main(LV_PALETTE_BLUE));
-    createActionButton(set_reg_screen, "BACK", &style_huge,
-        LV_ALIGN_BOTTOM_RIGHT, -30, -30,
-        [](lv_event_t*e){ lv_scr_load(settings_menu_screen); },
-        lv_palette_main(LV_PALETTE_GREEN));
+
+    (void)createButton(set_reg_screen, "SAVE", &style_huge, NULL,
+                       BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
+                       LV_ALIGN_BOTTOM_LEFT, 30, -30, save_reg_cb,
+                       lv_palette_main(LV_PALETTE_BLUE));
+    (void)createButton(set_reg_screen, "BACK", &style_huge, NULL,
+                       BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
+                       LV_ALIGN_BOTTOM_RIGHT, -30, -30,
+                       [](lv_event_t*e){
+                           (void)e;
+                           lv_scr_load(settings_menu_screen);
+                       },
+                       lv_palette_main(LV_PALETTE_GREEN));
 }
 
 // =============================================================================
@@ -948,13 +987,13 @@ void createSetRegScreen(lv_style_t &style_huge, lv_style_t &style_large) {
  */
 void createSetWifiPwdScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     set_wifi_pwd_screen = lv_obj_create(NULL);
-    
-    lv_obj_t *title = createLabel(set_wifi_pwd_screen, "SET WIFI PASSWORD",
+
+    (void)createLabel(set_wifi_pwd_screen, "SET WIFI PASSWORD",
         NULL, &lv_font_montserrat_28, LV_ALIGN_TOP_MID, 0, 15, 0, LV_TEXT_ALIGN_CENTER);
-    
-    lv_obj_t *subtitle = createLabel(set_wifi_pwd_screen, "8 characters minimum",
+
+    (void)createLabel(set_wifi_pwd_screen, "8 characters minimum",
         NULL, FONT_SMALL, LV_ALIGN_TOP_MID, 0, 50, 0, LV_TEXT_ALIGN_CENTER);
-    
+
     static const RollerType kTypes[8] = { ROLLER_PWD_CHAR, ROLLER_PWD_CHAR, ROLLER_PWD_CHAR, ROLLER_PWD_CHAR,
                                           ROLLER_PWD_CHAR, ROLLER_PWD_CHAR, ROLLER_PWD_CHAR, ROLLER_PWD_CHAR };
     ui_roller_grid_layout_t lay = ui_calc_roller_grid(set_wifi_pwd_screen,
@@ -965,14 +1004,19 @@ void createSetWifiPwdScreen(lv_style_t &style_huge, lv_style_t &style_large) {
                                                      /*col_gap*/8,
                                                      /*row_gap*/10);
     ui_create_typed_roller_grid(set_wifi_pwd_screen, pwd_rollers, 8, kTypes, &style_huge, &lay, nullptr);
-    
-    createActionButton(set_wifi_pwd_screen, "SAVE", &style_huge, 
-        LV_ALIGN_BOTTOM_LEFT, 30, -30, save_wifi_pwd_cb,
-        lv_palette_main(LV_PALETTE_BLUE));
-    createActionButton(set_wifi_pwd_screen, "BACK", &style_huge,
-        LV_ALIGN_BOTTOM_RIGHT, -30, -30,
-        [](lv_event_t*e){ lv_scr_load(settings_menu_screen); },
-        lv_palette_main(LV_PALETTE_GREEN));
+
+    (void)createButton(set_wifi_pwd_screen, "SAVE", &style_huge, NULL,
+                       BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
+                       LV_ALIGN_BOTTOM_LEFT, 30, -30, save_wifi_pwd_cb,
+                       lv_palette_main(LV_PALETTE_BLUE));
+    (void)createButton(set_wifi_pwd_screen, "BACK", &style_huge, NULL,
+                       BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
+                       LV_ALIGN_BOTTOM_RIGHT, -30, -30,
+                       [](lv_event_t*e){
+                           (void)e;
+                           lv_scr_load(settings_menu_screen);
+                       },
+                       lv_palette_main(LV_PALETTE_GREEN));
 }
 
 // =============================================================================
@@ -993,7 +1037,7 @@ void initUI() {
         while (true) { vTaskDelay(pdMS_TO_TICKS(1000)); }
     }
 
-    
+
         s_display_last_activity_ms = (uint32_t)millis();
     s_display_standby = false;
     s_display_ignore_touch_until_release = false;
@@ -1001,29 +1045,29 @@ void initUI() {
 
 lv_init();
     lv_tick_set_cb([](){ return (uint32_t)millis(); });
-    
+
     screenWidth = gfx->width();
     screenHeight = gfx->height();
 
     // LVGL draw buffer is statically allocated (no heap).
     disp = lv_display_create(screenWidth, screenHeight);
     lv_display_set_flush_cb(disp, my_disp_flush);
-    lv_display_set_buffers(disp, disp_draw_buf, NULL, 
-        screenWidth * 40 * sizeof(lv_color_t), 
+    lv_display_set_buffers(disp, disp_draw_buf, NULL,
+        screenWidth * 40 * sizeof(lv_color_t),
         LV_DISPLAY_RENDER_MODE_PARTIAL);
-    
+
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, my_touchpad_read);
-    
+
     static lv_style_t style_huge;
     lv_style_init(&style_huge);
     lv_style_set_text_font(&style_huge, &lv_font_montserrat_34);
-    
+
     static lv_style_t style_large;
     lv_style_init(&style_large);
     lv_style_set_text_font(&style_large, &lv_font_montserrat_24);
-    
+
     createMainScreen(style_huge, style_large);
     createMenuScreen(style_huge);
     createSettingsMenuScreen(style_huge);
@@ -1032,16 +1076,16 @@ lv_init();
     createSetRegScreen(style_huge, style_large);
     createSetWifiPwdScreen(style_huge, style_large);
     createLowBatteryScreen(style_huge);
-    
+
     // Initialize status manager
     statusManager.setLabel(lbl_status);
-    
+
     // Initialize error manager (after StatusManager)
 // errorManager init omitted (baseline uses state_task status)
 
     lv_scr_load(main_screen);
     syncUIToSystemState();
-    
+
 }
 
 // =============================================================================
@@ -1347,7 +1391,7 @@ void save_date_cb(lv_event_t * e) {
 void save_time_cb(lv_event_t * e) {
     (void)e;
 
-    // Prototype rollers: h_roller, m_roller
+    // Time rollers: h_roller, m_roller.
     rtc_datetime_t dt = {};
     (void)ui_rtc_from_status(&dt);
 
@@ -1378,8 +1422,7 @@ void save_time_cb(lv_event_t * e) {
  * Returns: None.
  */
 void save_reg_cb(lv_event_t * e) {
-    // Store the registration through the settings store abstraction
-    // (keeps the on-flash representation aligned with the prototype).
+    // Store the registration through the settings store abstraction.
     static const char kRegOpts[] = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     char reg[6] = {0};
     for(int i = 0; i < 5; i++) {
@@ -1406,7 +1449,7 @@ void save_reg_cb(lv_event_t * e) {
 void save_wifi_pwd_cb(lv_event_t * e) {
     const char* pwd_chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     char password[9];
-    
+
     for(int i = 0; i < 8; i++) {
         int idx = lv_roller_get_selected(pwd_rollers[i]);
         password[i] = pwd_chars[idx];
