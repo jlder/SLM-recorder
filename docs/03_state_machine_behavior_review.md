@@ -323,7 +323,7 @@ On close request, SD task:
 
 Calibration is serviced while the device is in READY with WiFi/Web available. Recording is locked while calibration is missing/expired/faulted or while setup is incomplete. While WiFi/Web is active, the screen START RECORD action is disabled; the physical RECORD button remains an independent hardware control and can start recording after READY exit cleanup turns WiFi/Web OFF.
 
-Calibration session behavior:
+Recorder sensor calibration session behavior:
 
 1. Web Start starts a RAM-only calibration session.
 2. `state_task` periodically calls `calibration_session_service(now)`.
@@ -341,8 +341,8 @@ Calibration session behavior:
 
 Calibration Web display behavior:
 
-- progress area: status, session state, current face, samples processed on that face, lowest stddev for that face, best update count for that face, and time since the last best update;
-- face table: `Face | State | Best stddev | Updates`;
+- progress area: status, session state, current face, samples processed on that face, sensor temperature, lowest stddev for that face, best update count for that face, and time since the last best update;
+- face summary: compact six-face status using `OK` for captured faces, `ACTIVE` for the currently detected/sampled face, and `—` for missing faces;
 - states are intentionally simple: `ACTIVE` for the currently detected/sampled face, `OK` for captured faces, and `—` for missing faces;
 - result area: `Calibration: Ready / Active / Done`, NVS date, and `Axis | Gain | NVS Gain | Offset | NVS Offset`.
 
@@ -426,7 +426,7 @@ reduced, but Web file archive is available.
 
 Installation calibration is controlled from the Web interface while the recorder is in READY and Web support is enabled. Starting an installation calibration requires a valid sensor calibration because the installation workflow uses sensor-corrected samples as its input.
 
-During the installation session, the calibration service maintains a rolling sample window. When the standard deviation is below the configured stability threshold and the measured gravity magnitude is within `INSTALLATION_GRAVITY_TOL_PCT`, the service computes a 3 x 3 matrix that rotates the measured gravity vector to +Z. The installation quality metric is the quadratic sum `sqrt(stddev_x^2 + stddev_y^2 + stddev_z^2)`. If a later stable window has lower quality, the complete candidate is updated, including mean, stddev, quality, update counters, and matrix. A valid candidate does not reset the rolling window; invalid samples, unstable windows, invalid mean gravity, or matrix-computation failure reset it.
+During the installation session, the calibration service maintains a rolling sample window. When the standard deviation is below the configured stability threshold and the measured gravity magnitude is within `INSTALLATION_GRAVITY_TOL_PCT`, the service computes a 3 x 3 matrix that rotates the measured gravity vector to +Z. The installation quality metric is the quadratic sum `sqrt(stddev_x^2 + stddev_y^2 + stddev_z^2)`. Unlike sensor calibration, installation calibration does not keep the lowest-noise candidate seen since session start. Every stable rolling window becomes the current installation candidate, including mean, stddev, quality, update counters, and matrix. Save is allowed only while the current rolling window is stable; invalid samples, unstable windows, invalid mean gravity, or matrix-computation failure reset the window and invalidate Save until a new stable window is available.
 
 Sensor calibration preview/result endpoints compute candidate gains and offsets without saving to NVS and without latching recorder calibration faults. Only the save path is allowed to persist the calibration or latch a calibration plausibility fault.
 

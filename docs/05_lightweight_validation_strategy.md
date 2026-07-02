@@ -288,13 +288,13 @@ Procedure:
 2. Open Calibration tab.
 3. Press Start.
 4. Slowly rotate recorder through +X, -X, +Y, -Y, +Z, -Z.
-5. Leave recorder still on each face until its row becomes captured.
+5. Leave recorder still on each face until its face summary entry becomes captured.
 
 Expected result:
 
-- Each face row changes to captured.
-- Displayed Value/Stddev are scalar values for the face axis.
-- Current/last updated face is highlighted in blue.
+- Each face summary entry changes to OK when captured.
+- Missing faces remain plain text/—, the active face is amber until processed, and processed faces are green.
+- Displayed stddev is the dominant-axis value used for that face quality decision.
 - NVS values are shown only for comparison.
 
 ### VAL-CAL-003 — Calibration result and save
@@ -723,7 +723,7 @@ Verify that crossing the in-recording low-space threshold causes the recorder to
 
 Verify that recording is blocked after sensor calibration until installation calibration has been saved and that the device displays `INST CAL REQ` for this condition.
 
-Verify that the Web installation calibration workflow accepts stable level-attitude samples, computes a matrix, and saves it to NVS.
+Verify that the Web installation calibration workflow accepts stable level-attitude samples, computes current candidate angles/matrix, enables Save only while the current rolling window is stable, and saves the current stable candidate to NVS.
 
 Verify that a stable level-attitude sample reads approximately +1 g on corrected Z after the installation matrix is applied.
 
@@ -731,11 +731,8 @@ Verify that the 0x72 calibration block contains the saved installation calibrati
 
 ## VAL-CAL-QUALITY-001 — Calibration rolling-window quality selection
 
-Verify that recorder calibration keeps sampling a stable face after the first capture and stores an improved candidate only when the dominant face-axis noise improves. Verify that the Web page reports a simplified progress summary: validity status with NVS date when valid, session state, current face, samples processed on the current face, lowest stddev for the current face, current-face best-update count, and time since the last best update. Verify that the six-face summary shows captured faces as OK and missing faces as —, with unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. Verify that the workflow text advises leaving a face still until the last best update is more than 10 seconds old and saving when all six face values are satisfactory.
+Verify that recorder calibration keeps sampling a stable face after the first capture and stores an improved candidate only when the dominant face-axis noise improves. Verify that the Web page reports a simplified progress summary: validity status with NVS date when valid, session state, current face, samples processed on the current face, sensor temperature status, lowest stddev for the current face, current-face best-update count, and time since the last best update. Verify that the six-face summary shows captured faces as OK and missing faces as —, with unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. Verify that the workflow text tells the operator to save when all six face values are satisfactory.
 
-Verify that installation calibration keeps sampling after a valid candidate is found and updates the complete candidate, including the matrix, only when the quadratic stddev quality improves.
+Verify that installation calibration keeps sampling after a valid candidate is found and updates the complete candidate, including the matrix, from every stable rolling window rather than retaining the lowest-noise candidate from an earlier physical attitude. Verify that moving the recorder/glider makes Stability report `not stable`, hides the candidate angles, and disables Save until a new stable window is available. Verify that the Web UI reports current noise and stability while calibration is active.
 
-Verify that the Web UI progress counters continue to change while calibration is active, even when the best candidate is not improving.
-
-
-Verify that installation calibration workflow text instructs the operator to put the glider in flight-level attitude with wings leveled following the AMM procedure, confirms sensor calibration must already be valid, advises waiting until the last best update is more than 10 seconds old, and tells the operator to save when noise is satisfactory.
+Verify that installation calibration workflow text instructs the operator to put the glider in flight-level attitude with wings leveled following the AMM procedure, confirms sensor calibration must already be valid, and tells the operator to save when the current window is stable and noise is satisfactory.

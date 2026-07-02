@@ -139,7 +139,7 @@ Implementation note: the HTTP listener is created, route-registered, and started
 
 ## 8. Calibrations
 
-There is a recorder accelerometer calibration which samples accelerations on the sensor six faces to adjust gains/offsets on the 3 axis. The recorder must be placed successively on its six faces, while waiting long enough on each face to get a stable reading. There is also an installation calibration which compensate for the possible installation angles errors, the goal being for the recorder to report a z axis which is aligned with gravity when the glider is in flight attitude and wing leveled. The recorder shall be in its support in the glider when performing this calibration.
+There is a recorder accelerometer calibration which samples accelerations on the sensor six faces to adjust gains/offsets on the 3 axes. The recorder must be placed successively on its six faces while waiting for each face to show a stable capture. There is also an installation calibration which compensates for possible pitch/roll mounting-angle errors. Its goal is for the recorder to report a Z axis aligned with gravity when the glider is in flight attitude with wings leveled. The recorder shall be in its support in the glider when performing this calibration. During installation calibration, the Web page follows the current stable attitude; Save is enabled only while the current rolling window is stable.
 
 Note: the installation calibration corrects pitch/roll mounting error. Yaw around the vertical axis is not observable from gravity alone and is not corrected. Recording remains disabled until both the sensor calibration and the installation calibration are valid.
 

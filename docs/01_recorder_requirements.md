@@ -106,6 +106,11 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `CALIBRATION_GAIN_MIN` | 0.8 | minimum acceptable calibration gain |
 | `CALIBRATION_GAIN_MAX` | 1.2 | maximum acceptable calibration gain |
 | `CALIBRATION_OFFSET_ABS_MAX_MG` | 200 mg | maximum absolute calibration offset |
+| `CALIBRATION_GAIN_DELTA_MAX` | 0.05 | maximum acceptable gain delta against active/reference calibration |
+| `CALIBRATION_OFFSET_DELTA_MAX_MG` | 50 mg | maximum acceptable offset delta against active/reference calibration |
+| `CALIBRATION_TEMP_MIN_C` | 25 °C | minimum accepted sensor temperature during recorder calibration |
+| `CALIBRATION_TEMP_MAX_C` | 55 °C | maximum accepted sensor temperature during recorder calibration |
+| `CALIBRATION_TEMP_MAX_SPAN_C` | 3 °C | maximum accepted temperature span during one recorder calibration session |
 
 ### 3.5 Recording format
 
@@ -134,6 +139,9 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `SD_ERROR_REPROBE_PERIOD_MS` | 500 ms | SD error-state reprobe period |
 | `SD_FILE_OP_TIMEOUT_MS` | 2000 ms | file-management operation timeout |
 | `SD_MOUNT_PREFIX` | `/sdcard` | SD filesystem mount prefix |
+| `SD_STORAGE_PATH_MAX` | derived | maximum internal SD path buffer length |
+| `SD_FILE_LIST_JSON_ENTRY_MAX` | derived | maximum JSON size budget for one file-list entry |
+| `SD_FILE_LIST_JSON_MAX` | derived | maximum JSON size budget for the file-list API response |
 
 ### 3.7 State-machine timing and performance architecture
 
@@ -349,6 +357,9 @@ During setup lock, orange buttons shall guide the operator toward the corrective
 
 - if settings are required, MENU shall be orange and SETTINGS shall be orange;
 - if calibration is missing, expired, or faulted, MENU shall be orange and START WIFI shall be orange;
+- inside the Web calibration interface, the calibration menu entry and the enabled Start/Save action for the missing or faulted calibration shall be orange;
+- a calibration Start button that has become Cancel shall be blue because Cancel is not the corrective action;
+- disabled buttons shall remain gray even when their action would otherwise be orange;
 - setting-specific buttons shall remain orange until their setting has been saved.
 
 Status:
@@ -476,7 +487,7 @@ Status:
 
 #### OP-CAL-001 — Calibration required before recording
 
-The recorder shall not authorize recording unless a valid, non-expired calibration exists.
+The recorder shall not authorize recording unless both required calibration layers exist and are non-expired: sensor calibration and installation calibration.
 
 Status:
 
@@ -484,7 +495,7 @@ Status:
 
 #### OP-CAL-002 — Calibration through Web interface
 
-The recorder shall provide a Web interface allowing the operator to perform calibration while the recorder is not recording. The Calibration tab shall first request the recorder registration as a calibration password, then show a simple calibration menu with separate Accelerometer Calibration and Installation Calibration buttons. Each button shall display the date of the last saved calibration of that type when available. Calibration pages shall show simple live progress so the operator can see that sampling continues even when the best candidate is not improving.
+The recorder shall provide a Web interface allowing the operator to perform calibration while the recorder is not recording. The Calibration tab shall first request the recorder registration as a calibration password, then show a simple calibration menu with separate Accelerometer Calibration and Installation Calibration buttons. Each button shall display the date of the last saved calibration of that type when available. When a calibration is missing, expired, or faulted, the corresponding Web calibration menu and page action buttons shall follow the same orange corrective-action color convention as the device UI. Calibration pages shall show simple live progress so the operator can see that sampling continues during active calibration.
 
 Status:
 
@@ -514,7 +525,7 @@ Status:
 
 #### OP-CAL-005 — Calibration review and save
 
-The operator shall be able to review current calibration results and stored NVS calibration values before saving the accepted calibration. The accelerometer page shall use a simplified live progress area showing validity status with NVS date when valid, session state, current face, samples processed on that face, lowest stddev for that face, current-face update count, time since the last best update, and a compact six-face completion summary. The accelerometer workflow text shall instruct the operator to start calibration, place the recorder still on each of its six faces, wait for each face to show OK, leave the recorder on a given face until the last best update is more than 10 seconds old when practical, and save calibration when all six face values are satisfactory. The face summary shall show unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. The installation page shall show validity status with NVS date when valid, session state, samples processed, lowest noise, update count, time since the last best update, and the candidate or stored installation matrix. The installation workflow text shall direct the operator to put the glider in flight-level attitude with wings leveled following the AMM procedure, confirm sensor calibration is already valid, start calibration, leave the glider still, wait until the last best update is more than 10 seconds old when practical, and save calibration when noise is satisfactory.
+The operator shall be able to review current calibration results and stored NVS calibration values before saving the accepted calibration. The accelerometer page shall use a simplified live progress area showing validity status with NVS date when valid, session state, current face, samples processed on that face, lowest stddev for that face, current-face update count, time since the last best update, sensor temperature status, and a compact six-face completion summary. The accelerometer workflow text shall instruct the operator to start calibration, place the recorder still on each of its six faces, wait for each face to show OK, and save calibration when all six face values are satisfactory. The face summary shall show unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. The installation page shall show validity status with NVS date when valid, session state, samples processed, current noise, stability state, and the current stable candidate angles or stored installation angles. The installation workflow text shall direct the operator to put the glider in flight-level attitude with wings leveled following the AMM procedure, confirm sensor calibration is already valid, start calibration, leave the glider still, and save only when the current rolling window is stable and the noise is satisfactory.
 
 Status:
 
@@ -522,7 +533,7 @@ Status:
 
 #### OP-CAL-006 — Calibration fault recovery
 
-If calibration fails plausibility checks, the recorder shall retain the stored valid calibration. The operator shall be able to retry calibration before rejecting the recorder.
+If recorder calibration fails plausibility, temperature, or delta-against-reference checks, the recorder shall retain the stored valid active calibration. A structurally valid but rejected recorder-calibration candidate may be retained for support diagnostics. If no trusted active/reference recorder calibration exists, the first trusted-looking recorder calibration shall be stored as the reference only and a second matching calibration shall be required before it becomes the active calibration. The operator shall be able to retry calibration before rejecting the recorder.
 
 Status:
 
@@ -548,8 +559,9 @@ Recording shall start only when all required operating conditions are satisfied:
 - SD free space is above the recording-start threshold;
 - SD file count is below `SD_MAX_RECORD_FILES`;
 - required settings are saved;
-- valid calibration exists;
-- calibration is not expired;
+- valid sensor calibration exists;
+- valid installation calibration exists;
+- required calibrations are not expired;
 - a hardware record-button start hold is qualified, or a permitted UI START RECORD hold is qualified.
 
 The physical RECORD button is intentionally independent of the UI/Web layer. If WiFi/Web is active and the physical RECORD button starts recording, the recorder shall turn WiFi/Web OFF as part of leaving READY. The UI START RECORD button shall not start recording while WiFi/Web is active.
