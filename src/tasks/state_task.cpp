@@ -485,18 +485,14 @@ static bool low_power_on_battery_(void){
     return false;
   }
 
-  // Battery threshold and USB-source detection are intentionally evaluated
-  // separately.  The low-battery threshold is based only on the battery
-  // percentage; this function then decides whether the recorder is operating
-  // from battery using the state-task USB snapshot.  This prevents Web/WiFi
-  // USB-removal handling from masking battery protection.
-  if(s_st.usb_present_valid){
-    return !s_st.usb_present;
+  // Low-battery protection is independent of WiFi/Web activity. USB presence
+  // only confirms that external power is available. If USB status is unknown
+  // while the battery is already low, shut down fail-safe instead of keeping
+  // the recorder alive on an uncertain power source.
+  if(!s_st.usb_present_valid){
+    return true;
   }
 
-  // If the latest USB read is invalid, use the last published USB level.  When
-  // the last known state is absent, continue with battery protection rather
-  // than keeping the recorder alive on a low battery.
   return !s_st.usb_present;
 }
 
