@@ -1653,6 +1653,106 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(response);
   });
 
+
+  s_server->on("/api/cal/support_generate_reports", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+
+    String password = "";
+    if(request->hasParam("support", true)){
+      password = request->getParam("support", true)->value();
+    } else if(request->hasParam("support")){
+      password = request->getParam("support")->value();
+    }
+
+    if(!cal_support_password_matches_(password)){
+      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"bad_support_code\"}");
+      return;
+    }
+
+    if(!web_single_client_allow(request)){
+      request->send(409, "application/json", "{\"ok\":false,\"reason\":\"busy\"}");
+      return;
+    }
+
+    WebSdBusyScope sd_scope;
+    if(!sd_scope.engaged){
+      request->send(409, "application/json", "{\"ok\":false,\"reason\":\"sd_busy\"}");
+      return;
+    }
+
+    calibration_service_refresh_status();
+
+    calibration_record_t active = {};
+    const bool active_ok = calibration_service_get_active(&active) && active.sensor.valid;
+
+    calibration_record_t reference = {};
+    const bool reference_ok = calibration_service_get_reference(&reference) && reference.sensor.valid;
+
+    installation_calibration_t installation = {};
+    const bool installation_ok = calibration_service_get_installation(&installation) && installation.valid;
+
+    if((!active_ok) && (!installation_ok)){
+      request->send(409, "application/json", "{\"ok\":false,\"reason\":\"no_valid_calibration\"}");
+      return;
+    }
+
+    char recorder_path[SD_STORAGE_PATH_MAX];
+    recorder_path[0] = '\0';
+    char installation_path[SD_STORAGE_PATH_MAX];
+    installation_path[0] = '\0';
+
+    bool recorder_written = false;
+    bool installation_written = false;
+    bool write_failed = false;
+
+    if(active_ok){
+      recorder_written = calibration_report_write_stored_recorder(&active,
+                                                                  reference_ok ? &reference : nullptr,
+                                                                  reference_ok,
+                                                                  recorder_path,
+                                                                  sizeof(recorder_path));
+      write_failed = (!recorder_written) || write_failed;
+    }
+
+    if(installation_ok){
+      installation_written = calibration_report_write_stored_installation(active_ok ? &active : nullptr,
+                                                                          active_ok,
+                                                                          &installation,
+                                                                          installation_path,
+                                                                          sizeof(installation_path));
+      write_failed = (!installation_written) || write_failed;
+    }
+
+    if((!recorder_written) && (!installation_written)){
+      request->send(500, "application/json", "{\"ok\":false,\"reason\":\"report_write_failed\"}");
+      return;
+    }
+
+    String out = "{\"ok\":true";
+    out += ",\"recorder_available\":";
+    out += active_ok ? "true" : "false";
+    out += ",\"recorder_written\":";
+    out += recorder_written ? "true" : "false";
+    out += ",\"installation_available\":";
+    out += installation_ok ? "true" : "false";
+    out += ",\"installation_written\":";
+    out += installation_written ? "true" : "false";
+    out += ",\"write_failed\":";
+    out += write_failed ? "true" : "false";
+    if(recorder_written){
+      out += ",\"recorder_path\":\"";
+      out += recorder_path;
+      out += "\"";
+    }
+    if(installation_written){
+      out += ",\"installation_path\":\"";
+      out += installation_path;
+      out += "\"";
+    }
+    out += "}";
+    request->send(200, "application/json", out);
+  });
+
   s_server->on("/api/cal/support_clear", HTTP_POST, [](AsyncWebServerRequest *request){
     if(!cal_require_auth_(request)) return;
     String password = "";

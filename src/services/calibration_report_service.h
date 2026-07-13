@@ -90,6 +90,30 @@ bool calibration_report_write_installation(const installation_calibration_report
                                            size_t out_path_len);
 
 /**
+ * Write a report from the valid recorder calibration already stored in NVS.
+ *
+ * This support-only report is used after a firmware update when the stored
+ * calibration remains valid but no calibration report exists on the SD card.
+ */
+bool calibration_report_write_stored_recorder(const calibration_record_t *active,
+                                              const calibration_record_t *reference,
+                                              bool reference_available,
+                                              char *out_path,
+                                              size_t out_path_len);
+
+/**
+ * Write a report from the valid installation calibration already stored in NVS.
+ *
+ * This support-only report is used after a firmware update when the stored
+ * calibration remains valid but no calibration report exists on the SD card.
+ */
+bool calibration_report_write_stored_installation(const calibration_record_t *recorder_calibration,
+                                                  bool recorder_calibration_available,
+                                                  const installation_calibration_t *installation,
+                                                  char *out_path,
+                                                  size_t out_path_len);
+
+/**
  * Return the path of the last recorder calibration report written this boot.
  */
 bool calibration_report_get_last_recorder_path(char *out_path, size_t out_path_len);

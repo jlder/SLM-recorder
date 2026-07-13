@@ -526,6 +526,149 @@ bool calibration_report_write_installation(const installation_calibration_report
   return ok;
 }
 
+
+bool calibration_report_write_stored_recorder(const calibration_record_t *active,
+                                              const calibration_record_t *reference,
+                                              bool reference_available,
+                                              char *out_path,
+                                              size_t out_path_len){
+  if((active == nullptr) || !active->sensor.valid){
+    return false;
+  }
+
+  rtc_datetime_t now = {};
+  (void)datetime_service_get(&now);
+
+  char reg[32];
+  report_sanitized_registration_(reg, sizeof(reg));
+
+  char path[SD_STORAGE_PATH_MAX];
+  const int n = snprintf(path, sizeof(path),
+                         "/calibration_reports/%s_%04u%02u%02u_%02u%02u%02u_REC_CAL_STORED.txt",
+                         reg,
+                         (unsigned int)now.year,
+                         (unsigned int)now.month,
+                         (unsigned int)now.day,
+                         (unsigned int)now.hour,
+                         (unsigned int)now.min,
+                         (unsigned int)now.sec);
+  if((n < 0) || ((size_t)n >= sizeof(path))){
+    return false;
+  }
+
+  settings_t st;
+  const bool settings_ok = settings_get(&st);
+  const char *registration = (settings_ok && (st.registration[0] != '\0')) ? st.registration : "-";
+
+  String report;
+  report.reserve(3600);
+  report += "Structural Life Monitoring - Stored Recorder Calibration Report\n";
+  report += "============================================================\n\n";
+  report += "Glider registration: "; report += registration; report += "\n";
+  report += "Report date/time: "; report_append_datetime_(report, &now); report += "\n";
+  report += "Firmware version: "; report += RECORDER_SOFTWARE_VERSION; report += "\n";
+  report += "Report source: stored recorder calibration recovered from NVS\n\n";
+
+  report += "Result\n";
+  report += "------\n";
+  report += "Status: STORED VALID CALIBRATION\n";
+  report += "Update: no new recorder calibration was performed; this report documents the recorder calibration already stored in non-volatile memory.\n\n";
+
+  report += "Acceptance thresholds\n";
+  report += "---------------------\n";
+  report += "Allowed temperature range: ";
+  report += String(CALIBRATION_TEMP_MIN_C, 1); report += " °C to ";
+  report += String(CALIBRATION_TEMP_MAX_C, 1); report += " °C\n";
+  report += "Maximum allowed temperature span: ";
+  report += String(CALIBRATION_TEMP_MAX_SPAN_C, 1); report += " °C\n";
+  report += "Gain delta limit: "; report += String(CALIBRATION_GAIN_DELTA_MAX, 6); report += "\n";
+  report += "Offset delta limit: "; report += String(CALIBRATION_OFFSET_DELTA_MAX_MG, 1); report += " mg\n\n";
+
+  report_append_sensor_record_(report, "Stored recorder calibration", true, active, true);
+  report_append_sensor_record_(report, "Stored reference calibration", reference_available, reference, false);
+
+  report += "Operational conclusion\n";
+  report += "----------------------\n";
+  report += "Recorder calibration was already valid in non-volatile memory when this report was generated. It may be used for SLM recording credit, provided installation calibration is valid and all other recorder conditions are satisfied.\n";
+
+  const bool ok = sd_files_write_text_file(path, report.c_str(), (uint32_t)report.length());
+  if(ok){
+    report_copy_path_(s_last_recorder_report_path, sizeof(s_last_recorder_report_path), path);
+    (void)report_copy_path_(out_path, out_path_len, path);
+  }
+  return ok;
+}
+
+
+bool calibration_report_write_stored_installation(const calibration_record_t *recorder_calibration,
+                                                  bool recorder_calibration_available,
+                                                  const installation_calibration_t *installation,
+                                                  char *out_path,
+                                                  size_t out_path_len){
+  if((installation == nullptr) || !installation->valid){
+    return false;
+  }
+
+  rtc_datetime_t now = {};
+  (void)datetime_service_get(&now);
+
+  char reg[32];
+  report_sanitized_registration_(reg, sizeof(reg));
+
+  char path[SD_STORAGE_PATH_MAX];
+  const int n = snprintf(path, sizeof(path),
+                         "/calibration_reports/%s_%04u%02u%02u_%02u%02u%02u_INST_CAL_STORED.txt",
+                         reg,
+                         (unsigned int)now.year,
+                         (unsigned int)now.month,
+                         (unsigned int)now.day,
+                         (unsigned int)now.hour,
+                         (unsigned int)now.min,
+                         (unsigned int)now.sec);
+  if((n < 0) || ((size_t)n >= sizeof(path))){
+    return false;
+  }
+
+  settings_t st;
+  const bool settings_ok = settings_get(&st);
+  const char *registration = (settings_ok && (st.registration[0] != '\0')) ? st.registration : "-";
+
+  String report;
+  report.reserve(3000);
+  report += "Structural Life Monitoring - Stored Installation Calibration Report\n";
+  report += "================================================================\n\n";
+  report += "Glider registration: "; report += registration; report += "\n";
+  report += "Report date/time: "; report_append_datetime_(report, &now); report += "\n";
+  report += "Firmware version: "; report += RECORDER_SOFTWARE_VERSION; report += "\n";
+  report += "Report source: stored installation calibration recovered from NVS\n";
+  report += "Recorder calibration Date/time: ";
+  if(recorder_calibration_available && (recorder_calibration != nullptr) && recorder_calibration->sensor.valid){
+    report_append_datetime_(report, &recorder_calibration->sensor.timestamp);
+  } else {
+    report += "-";
+  }
+  report += "\n";
+  report += "Maintenance reason: support report generation from stored calibration\n\n";
+
+  report += "Result\n";
+  report += "------\n";
+  report += "Status: STORED VALID CALIBRATION\n";
+  report += "Update: no new installation calibration was performed; this report documents the installation calibration already stored in non-volatile memory.\n\n";
+
+  report_append_installation_record_(report, "Stored installation calibration", true, installation);
+
+  report += "Operational conclusion\n";
+  report += "----------------------\n";
+  report += "Installation calibration was already valid in non-volatile memory when this report was generated. It may be used for SLM recording credit, provided recorder calibration is valid and all other recorder conditions are satisfied.\n";
+
+  const bool ok = sd_files_write_text_file(path, report.c_str(), (uint32_t)report.length());
+  if(ok){
+    report_copy_path_(s_last_installation_report_path, sizeof(s_last_installation_report_path), path);
+    (void)report_copy_path_(out_path, out_path_len, path);
+  }
+  return ok;
+}
+
 bool calibration_report_get_last_recorder_path(char *out_path, size_t out_path_len){
   if(s_last_recorder_report_path[0] == '\0'){
     return false;

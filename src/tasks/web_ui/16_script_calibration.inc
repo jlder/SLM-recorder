@@ -341,6 +341,32 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
         }
 
 
+
+        function supportGenerateCalibrationReports() {
+            const code = prompt('Support code required to generate calibration reports');
+            if (!code) return;
+            aboutStatus('Generating calibration reports from stored calibration data...');
+            postJson('/api/cal/support_generate_reports?support=' + encodeURIComponent(code))
+                .then(res => {
+                    if (res.ok && res.json) {
+                        const parts = [];
+                        if (res.json.recorder_written) parts.push('recorder');
+                        if (res.json.installation_written) parts.push('installation');
+                        if (parts.length > 0) {
+                            let text = 'Generated ' + parts.join(' and ') + ' calibration report(s) on SD.';
+                            if (res.json.write_failed) text += ' One requested report could not be written.';
+                            aboutStatus(text);
+                            calStatus();
+                        } else {
+                            aboutStatus('No calibration report generated: ' + prettyJson(res.json));
+                        }
+                    } else {
+                        aboutStatus('Calibration report generation failed: ' + prettyJson(res.json));
+                    }
+                })
+                .catch(err => aboutStatus('Calibration report generation error: ' + err));
+        }
+
         function supportClearRecorderCalibration() {
             const code = prompt('Support code required to clear recorder calibration history');
             if (!code) return;

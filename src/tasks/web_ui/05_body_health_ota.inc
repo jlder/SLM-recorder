@@ -17,6 +17,7 @@ R"rawliteral(        <!-- About/support page. Support actions require an additio
 
             <div class="controls cal-actions">
                 <button class="btn btn-primary" onclick="supportDownloadData()">Download Support Data</button>
+                <button class="btn btn-primary" onclick="supportGenerateCalibrationReports()">Generate Calibration Reports</button>
                 <button class="btn btn-primary" onclick="supportClearRecorderCalibration()">Clear Recorder Calibration</button>
                 <button class="btn btn-primary" onclick="supportClearInstallationCalibration()">Clear Installation Calibration</button>
             </div>
