@@ -480,6 +480,18 @@ static msg_id_t sd_maintenance_msg_(error_code_t err){
   return MSG_NONE;
 }
 
+/**
+ * Reports whether the recorder shall shut down for low battery.
+ *
+ * Low-battery protection is independent of Web/WiFi activity. USB presence
+ * is used only as evidence that external power is available. If the battery
+ * is already below the threshold and the current USB status is unavailable,
+ * the recorder shuts down fail-safe instead of continuing on an uncertain
+ * power source.
+ *
+ * Inputs: None.
+ * Returns: `true` when the low-battery shutdown path shall be entered.
+ */
 static bool low_power_on_battery_(void){
   if(!s_battery_low_cached){
     return false;
@@ -905,7 +917,7 @@ static void state_task_main(void *arg){
         break;
       }
 
-      
+
       case ST_STARTING: {
 
         // Record start/stop UI commands are not applicable in this state.
@@ -957,7 +969,7 @@ static void state_task_main(void *arg){
         break;
       }
 
-      
+
       case ST_RECORDING: {
 
         // Purpose: Acquire samples and record to SD via ring buffer + SD task.
@@ -1040,7 +1052,7 @@ static void state_task_main(void *arg){
         break;
       }
 
-      
+
       case ST_STOPPING: {
 
         // Record start/stop UI commands are not applicable in this state.
@@ -1088,7 +1100,7 @@ static void state_task_main(void *arg){
         break;
       }
 
-      
+
       case ST_ERROR: {
 
         // Record start/stop UI commands are not applicable in this state.

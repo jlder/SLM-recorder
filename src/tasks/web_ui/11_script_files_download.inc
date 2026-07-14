@@ -59,6 +59,10 @@ R"rawliteral(        // Root recorder-file list. Refresh also updates SD, record
                     </div>
                     <div class="file-row">
                         <div class="file-size">Size: ${sizeKb} kB</div>
+                        <button class="btn btn-primary file-btn" onclick='viewStoredFlightLog(${jsName})'>View Log</button>
+                    </div>
+                    <div class="file-row">
+                        <div class="file-size">Stored analysis, if available</div>
                         <button class="btn btn-primary file-btn" onclick='deleteFile(${jsName})'>Archive</button>
                     </div>
                 </div>`;
@@ -80,7 +84,6 @@ R"rawliteral(        // Root recorder-file list. Refresh also updates SD, record
             status.textContent = 'Preparing download and analysis for ' + filename + '...';
             setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Download: starting...');
 
-            const downloadStartMs = performance.now();
 
             downloadFileBuffer(filename, function(percent, text) {
                 setProgress('downloadProgressBar', 'downloadProgressText', percent, text);
@@ -102,6 +105,7 @@ R"rawliteral(        // Root recorder-file list. Refresh also updates SD, record
                     return analyzeRecorderFileAsync(buffer)
                         .then(analysis => {
                             showFlightAnalysis(filename, analysis);
+                            writeFlightAnalysisLog(filename, analysis);
                         });
                 })
                 .catch(err => {
@@ -162,6 +166,57 @@ R"rawliteral(        // Root recorder-file list. Refresh also updates SD, record
             if (b >= 1000000) return (b / 1000000).toFixed(1) + ' MB';
             if (b >= 1000) return (b / 1000).toFixed(0) + ' kB';
             return b + ' B';
+        }
+
+        // Companion logs are stored on SD with the same base name as the binary recording.
+        function flightLogNameFromBinary(filename) {
+            const name = String(filename || '');
+            return name.replace(/\.bin$/i, '.log');
+        }
+
+        // Load and display the stored SD analysis log without downloading or reprocessing the binary file.
+        function viewStoredFlightLog(filename) {
+            const status = document.getElementById('flightAnalysisStatus');
+            const panel = document.getElementById('flightAnalysisWindow');
+            const table = document.getElementById('flightAnalysisTable');
+            const sampleStats = document.getElementById('samplePeriodStats');
+            const logName = flightLogNameFromBinary(filename);
+
+            panel.classList.remove('hidden');
+            table.innerHTML = '';
+            if (sampleStats) sampleStats.textContent = 'Stored SD log: -';
+            status.textContent = 'Loading stored analysis log for ' + filename + '...';
+            setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Log: loading...');
+
+            fetch('/api/download?file=' + encodeURIComponent(logName), { cache: 'no-store' })
+                .then(r => {
+                    if (!r.ok) {
+                        throw new Error('stored log unavailable');
+                    }
+                    return r.text();
+                })
+                .then(text => {
+                    showStoredFlightLog(filename, logName, text);
+                })
+                .catch(err => {
+                    console.warn(err);
+                    status.textContent = filename + ': no stored analysis log available. Download the binary once to generate it.';
+                    if (sampleStats) sampleStats.textContent = 'Stored SD log: unavailable';
+                    table.innerHTML = '';
+                    setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Log: unavailable');
+                });
+        }
+
+        // Render a previously stored text log in the same panel used for live analysis results.
+        function showStoredFlightLog(filename, logName, text) {
+            const status = document.getElementById('flightAnalysisStatus');
+            const table = document.getElementById('flightAnalysisTable');
+            const sampleStats = document.getElementById('samplePeriodStats');
+
+            status.textContent = filename + ': stored analysis log loaded from ' + logName + '.';
+            if (sampleStats) sampleStats.textContent = 'Stored SD log: loaded';
+            setProgress('downloadProgressBar', 'downloadProgressText', 100, 'Log: loaded');
+            table.innerHTML = '<pre class="flight-log-view mono">' + escapeHtml(text) + '</pre>';
         }
 
 
@@ -229,6 +284,57 @@ R"rawliteral(        // Root recorder-file list. Refresh also updates SD, record
 
             html += '</tbody></table>';
             table.innerHTML = html;
+        }
+
+        // Build the recorder-side text log associated with the downloaded binary.
+        function buildFlightAnalysisLogText(filename, analysis) {
+            const widths = [5, 7, 7, 11];
+            const row = function(a, b, c, d) {
+                return String(a).padEnd(widths[0], ' ') + '  ' +
+                       String(b).padEnd(widths[1], ' ') + '  ' +
+                       String(c).padEnd(widths[2], ' ') + '  ' +
+                       String(d).padEnd(widths[3], ' ');
+            };
+
+            const lines = [];
+            lines.push(row('flt #', 'Takeoff', 'Landing', 'Flight Time'));
+
+            if (analysis && analysis.ok && Array.isArray(analysis.flights)) {
+                analysis.flights.forEach(f => {
+                    lines.push(row(
+                        f.number || '-',
+                        f.takeoffRollStartShort || f.takeoffRollStart || '-',
+                        f.landingRollEndShort || f.landingRollEnd || '-',
+                        f.flightDurationShort || f.flightDuration || '-'
+                    ));
+                });
+            }
+
+            return lines.join('\n') + '\n';
+        }
+
+        // Store the same flight-analysis summary on the recorder SD card.
+        // The recorder derives the .log file name from the original .bin name.
+        function writeFlightAnalysisLog(filename, analysis) {
+            const status = document.getElementById('flightAnalysisStatus');
+            const text = buildFlightAnalysisLogText(filename, analysis);
+            const body = new URLSearchParams();
+            body.set('file', filename);
+            body.set('log', text);
+
+            fetch('/api/flightlog', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString()
+            })
+                .then(r => r.json().then(data => ({ ok: r.ok, data: data })))
+                .then(result => {
+                    if (!status || !result.ok || !result.data || !result.data.ok) return;
+                    status.textContent += ' Log stored on SD.';
+                })
+                .catch(err => {
+                    console.warn('flight log not stored', err);
+                });
         }
 
 

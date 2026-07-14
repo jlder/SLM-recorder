@@ -124,6 +124,7 @@ typedef struct {
   calibration_face_t current_face;
   calibration_vec_t mean_mg;
   calibration_vec_t stddev_mg;
+  calibration_vec_t current_stddev_mg;
   uint32_t sample_count;
   uint32_t current_face_samples;
   uint32_t total_samples;

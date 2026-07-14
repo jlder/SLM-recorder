@@ -155,6 +155,18 @@ R"rawliteral(    <style>
             text-align: center;
             white-space: nowrap;
         }
+        .flight-log-view {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            background: white;
+            border: 1px solid #dfe6e9;
+            border-radius: 6px;
+            padding: 8px;
+            margin-top: 8px;
+            font-size: 12px;
+            line-height: 1.35;
+            color: #2c3e50;
+        }
         .file-btn {
             width: 96px;
             min-height: 32px;
@@ -203,6 +215,7 @@ R"rawliteral(    <style>
         }
         .ok { color: #27ae60; font-weight: bold; }
         .warn { color: #f39c12; font-weight: bold; }
+        .bad { color: #c0392b; font-weight: bold; }
         .mono { font-family: Consolas, monospace; }
         .small { font-size: 13px; color: #555; }
         .face-summary-grid {

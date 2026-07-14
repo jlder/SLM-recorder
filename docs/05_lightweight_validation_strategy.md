@@ -180,6 +180,7 @@ Procedure:
 4. Repeat the timeout/wake check from MENU, SETTINGS, at least one setting-edit page, and the WiFi-active MENU page.
 5. Repeat wake using power/clear button, record button, and USB insertion.
 6. Confirm the low-battery shutdown notice does not enter standby during its 10-second display period.
+7. If practical, force or simulate an unknown USB-status read while battery percentage is below the threshold and confirm the recorder enters the low-battery shutdown path fail-safe.
 
 Expected result:
 
@@ -613,13 +614,39 @@ Procedure:
 3. Select Download for the daily file.
 4. Observe download progress and the SLM Flight Analysis window.
 5. Verify that no Kossira/occurrence/load-factor table is displayed and no CSV file is saved.
+6. For a recording with detected flights, confirm the displayed flight time equals the difference between the displayed minute-rounded takeoff and landing times.
+7. Review the source constants and JavaScript logic for the landing HIRMS gate, or use a test file with a calm in-flight FlightGround crossing, to confirm a flight-to-ground transition is not accepted unless the configured recent-HIRMS condition is satisfied.
 
 Expected result:
 
 - The selected `.bin` file is saved to the browser device.
 - The flight-time table is displayed when complete flights are detected.
+- Displayed takeoff, landing, and flight-time values are arithmetically consistent after minute rounding.
+- Landing transitions require the configured recent high-frequency RMS evidence when the gate is enabled.
 - Sample statistics show only average sample period and standard deviation.
 - No Markov/Kossira/occurrence CSV files are downloaded.
+
+### VAL-WEB-003 — Companion flight-analysis log
+
+Purpose:
+
+Confirm the Web file-management page stores and later displays the compact flight-analysis log without reprocessing the binary file.
+
+Procedure:
+
+1. Create or identify a daily recording file in the SD root.
+2. Enable WiFi and open the Web file-management page.
+3. Select Download for the daily file and wait until analysis completes.
+4. Inspect the SD root and confirm that a matching `.log` file exists with the same basename as the `.bin`.
+5. Select View Log from the same recording row.
+6. Archive the `.bin` from the Web page and inspect `/processed`.
+
+Expected result:
+
+- The `.log` file contains only the aligned table header `flt #  Takeoff  Landing  Flight Time` and one row per detected flight.
+- View Log displays the stored text without downloading or reprocessing the `.bin`.
+- The root file list still shows recording `.bin` files rather than separate `.log` entries.
+- Archiving the `.bin` also archives the matching `.log` when present.
 
 ### VAL-SD-006 — SD maintenance access when recording is blocked
 
@@ -731,8 +758,12 @@ Verify that the 0x72 calibration block contains the saved installation calibrati
 
 ## VAL-CAL-QUALITY-001 — Calibration rolling-window quality selection
 
-Verify that recorder calibration keeps sampling a stable face after the first capture and stores an improved candidate only when the dominant face-axis noise improves. Verify that the Web page reports a simplified progress summary: validity status with NVS date when valid, session state, current face, samples processed on the current face, sensor temperature status, lowest stddev for the current face, current-face best-update count, and time since the last best update. Verify that the six-face summary shows captured faces as OK and missing faces as —, with unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. Verify that the workflow text tells the operator to save when all six face values are satisfactory.
+Verify that recorder calibration keeps sampling a stable face after the first capture and stores an improved candidate only when the dominant face-axis noise improves. Verify that the Web page reports a simplified progress summary: validity status with NVS date when valid, session state, current face, samples processed on the current face, sensor temperature status, current stddev and minimum stddev for the current face, current-face best-update count, and time since the last best update. Verify that the six-face summary shows captured faces as OK and missing faces as —, with unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. Verify that the workflow text tells the operator to save when all six face values are satisfactory.
 
 Verify that installation calibration keeps sampling after a valid candidate is found and updates the complete candidate, including the matrix, from every stable rolling window rather than retaining the lowest-noise candidate from an earlier physical attitude. Verify that moving the recorder/glider makes Stability report `not stable`, hides the candidate angles, and disables Save until a new stable window is available. Verify that the Web UI reports current noise and stability while calibration is active.
 
 Verify that installation calibration workflow text instructs the operator to put the glider in flight-level attitude with wings leveled following the AMM procedure, confirms sensor calibration must already be valid, and tells the operator to save when the current window is stable and noise is satisfactory.
+
+## VAL-CAL-007 — Support generation of stored calibration reports
+
+Verify that the support-only About page action generates recorder and installation calibration report files from valid NVS calibration data without starting a calibration session or modifying stored calibration records. Confirm the generated reports explicitly state that their source is stored NVS calibration data.

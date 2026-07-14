@@ -25,7 +25,7 @@ R"rawliteral(        <!-- Recorder six-face calibration page. The JavaScript cal
                 <div>Status: <span id="calStatus" class="mono">-</span></div>
                 <div>Samples: <span id="calSamplesProcessed" class="mono">0</span></div>
                 <div>Sensor temperature: <span id="calSensorTemp" class="mono">-</span></div>
-                <div>Lowest stddev: <span id="calLowestNoise" class="mono">-</span></div>
+                <div>Stddev current/min: <span id="calCurrentNoise" class="mono">-</span> / <span id="calLowestNoise" class="mono">-</span></div>
                 <div>Last best update: <span id="calLastBestUpdate" class="mono">-</span></div>
                 <div>Faces:</div>
                 <div id="calFaceSummary" class="mono face-summary-grid"></div>

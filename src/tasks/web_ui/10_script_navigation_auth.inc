@@ -231,6 +231,7 @@ R"rawliteral(    <script>
             document.getElementById('calStatus').textContent = '-';
             document.getElementById('calSamplesProcessed').textContent = '0';
             document.getElementById('calSensorTemp').textContent = '-';
+            document.getElementById('calCurrentNoise').textContent = '-';
             document.getElementById('calLowestNoise').textContent = '-';
             document.getElementById('calLastBestUpdate').textContent = '-';
             updateFaceSummary(null, -1, false);

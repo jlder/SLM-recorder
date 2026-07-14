@@ -105,6 +105,21 @@ typedef struct {
   uint32_t size;
 } sd_storage_list_item_t;
 
+/** Return true when a path or file name ends with the supplied extension. */
+static bool sd_name_has_extension_(const char *name, const char *ext){
+  if((name == nullptr) || (ext == nullptr)){
+    return false;
+  }
+
+  const size_t name_len = strlen(name);
+  const size_t ext_len = strlen(ext);
+  if((ext_len == 0u) || (name_len < ext_len)){
+    return false;
+  }
+
+  return strcmp(name + name_len - ext_len, ext) == 0;
+}
+
 /**
  * Performs sd norm sdmmc path for SD storage, recording files, or SD-backed
  * web file management while preserving SD ownership rules.
@@ -132,6 +147,7 @@ static const char* sd_norm_sdmmc_path_(const char *in, char *out, size_t out_sz)
  * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
  */
 static bool sd_ensure_calibration_reports_dir_(void);
+static bool sd_path_is_root_file_(const char *p);
 
 static bool sd_card_access_ok(void) {
   if (SD_MMC.cardType() == CARD_NONE) {
@@ -294,7 +310,7 @@ static error_code_t sd_root_files_full(bool *out_full) {
 
   size_t count = 0u;
   for (File entry = root.openNextFile(); entry; entry = root.openNextFile()) {
-    if (!entry.isDirectory()) {
+    if ((!entry.isDirectory()) && sd_name_has_extension_(entry.name(), ".bin")) {
       ++count;
       if (count >= (size_t)SD_MAX_RECORD_FILES) {
         entry.close();
@@ -580,7 +596,10 @@ void sd_storage_download_end(void) {
   s_download_offset = 0u;
 }
 
-/** Write a complete text file into /calibration_reports from SD-task context. */
+/** Write a complete text file into an allowed SD text-output location. */
+// Write a support text file through the SD owner. Accepted destinations are
+// intentionally limited to calibration reports and root-level flight-analysis
+// companion logs so Web support code cannot write arbitrary SD paths.
 bool sd_storage_write_text_file(const char *path, const char *text, uint32_t len){
   if(sd_check_present() != ERR_NONE) return false;
   if((path == nullptr) || (text == nullptr)) return false;
@@ -590,11 +609,13 @@ bool sd_storage_write_text_file(const char *path, const char *text, uint32_t len
   const char *p = sd_norm_sdmmc_path_(path, tmp, sizeof(tmp));
   if(p == nullptr) return false;
 
-  if(strncmp(p, "/calibration_reports/", 21) != 0){
+  const bool calibration_report = (strncmp(p, "/calibration_reports/", 21) == 0);
+  const bool flight_log = sd_path_is_root_file_(p) && sd_name_has_extension_(p, ".log");
+  if((!calibration_report) && (!flight_log)){
     return false;
   }
 
-  if(!sd_ensure_calibration_reports_dir_()){
+  if(calibration_report && (!sd_ensure_calibration_reports_dir_())){
     return false;
   }
 
@@ -729,6 +750,72 @@ static bool sd_path_exists_(const char *path){
   }
   f.close();
   return true;
+}
+
+static bool sd_build_unique_processed_path_(const char *base,
+                                            const char *ext,
+                                            char *dst,
+                                            size_t dst_sz){
+  if((base == nullptr) || (ext == nullptr) || (dst == nullptr) || (dst_sz == 0u)){
+    return false;
+  }
+
+  const int n_initial = snprintf(dst, dst_sz, "/processed/%s%s", base, ext);
+  if((n_initial < 0) || ((size_t)n_initial >= dst_sz)){
+    return false;
+  }
+
+  if(!sd_path_exists_(dst)){
+    return true;
+  }
+
+  for(uint32_t i = 1u; i <= 999u; ++i){
+    const int n_suffix = snprintf(dst, dst_sz, "/processed/%s_%lu%s",
+                                  base,
+                                  (unsigned long)i,
+                                  ext);
+    if((n_suffix < 0) || ((size_t)n_suffix >= dst_sz)){
+      return false;
+    }
+
+    if(!sd_path_exists_(dst)){
+      return true;
+    }
+  }
+
+  return false;
+}
+
+static void sd_archive_companion_log_(const char *src_bin, const char *dst_bin){
+  if((src_bin == nullptr) || (dst_bin == nullptr) || (!sd_name_has_extension_(src_bin, ".bin"))){
+    return;
+  }
+
+  char src_log[SD_STORAGE_PATH_MAX];
+  const size_t src_len = strlen(src_bin);
+  if((src_len < 4u) || (src_len >= sizeof(src_log))){
+    return;
+  }
+  memcpy(src_log, src_bin, src_len - 4u);
+  memcpy(src_log + src_len - 4u, ".log", 5u);
+
+  if(!sd_path_exists_(src_log)){
+    return;
+  }
+
+  const char *dst_name = sd_basename_(dst_bin);
+  char log_base[FILENAME_MAX_LENGTH];
+  char log_ext[16];
+  if(!sd_split_name_ext_(dst_name, log_base, sizeof(log_base), log_ext, sizeof(log_ext))){
+    return;
+  }
+
+  char dst_log[SD_STORAGE_PATH_MAX];
+  if(!sd_build_unique_processed_path_(log_base, ".log", dst_log, sizeof(dst_log))){
+    return;
+  }
+
+  (void)SD_MMC.rename(src_log, dst_log);
 }
 
 static bool sd_ensure_processed_dir_(void){
@@ -1006,30 +1093,16 @@ bool sd_storage_archive_to_processed(const char *path) {
   }
 
   char dst[SD_STORAGE_PATH_MAX];
-  const int n_initial = snprintf(dst, sizeof(dst), "/processed/%s%s", base, ext);
-  if((n_initial < 0) || ((size_t)n_initial >= sizeof(dst))){
+  if(!sd_build_unique_processed_path_(base, ext, dst, sizeof(dst))){
     return false;
   }
 
-  if(!sd_path_exists_(dst)){
-    return SD_MMC.rename(src, dst);
+  const bool moved = SD_MMC.rename(src, dst);
+  if(moved && sd_path_is_root_file_(src)){
+    sd_archive_companion_log_(src, dst);
   }
 
-  for(uint32_t i = 1u; i <= 999u; ++i){
-    const int n_suffix = snprintf(dst, sizeof(dst), "/processed/%s_%lu%s",
-                                  base,
-                                  (unsigned long)i,
-                                  ext);
-    if((n_suffix < 0) || ((size_t)n_suffix >= sizeof(dst))){
-      return false;
-    }
-
-    if(!sd_path_exists_(dst)){
-      return SD_MMC.rename(src, dst);
-    }
-  }
-
-  return false;
+  return moved;
 }
 
 /**
@@ -1127,8 +1200,14 @@ bool sd_storage_list_json(const char *dir_path, char *out_json, uint32_t out_cap
     file.close();
 
     if((name == nullptr) || (name[0] == '\0')){
-      list_items[count].name[0] = '\0';
-    } else {
+      continue;
+    }
+
+    if(list_root && (!sd_name_has_extension_(name, ".bin"))){
+      continue;
+    }
+
+    {
       size_t n = 0u;
       while((n < (sizeof(list_items[count].name) - 1u)) && (name[n] != '\0')){
         list_items[count].name[n] = name[n];

@@ -72,8 +72,8 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.14` | version text displayed on device |
-| `RECORDER_VERSION_TEXT` | `sw ver 1.14` / `hw ver 1.00` | main display version text |
+| `RECORDER_SOFTWARE_VERSION` | `1.15` | version text displayed on device |
+| `RECORDER_VERSION_TEXT` | `sw ver 1.15` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
 
@@ -87,7 +87,27 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `WEB_SINGLE_CLIENT_TIMEOUT_MS` | 60000 ms | Web single-client timeout |
 | `WEB_SD_BUSY_STALE_MS` | 30000 ms | Web SD busy-lock stale recovery guard |
 
-### 3.4 Calibration
+### 3.4 Browser flight-time analysis
+
+| Configuration | Current value | Requirement use |
+|---|---:|---|
+| `FLIGHT_ANALYSIS_FS_HZ` | 20.0 Hz | expected analysis sample rate |
+| `FLIGHT_ANALYSIS_HIRMS_WINDOW_S` | 4.0 s | high-frequency RMS window |
+| `FLIGHT_ANALYSIS_LOWRMS_WINDOW_S` | 10.0 s | low-frequency RMS window |
+| `FLIGHT_ANALYSIS_FLIGHTGROUND_LPF_PERIOD_S` | 20.0 s | FlightGround smoothing period |
+| `FLIGHT_ANALYSIS_FLIGHTGROUND_THRESHOLD` | 0.05 | FlightGround state threshold |
+| `FLIGHT_ANALYSIS_FLIGHTGROUND_HYSTERESIS` | 0.10 | FlightGround hysteresis band |
+| `FLIGHT_ANALYSIS_SEARCH_WINDOW_S` | 80.0 s | transition peak search window |
+| `FLIGHT_ANALYSIS_TO_ROLL_START_THR` | 0.10 | takeoff-roll start HIRMS threshold |
+| `FLIGHT_ANALYSIS_TO_ROLL_END_THR` | 0.25 | takeoff-roll end HIRMS threshold |
+| `FLIGHT_ANALYSIS_LDG_ROLL_START_THR` | 0.25 | landing-roll start HIRMS threshold |
+| `FLIGHT_ANALYSIS_LDG_ROLL_END_THR` | 0.10 | landing-roll end HIRMS threshold |
+| `FLIGHT_ANALYSIS_MIN_FILE_S` | 30.0 s | minimum decoded file duration for analysis |
+| `FLIGHT_ANALYSIS_LDG_HIRMS_GATE_ENABLED` | 1 | enables recent-HIRMS landing validation gate |
+| `FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MIN_NORM` | 0.10 | minimum normalized high-frequency RMS peak for landing validation |
+| `FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MAX_AGE_S` | 20.0 s | maximum age of high-frequency RMS peak before landing transition |
+
+### 3.5 Calibration
 
 | Configuration | Current value | Requirement use |
 |---|---:|---|
@@ -101,7 +121,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `INSTALLATION_GRAVITY_TOL_PCT` | 10% | installation-calibration gravity magnitude tolerance |
 | `CALIBRATION_SAMPLE_PERIOD_MS` | 50 ms | calibration sampling period |
 | `CALIBRATION_WINDOW_SAMPLE_COUNT` | 40 samples | calibration stability window |
-| `CALIBRATION_STABILITY_STDDEV_MAX_MG` | 1.5 mg | calibration stability threshold |
+| `CALIBRATION_STABILITY_STDDEV_MAX_MG` | 2.5 mg | calibration stability threshold |
 | `CALIBRATION_GAIN_MIN` | 0.8 | minimum acceptable calibration gain |
 | `CALIBRATION_GAIN_MAX` | 1.2 | maximum acceptable calibration gain |
 | `CALIBRATION_OFFSET_ABS_MAX_MG` | 200 mg | maximum absolute calibration offset |
@@ -111,7 +131,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `CALIBRATION_TEMP_MAX_C` | 55 °C | maximum accepted sensor temperature during recorder calibration |
 | `CALIBRATION_TEMP_MAX_SPAN_C` | 3 °C | maximum accepted temperature span during one recorder calibration session |
 
-### 3.5 Recording format
+### 3.6 Recording format
 
 | Configuration | Current value | Requirement use |
 |---|---:|---|
@@ -121,7 +141,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `PACKET_TYPE_CALIBRATION` | `0x72` | calibration block identifier |
 | `FILENAME_MAX_LENGTH` | 64 | maximum generated daily filename/prefix length |
 
-### 3.6 SD/storage
+### 3.7 SD/storage
 
 | Configuration | Current value | Requirement use |
 |---|---:|---|
@@ -141,8 +161,9 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `SD_STORAGE_PATH_MAX` | derived | maximum internal SD path buffer length |
 | `SD_FILE_LIST_JSON_ENTRY_MAX` | derived | maximum JSON size budget for one file-list entry |
 | `SD_FILE_LIST_JSON_MAX` | derived | maximum JSON size budget for the file-list API response |
+| `FLIGHT_LOG_TEXT_MAX_BYTES` | 4096 bytes | maximum accepted companion flight-analysis log size |
 
-### 3.7 State-machine timing and performance architecture
+### 3.8 State-machine timing and performance architecture
 
 | Configuration | Current value | Requirement use |
 |---|---:|---|
@@ -220,7 +241,7 @@ Status:
 
 #### OP-PWR-006 — Stop on low-power condition
 
-When running on battery, with no USB power present, the recorder shall stop from any state when a low-power condition occurs. Before PMU shutdown, the local display shall show a full-screen black low-battery notice with red text for 10 seconds: `BATTERY LOW` / `RECHARGE WITH USB`.
+When running on battery, with no USB power present, the recorder shall stop from any state when a low-power condition occurs. If the battery is at or below the low-power threshold and the current USB-power status is unknown, the recorder shall also enter the low-battery shutdown path fail-safe. Before PMU shutdown, the local display shall show a full-screen black low-battery notice with red text for 10 seconds: `BATTERY LOW` / `RECHARGE WITH USB`.
 
 If a recording file is open or recording is in progress, the recorder shall close the recording file before shutdown. If no recording file is open, the recorder shall transition directly to shutdown.
 
@@ -527,7 +548,7 @@ Status:
 
 #### OP-CAL-005 — Calibration review and save
 
-The operator shall be able to review current calibration results and stored NVS calibration values before saving the accepted calibration. The accelerometer page shall use a simplified live progress area showing validity status with NVS date when valid, session state, current face, samples processed on that face, lowest stddev for that face, current-face update count, time since the last best update, sensor temperature status, and a compact six-face completion summary. The accelerometer workflow text shall instruct the operator to start calibration, place the recorder still on each of its six faces, wait for each face to show OK, and save calibration when all six face values are satisfactory. The face summary shall show unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. The installation page shall show validity status with NVS date when valid, session state, samples processed, current noise, stability state, and the current stable candidate angles or stored installation angles. The installation workflow text shall direct the operator to put the glider in flight-level attitude with wings leveled following the AMM procedure, confirm sensor calibration is already valid, start calibration, leave the glider still, and save only when the current rolling window is stable and the noise is satisfactory.
+The operator shall be able to review current calibration results and stored NVS calibration values before saving the accepted calibration. The accelerometer page shall use a simplified live progress area showing validity status with NVS date when valid, session state, current face, samples processed on that face, current stddev and minimum stddev for that face, current-face update count, time since the last best update, sensor temperature status, and a compact six-face completion summary. The accelerometer workflow text shall instruct the operator to start calibration, place the recorder still on each of its six faces, wait for each face to show OK, and save calibration when all six face values are satisfactory. The face summary shall show unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. The installation page shall show validity status with NVS date when valid, session state, samples processed, current noise, stability state, and the current stable candidate angles or stored installation angles. The installation workflow text shall direct the operator to put the glider in flight-level attitude with wings leveled following the AMM procedure, confirm sensor calibration is already valid, start calibration, leave the glider still, and save only when the current rolling window is stable and the noise is satisfactory.
 
 Status:
 
@@ -536,6 +557,14 @@ Status:
 #### OP-CAL-006 — Calibration fault recovery
 
 If recorder calibration fails plausibility, temperature, or delta-against-reference checks, the recorder shall retain the stored valid active calibration. A structurally valid but rejected recorder-calibration candidate may be retained for support diagnostics. If no trusted active/reference recorder calibration exists, the first trusted-looking recorder calibration shall be stored as the reference only and a second matching calibration shall be required before it becomes the active calibration. The operator shall be able to retry calibration before rejecting the recorder.
+
+Status:
+
+- **Implemented.**
+
+#### OP-CAL-007 — Support generation of stored calibration reports
+
+The Web About/support page shall provide a support-authorized function to generate calibration report files from valid recorder and installation calibration data already stored in NVS. This function is intended for firmware updates where valid calibrations predate SD report generation. It shall not modify calibration data and shall not perform a new calibration. Generated reports shall explicitly identify stored NVS calibration data as the report source.
 
 Status:
 
@@ -590,7 +619,7 @@ Status:
 
 #### OP-STOP-003 — Stop by low power
 
-Recording shall stop and the SD file shall close before shutdown when a low-power condition occurs while running on battery with no USB power present. After the file is closed, the recorder shall show the 10-second `BATTERY LOW` / `RECHARGE WITH USB` notice before PMU shutdown.
+Recording shall stop and the SD file shall close before shutdown when a low-power condition occurs while running on battery with no USB power present, or when the battery is low and current USB-power status is unknown. After the file is closed, the recorder shall show the 10-second `BATTERY LOW` / `RECHARGE WITH USB` notice before PMU shutdown.
 
 Status:
 
@@ -677,7 +706,9 @@ The page shall allow the operator to:
 - download files from SD;
 - perform local browser-side flight-time analysis during download;
 - display detected flight times and sample-period average/standard deviation;
-- archive root recording files to `/processed` when Archive is requested;
+- write a root-level companion `.log` text file containing the compact detected-flight table;
+- display the stored companion `.log` later without re-downloading or reprocessing the `.bin`;
+- archive root recording files and their matching `.log` companion files to `/processed` when Archive is requested;
 - permanently delete selected files already in `/processed` from the Maintenance / Delete page.
 
 Web file management shall be accessible when recording is not active, including when recording is blocked by SD max-file-count maintenance while SD free space is still available.
@@ -709,7 +740,25 @@ Example:
 
 The file shall be removed from the active root-file list only after the move succeeds.
 
-#### OP-SD-007 — Daily recording file policy
+#### OP-SD-007 — Companion flight-analysis log
+
+After a root-level `.bin` recording file is downloaded and analyzed by the Web page, the recorder shall accept a browser-generated companion text log through the Web file-management path. The recorder shall derive the log name from the `.bin` basename by replacing `.bin` with `.log`; the Web request shall not be allowed to select an arbitrary SD path.
+
+The `.log` content shall be plain text and limited to the configured maximum size. The stored table shall contain only:
+
+```text
+flt #  Takeoff  Landing  Flight Time
+```
+
+with one aligned row per detected flight. Takeoff and landing times shall use the same minute-rounded values displayed by the Web analysis table, and `Flight Time` shall be computed from those rounded values.
+
+The normal active file list shall remain focused on root-level `.bin` recording files. The operator shall be able to view an existing companion `.log` from the matching `.bin` row without re-downloading or reprocessing the binary file. When a `.bin` is archived to `/processed`, the matching `.log` shall be archived with it if present. `.log` files shall not count against `SD_MAX_RECORD_FILES`.
+
+Status:
+
+- **Implemented.**
+
+#### OP-SD-008 — Daily recording file policy
 
 For a given registration and UTC/local RTC date token, the recorder shall store all recording sessions of that day in one root-level daily recording file.
 
@@ -823,6 +872,16 @@ Status:
 
 - **Implemented and validated by recorded-file inspection.**
 
+#### OP-PERF-004 — Browser flight-time analysis consistency
+
+The browser-side flight-time analysis shall use the decoded acceleration timeline to compute HIRMS, LOWRMS, FlightGround, flight/ground transitions, and roll-phase timing. Landing detection shall accept a FlightGround flight-to-ground transition only when the landing HIRMS gate is disabled or when normalized HIRMS has reached the configured peak threshold within the configured maximum age before the transition.
+
+Displayed takeoff and landing times shall be rounded to the nearest minute. The displayed flight time shall be calculated from those same rounded minute values so that the displayed start time, landing time, and flight time are arithmetically consistent.
+
+Status:
+
+- **Implemented.**
+
 ### 4.10 Message and Error Display
 
 #### OP-MSG-001 — Blocking-condition messages
@@ -898,6 +957,7 @@ a permanent recording block.
 | OP-CAL-004 | `calibration_service`, `state_task` | VAL-CAL-002 |
 | OP-CAL-005 | `calibration_service`, `web_task`, `html_interface` | VAL-CAL-003 |
 | OP-CAL-006 | `calibration_service`, `calibration_store` | VAL-CAL-006 |
+| OP-CAL-007 | `web_task`, `calibration_report_service`, `calibration_store` | VAL-CAL-007 |
 | OP-REC-001 | `state_task`, `button_hold_helpers` | VAL-REC-001 |
 | OP-REC-002 | `state_task`, `settings_store`, `calibration_service`, `sd_task` | VAL-REC-001 |
 | OP-STOP-001 | `state_task` | VAL-REC-002 |

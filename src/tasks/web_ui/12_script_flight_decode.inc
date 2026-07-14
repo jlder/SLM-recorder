@@ -7,21 +7,24 @@
  * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
-R"rawliteral(        // Browser analysis constants. Keep these aligned with the recorder sampling rate
-        // and the validated flight-time extraction thresholds.
-        const SLM_ANALYSIS_FS = 20.0;
-        const SLM_ANALYSIS_HIRMS_WINDOW_S = 4.0;
-        const SLM_ANALYSIS_LOWRMS_WINDOW_S = 10.0;
-        const SLM_ANALYSIS_FLIGHTGROUND_LPF_PERIOD_S = 20.0;
-        const SLM_ANALYSIS_FLIGHTGROUND_THRESHOLD = 0.05;
-        const SLM_ANALYSIS_FLIGHTGROUND_HYSTERESIS = 0.10;
-        const SLM_ANALYSIS_SEARCH_WINDOW_S = 80.0;
-        const SLM_ANALYSIS_TO_ROLL_START_THR = 0.10;
-        const SLM_ANALYSIS_TO_ROLL_END_THR = 0.25;
-        const SLM_ANALYSIS_LDG_ROLL_START_THR = 0.25;
-        const SLM_ANALYSIS_LDG_ROLL_END_THR = 0.10;
-        const SLM_ANALYSIS_MIN_FILE_S = 30.0;
-        const SLM_ANALYSIS_BUTTER_Q = [0.541196100146, 1.306562964876];
+R"rawliteral(        // Browser analysis constants. Values are generated from config.h so the
+        // validated flight-time extraction parameters are controlled in one place.
+        const SLM_ANALYSIS_FS = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_FS_HZ) R"rawliteral(;
+        const SLM_ANALYSIS_HIRMS_WINDOW_S = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_HIRMS_WINDOW_S) R"rawliteral(;
+        const SLM_ANALYSIS_LOWRMS_WINDOW_S = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_LOWRMS_WINDOW_S) R"rawliteral(;
+        const SLM_ANALYSIS_FLIGHTGROUND_LPF_PERIOD_S = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_FLIGHTGROUND_LPF_PERIOD_S) R"rawliteral(;
+        const SLM_ANALYSIS_FLIGHTGROUND_THRESHOLD = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_FLIGHTGROUND_THRESHOLD) R"rawliteral(;
+        const SLM_ANALYSIS_FLIGHTGROUND_HYSTERESIS = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_FLIGHTGROUND_HYSTERESIS) R"rawliteral(;
+        const SLM_ANALYSIS_SEARCH_WINDOW_S = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_SEARCH_WINDOW_S) R"rawliteral(;
+        const SLM_ANALYSIS_TO_ROLL_START_THR = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_TO_ROLL_START_THR) R"rawliteral(;
+        const SLM_ANALYSIS_TO_ROLL_END_THR = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_TO_ROLL_END_THR) R"rawliteral(;
+        const SLM_ANALYSIS_LDG_ROLL_START_THR = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_LDG_ROLL_START_THR) R"rawliteral(;
+        const SLM_ANALYSIS_LDG_ROLL_END_THR = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_LDG_ROLL_END_THR) R"rawliteral(;
+        const SLM_ANALYSIS_MIN_FILE_S = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_MIN_FILE_S) R"rawliteral(;
+        const SLM_ANALYSIS_BUTTER_Q = [)rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_BUTTER_Q1) R"rawliteral(, )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_BUTTER_Q2) R"rawliteral(];
+        const SLM_ANALYSIS_LDG_HIRMS_GATE_ENABLED = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_LDG_HIRMS_GATE_ENABLED) R"rawliteral(;
+        const SLM_ANALYSIS_LDG_HIRMS_PEAK_MIN_NORM = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MIN_NORM) R"rawliteral(;
+        const SLM_ANALYSIS_LDG_HIRMS_PEAK_MAX_AGE_S = )rawliteral" SLM_HTML_STRINGIFY(FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MAX_AGE_S) R"rawliteral(;
 
         const SLM_RECORD_START = 0x55;
         const SLM_RECORD_TYPE_ACCEL = 0x70;
@@ -321,7 +324,8 @@ R"rawliteral(        // Browser analysis constants. Keep these aligned with the 
             const flightState = calculateBooleanState(
                 flightground,
                 SLM_ANALYSIS_FLIGHTGROUND_THRESHOLD,
-                SLM_ANALYSIS_FLIGHTGROUND_HYSTERESIS
+                SLM_ANALYSIS_FLIGHTGROUND_HYSTERESIS,
+                hirmsNorm
             );
 
             const segments = findTransitionPeaks(

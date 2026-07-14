@@ -108,6 +108,21 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
             return Number(v).toFixed(2) + ' mg';
         }
 
+        function stddevForFace(stddev, faceName) {
+            if (!stddev || !faceName || faceName === '-') return null;
+            if (faceName.indexOf('X') >= 0) return stddev.x;
+            if (faceName.indexOf('Y') >= 0) return stddev.y;
+            if (faceName.indexOf('Z') >= 0) return stddev.z;
+            return null;
+        }
+
+        function fmtNoiseLimit(v, limit) {
+            const text = fmtNoise(v);
+            if (text === '-') return '-';
+            const ok = isFinite(Number(limit)) && (Number(v) <= Number(limit));
+            return '<span class="' + (ok ? 'ok' : 'bad') + '">' + text + '</span>';
+        }
+
         function fmtTemperature(v) {
             if (v === null || v === undefined || !isFinite(Number(v))) return '-';
             return Number(v).toFixed(1) + ' °C';
@@ -199,6 +214,8 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                     const activeIdx = currentFaceName !== '-' ? faceIndexFromName(currentFaceName) : -1;
                     const activeUpdates = (activeIdx >= 0 && data.face_updates) ? (data.face_updates[activeIdx] || 0) : 0;
                     const activeAge = (activeIdx >= 0 && data.face_last_update_age_ms) ? data.face_last_update_age_ms[activeIdx] : null;
+                    const currentNoise = stddevForFace(data.current_stddev || data.stddev, currentFaceName);
+                    document.getElementById('calCurrentNoise').innerHTML = fmtNoiseLimit(currentNoise, data.stability_stddev_max_mg);
                     document.getElementById('calLowestNoise').textContent = activeIdx >= 0 ? fmtNoise(data.face_quality && data.face_quality[activeIdx]) : '-';
                     if (activeIdx < 0 || activeUpdates === 0) {
                         calLastBestLocalMs = 0;

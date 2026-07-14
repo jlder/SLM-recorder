@@ -112,15 +112,48 @@ R"rawliteral(        // Fourth-order filters are built from cascaded second-orde
             return data.map(v => (v - minVal) / (maxVal - minVal));
         }
 
+        // Rolling maximum over a causal look-back window ending at the current sample.
+        // For landing detection this answers: "was there a high-frequency RMS
+        // peak not older than the configured age window before this transition?"
+        function rollingPastMax(data, windowSamples) {
+            const n = Math.max(1, Math.round(windowSamples));
+            const out = new Array(data.length);
+            const deque = [];
+
+            for (let i = 0; i < data.length; i++) {
+                const minIdx = i - n;
+                while (deque.length > 0 && deque[0] < minIdx) deque.shift();
+                while (deque.length > 0 && data[deque[deque.length - 1]] <= data[i]) deque.pop();
+                deque.push(i);
+                out[i] = data[deque[0]];
+            }
+
+            return out;
+        }
+
         // Convert a continuous flight/ground score into a state with hysteresis.
-        function calculateBooleanState(data, threshold, hysteresis) {
+        // The ground-to-flight transition uses FlightGround alone. The
+        // flight-to-ground transition may also require a recent normalized
+        // HIRMS peak so that a calm in-flight FlightGround zero crossing is not
+        // accepted as landing unless touchdown/rollout vibration was observed
+        // during the configured look-back window.
+        function calculateBooleanState(data, threshold, hysteresis, landingHirmsNorm) {
             const tUp = threshold + hysteresis / 2.0;
             const tDown = threshold - hysteresis / 2.0;
+            const useLandingGate = (SLM_ANALYSIS_LDG_HIRMS_GATE_ENABLED !== 0) && Array.isArray(landingHirmsNorm);
+            const landingRecentMax = useLandingGate
+                ? rollingPastMax(landingHirmsNorm, SLM_ANALYSIS_LDG_HIRMS_PEAK_MAX_AGE_S * SLM_ANALYSIS_FS)
+                : null;
             let state = 0;
 
-            return data.map(value => {
-                if (state === 0 && value >= tUp) state = 1;
-                else if (state === 1 && value <= tDown) state = 0;
+            return data.map((value, i) => {
+                if (state === 0 && value >= tUp) {
+                    state = 1;
+                } else if (state === 1 && value <= tDown) {
+                    if (!useLandingGate || landingRecentMax[i] >= SLM_ANALYSIS_LDG_HIRMS_PEAK_MIN_NORM) {
+                        state = 0;
+                    }
+                }
                 return state;
             });
         }
@@ -208,17 +241,22 @@ R"rawliteral(        // Fourth-order filters are built from cascaded second-orde
                     }
                 }
 
-                const takeoffRollMs = Math.max(0, records[liftOffIdx].absMs - records[toRollStartIdx].absMs);
-                const landingRollMs = Math.max(0, records[ldgRollEndIdx].absMs - records[touchdownIdx].absMs);
-                const durationMs = Math.max(0, records[ldgRollEndIdx].absMs - records[toRollStartIdx].absMs);
+                const takeoffRollStartMs = records[toRollStartIdx].absMs;
+                const landingRollEndMs = records[ldgRollEndIdx].absMs;
+                const takeoffRollStartRoundedMs = roundMsToNearestMinute(takeoffRollStartMs);
+                const landingRollEndRoundedMs = roundMsToNearestMinute(landingRollEndMs);
+
+                const takeoffRollMs = Math.max(0, records[liftOffIdx].absMs - takeoffRollStartMs);
+                const landingRollMs = Math.max(0, landingRollEndMs - records[touchdownIdx].absMs);
+                const durationMs = Math.max(0, landingRollEndRoundedMs - takeoffRollStartRoundedMs);
 
                 results.push({
-                    takeoffRollStart: formatClockMs(records[toRollStartIdx].absMs),
-                    takeoffRollStartShort: formatClockHm(records[toRollStartIdx].absMs),
+                    takeoffRollStart: formatClockMs(takeoffRollStartMs),
+                    takeoffRollStartShort: formatClockHm(takeoffRollStartRoundedMs),
                     liftOff: formatClockMs(records[liftOffIdx].absMs),
                     touchdown: formatClockMs(records[touchdownIdx].absMs),
-                    landingRollEnd: formatClockMs(records[ldgRollEndIdx].absMs),
-                    landingRollEndShort: formatClockHm(records[ldgRollEndIdx].absMs),
+                    landingRollEnd: formatClockMs(landingRollEndMs),
+                    landingRollEndShort: formatClockHm(landingRollEndRoundedMs),
                     takeoffRollDuration: formatDurationSeconds(takeoffRollMs),
                     landingRollDuration: formatDurationSeconds(landingRollMs),
                     flightDuration: formatDurationMs(durationMs),

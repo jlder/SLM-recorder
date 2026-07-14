@@ -1368,6 +1368,7 @@ bool calibration_session_get_status(calibration_sample_status_t *out){
   out->current_face = s_session_current_face;
   out->mean_mg = s_candidate_valid ? s_candidate_mean : s_latest_mean;
   out->stddev_mg = s_candidate_valid ? s_candidate_stddev : s_latest_stddev;
+  out->current_stddev_mg = s_latest_stddev;
   out->sample_count = s_window_count;
   out->current_face_samples = s_session_current_face_samples;
   out->total_samples = s_session_total_samples;

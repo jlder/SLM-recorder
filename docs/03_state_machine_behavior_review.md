@@ -233,6 +233,7 @@ Transitions:
 Notes:
 
 - Power-long and low-battery during recording intentionally close the file before shutdown.
+- Low-battery shutdown is independent of WiFi/Web activity. If the battery is at or below the configured threshold and current USB-power status is unavailable, the state task enters the shutdown path fail-safe.
 
 ## 10. `ST_ERROR`
 
@@ -341,7 +342,7 @@ Recorder sensor calibration session behavior:
 
 Calibration Web display behavior:
 
-- progress area: status, session state, current face, samples processed on that face, sensor temperature, lowest stddev for that face, best update count for that face, and time since the last best update;
+- progress area: status, session state, current face, samples processed on that face, sensor temperature, current stddev and minimum stddev for that face, best update count for that face, and time since the last best update;
 - face summary: compact six-face status using `OK` for captured faces, `ACTIVE` for the currently detected/sampled face, and `—` for missing faces;
 - states are intentionally simple: `ACTIVE` for the currently detected/sampled face, `OK` for captured faces, and `—` for missing faces;
 - result area: `Calibration: Ready / Active / Done`, NVS date, and `Axis | Gain | NVS Gain | Offset | NVS Offset`.
@@ -442,7 +443,7 @@ The permanent `/diag` route is used as a lightweight health check during validat
 
 ## 25. SD File-Management Timing and Download Behavior
 
-When the recorder is in READY and Web file-management is authorized, SD support operations are serviced from `SD_IDLE`. Recording states do not service Web/UI file-management operations.
+When the recorder is in READY and Web file-management is authorized, SD support operations are serviced from `SD_IDLE`. Recording states do not service Web/UI file-management operations. Web support can write root-level companion `.log` files derived from recording `.bin` basenames and can read them later through the same authorized file-management path; recording acquisition and SD recording states remain isolated from these support operations.
 
 To improve Web download responsiveness, `sd_task` uses a shorter file-operation polling period only when both conditions are true:
 

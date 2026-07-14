@@ -303,6 +303,7 @@ static const char* content_type_from_name(const String& filename){
   if(filename.endsWith(".png")) return "image/png";
   if(filename.endsWith(".jpg")) return "image/jpeg";
   if(filename.endsWith(".bin")) return "application/octet-stream";
+  if(filename.endsWith(".log")) return "text/plain";
   return "application/octet-stream";
 }
 
@@ -1043,6 +1044,57 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(response);
   });
 
+
+
+  // Store a browser-generated companion flight-analysis log next to the source
+  // recording file. The request supplies the .bin basename and text content;
+  // the recorder derives the .log name and accepts only root-level recording
+  // basenames so this endpoint cannot write arbitrary SD paths.
+  s_server->on("/api/flightlog", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
+    WebSdBusyScope _sdscope;
+    if(!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
+
+    if(!sd_files_is_authorized()){
+      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"not_authorized\"}");
+      return;
+    }
+
+    if((!request->hasParam("file", true)) || (!request->hasParam("log", true))){
+      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"missing_parameter\"}");
+      return;
+    }
+
+    String file = request->getParam("file", true)->value();
+    const int slash = file.lastIndexOf('/');
+    if(slash >= 0){
+      file = file.substring(slash + 1);
+    }
+
+    if((file.length() == 0) || (!file.endsWith(".bin")) || (file.indexOf('/') >= 0)){
+      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"invalid_file\"}");
+      return;
+    }
+
+    String log_name = file.substring(0, file.length() - 4) + String(".log");
+    if(log_name.length() >= FILENAME_MAX_LENGTH){
+      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"name_too_long\"}");
+      return;
+    }
+
+    String log = request->getParam("log", true)->value();
+    if(log.length() > FLIGHT_LOG_TEXT_MAX_BYTES){
+      request->send(413, "application/json", "{\"ok\":false,\"reason\":\"log_too_large\"}");
+      return;
+    }
+
+    const String path = String("/") + log_name;
+    const bool ok = sd_files_write_text_file(path.c_str(), log.c_str(), (uint32_t)log.length());
+    request->send(ok ? 200 : 500,
+                  "application/json",
+                  ok ? "{\"ok\":true}" : "{\"ok\":false,\"reason\":\"write_failed\"}");
+  });
+
   s_server->on("/api/delete", HTTP_POST, [](AsyncWebServerRequest *request){
     if (!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
     WebSdBusyScope _sdscope;
@@ -1350,6 +1402,10 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     out += cal_vec_json_(st.mean_mg);
     out += ",\"stddev\":";
     out += cal_vec_json_(st.stddev_mg);
+    out += ",\"current_stddev\":";
+    out += cal_vec_json_(st.current_stddev_mg);
+    out += ",\"stability_stddev_max_mg\":";
+    out += String(CALIBRATION_STABILITY_STDDEV_MAX_MG, 2);
     out += ",\"face_valid\":";
     out += cal_face_valid_json_(st.face_valid);
     out += ",\"session_face\":";
@@ -1846,6 +1902,8 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     out += cal_vec_json_(st.mean_mg);
     out += ",\"stddev\":";
     out += cal_vec_json_(st.stddev_mg);
+    out += ",\"stability_stddev_max_mg\":";
+    out += String(CALIBRATION_STABILITY_STDDEV_MAX_MG, 2);
     out += ",\"matrix\":";
     out += cal_matrix_json_(st.matrix);
     out += ",\"stored_valid\":";

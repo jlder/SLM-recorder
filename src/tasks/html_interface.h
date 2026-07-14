@@ -19,6 +19,11 @@
 #ifndef HTML_INTERFACE_H
 #define HTML_INTERFACE_H
 
+#include "config.h"
+
+#define SLM_HTML_STRINGIFY_IMPL(x) #x
+#define SLM_HTML_STRINGIFY(x) SLM_HTML_STRINGIFY_IMPL(x)
+
 const char HTML_PAGE[] PROGMEM =
 #include "web_ui/00_page_begin.inc"
 #include "web_ui/01_styles.inc"

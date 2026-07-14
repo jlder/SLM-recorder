@@ -49,6 +49,36 @@
 #define WEB_SINGLE_CLIENT_TIMEOUT_MS 60000
 #define WEB_SD_BUSY_STALE_MS         30000u
 
+
+// Browser-side flight-time analysis parameters.
+// These values are embedded in the served JavaScript flight-analysis page at
+// compile time by html_interface.h / web_ui/12_script_flight_decode.inc.
+#define FLIGHT_ANALYSIS_FS_HZ                         20.0
+#define FLIGHT_ANALYSIS_HIRMS_WINDOW_S                 4.0
+#define FLIGHT_ANALYSIS_LOWRMS_WINDOW_S               10.0
+#define FLIGHT_ANALYSIS_FLIGHTGROUND_LPF_PERIOD_S     20.0
+#define FLIGHT_ANALYSIS_FLIGHTGROUND_THRESHOLD         0.05
+#define FLIGHT_ANALYSIS_FLIGHTGROUND_HYSTERESIS        0.10
+#define FLIGHT_ANALYSIS_SEARCH_WINDOW_S               80.0
+#define FLIGHT_ANALYSIS_TO_ROLL_START_THR              0.10
+#define FLIGHT_ANALYSIS_TO_ROLL_END_THR                0.25
+#define FLIGHT_ANALYSIS_LDG_ROLL_START_THR             0.25
+#define FLIGHT_ANALYSIS_LDG_ROLL_END_THR               0.10
+#define FLIGHT_ANALYSIS_MIN_FILE_S                    30.0
+#define FLIGHT_ANALYSIS_BUTTER_Q1                      0.541196100146
+#define FLIGHT_ANALYSIS_BUTTER_Q2                      1.306562964876
+// Landing validation gate used by the browser-side flight-time analysis.
+// A FlightGround flight->ground transition is accepted only when normalized
+// high-frequency RMS has exceeded the configured peak threshold within the
+// preceding age window. This prevents calm in-flight FlightGround crossings
+// from being interpreted as landings while still accepting touchdown/rollout
+// vibration peaks that occur shortly before the detected transition. Set
+// FLIGHT_ANALYSIS_LDG_HIRMS_GATE_ENABLED to 0 to use the FlightGround-only
+// transition logic.
+#define FLIGHT_ANALYSIS_LDG_HIRMS_GATE_ENABLED         1
+#define FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MIN_NORM        0.10
+#define FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MAX_AGE_S      20.0
+
 // Software watchdog
 #define WATCHDOG_TIMEOUT_MS             3000u
 #define WATCHDOG_CHECK_PERIOD_MS        1000u
@@ -86,7 +116,7 @@
 // Number of samples in the calibration stability window.
 // Requirement: must be greater than 0 because mean/stddev computation divides by this value.
 #define CALIBRATION_WINDOW_SAMPLE_COUNT    40u
-#define CALIBRATION_STABILITY_STDDEV_MAX_MG 1.5f
+#define CALIBRATION_STABILITY_STDDEV_MAX_MG 2.5f
 #define CALIBRATION_GAIN_MIN               0.8f
 #define CALIBRATION_GAIN_MAX               1.2f
 #define CALIBRATION_OFFSET_ABS_MAX_MG      200.0f
@@ -101,7 +131,7 @@
 // Hardware version identifies the recorder hardware configuration.
 // Software version identifies the firmware build.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.15"
+#define RECORDER_SOFTWARE_VERSION      "1.16"
 #define RECORDER_VERSION_TEXT          "sw ver " RECORDER_SOFTWARE_VERSION "\nhw ver " RECORDER_HARDWARE_VERSION
 
 // Storage / SD
@@ -116,6 +146,7 @@
 #define SD_FILE_LIST_JSON_ENTRY_MAX  (FILENAME_MAX_LENGTH + 64u)
 #define SD_FILE_LIST_JSON_MAX        (2u + (SD_MAX_RECORD_FILES * (SD_FILE_LIST_JSON_ENTRY_MAX + 1u)) + 1u)
 #define SD_FILE_OP_TIMEOUT_MS        2000u
+#define FLIGHT_LOG_TEXT_MAX_BYTES    4096u
 
 #define SD_IO_FAIL_LIMIT             3u
 #define SD_WRITE_RETRY_MAX           3u

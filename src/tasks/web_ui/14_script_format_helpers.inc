@@ -49,6 +49,13 @@ R"rawliteral(
             return pad2(h) + ':' + pad2(m);
         }
 
+        // Round detected flight boundary times to the closest displayed minute.
+        // Flight duration shown as HH:MM is then computed from these same
+        // rounded boundaries so the table remains arithmetically consistent.
+        function roundMsToNearestMinute(absMs) {
+            return Math.round((Number(absMs) || 0) / 60000.0) * 60000.0;
+        }
+
         // Duration formatting does not wrap at 24 h.
         function formatDurationMs(ms) {
             let totalSeconds = Math.round(ms / 1000.0);
