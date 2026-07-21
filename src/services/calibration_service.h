@@ -124,6 +124,7 @@ typedef struct {
   calibration_face_t current_face;
   calibration_vec_t mean_mg;
   calibration_vec_t stddev_mg;
+  bool current_stddev_valid;
   calibration_vec_t current_stddev_mg;
   uint32_t sample_count;
   uint32_t current_face_samples;
@@ -146,6 +147,7 @@ typedef struct {
   bool temperature_available;
   bool temperature_in_range;
   bool temperature_stable;
+  bool temperature_fault;
   float temperature_c;
   float temperature_min_c;
   float temperature_max_c;

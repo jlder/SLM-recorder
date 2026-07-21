@@ -76,7 +76,7 @@
 // FLIGHT_ANALYSIS_LDG_HIRMS_GATE_ENABLED to 0 to use the FlightGround-only
 // transition logic.
 #define FLIGHT_ANALYSIS_LDG_HIRMS_GATE_ENABLED         1
-#define FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MIN_NORM        0.10
+#define FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MIN_NORM        0.20
 #define FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MAX_AGE_S      20.0
 
 // Software watchdog
@@ -117,6 +117,7 @@
 // Requirement: must be greater than 0 because mean/stddev computation divides by this value.
 #define CALIBRATION_WINDOW_SAMPLE_COUNT    40u
 #define CALIBRATION_STABILITY_STDDEV_MAX_MG 2.5f
+#define CALIBRATION_STABILITY_STDDEV_MIN_MG 0.05f
 #define CALIBRATION_GAIN_MIN               0.8f
 #define CALIBRATION_GAIN_MAX               1.2f
 #define CALIBRATION_OFFSET_ABS_MAX_MG      200.0f
@@ -131,7 +132,7 @@
 // Hardware version identifies the recorder hardware configuration.
 // Software version identifies the firmware build.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.16"
+#define RECORDER_SOFTWARE_VERSION      "1.17"
 #define RECORDER_VERSION_TEXT          "sw ver " RECORDER_SOFTWARE_VERSION "\nhw ver " RECORDER_HARDWARE_VERSION
 
 // Storage / SD

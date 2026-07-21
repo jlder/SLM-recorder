@@ -16,11 +16,9 @@ R"rawliteral(    <script>
         let calPoll = null;
         let calAuth = false;
         let calView = 'menu';
-        let calLastBestLocalMs = 0;
-        let calLastBestLocalUpdates = 0;
-        let calLastBestLocalFace = -1;
         let calRecorderSaveMessageSticky = false;
         let installSampleRequestActive = false;
+        let calFaceBestUpdateSeen = [0, 0, 0, 0, 0, 0];
 
         // -----------------------------------------------------------------
         // Page navigation
@@ -233,11 +231,9 @@ R"rawliteral(    <script>
             document.getElementById('calSensorTemp').textContent = '-';
             document.getElementById('calCurrentNoise').textContent = '-';
             document.getElementById('calLowestNoise').textContent = '-';
-            document.getElementById('calLastBestUpdate').textContent = '-';
+            document.getElementById('calFaceTime').textContent = '-';
+            calFaceBestUpdateSeen = [0, 0, 0, 0, 0, 0];
             updateFaceSummary(null, -1, false);
-            calLastBestLocalMs = 0;
-            calLastBestLocalUpdates = 0;
-            calLastBestLocalFace = -1;
             for (let i = 0; i < 3; i++) {
                 document.getElementById('resGain' + i).textContent = '-';
                 document.getElementById('resOffset' + i).textContent = '-';

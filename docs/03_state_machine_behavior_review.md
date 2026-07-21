@@ -331,18 +331,18 @@ Recorder sensor calibration session behavior:
 3. The calibration service reads raw acceleration using `accel_read_xyz_raw()`.
 4. Samples outside the dominant-axis gravity tolerance reset the rolling window and current-face sample count.
 5. When the detected face changes, the current-face sample count and rolling window reset. A 40-sample rolling window is evaluated on the current face.
-6. If the full window has stddev above threshold, the window is reset.
+6. If the full window has non-credible near-zero stddev or no face can be detected, the window is reset. If the active-axis stddev is above threshold, the window remains rolling so the Web UI can continue displaying a live red current value while motion/noise decays.
 7. If the full window is stable and within gravity tolerance, a face is detected from the dominant axis.
 8. If this is the first current-session value for the face, it is stored.
-9. If the face already has a current-session value, it is replaced only if the new candidate has lower dominant-axis stddev than the current-session value. For +X/-X faces this means X stddev, for +Y/-Y this means Y stddev, and for +Z/-Z this means Z stddev. Off-axis stddev is still used for the stability check but does not decide whether a face capture improves.
+9. If the face already has a current-session value, it is replaced only if the new candidate has lower dominant-axis stddev than the current-session value. For +X/-X faces this means X stddev, for +Y/-Y this means Y stddev, and for +Z/-Z this means Z stddev. Off-axis stddev does not reject or rank a recorder-calibration face capture; those axes are checked when their own faces are measured.
 10. Stored/NVS values are not used for this selection decision.
-11. A valid face capture does not reset the rolling window. The service continues evaluating overlapping windows until the operator moves the recorder, the window becomes unstable, or the session ends.
+11. A valid face capture does not reset the rolling window. The service continues evaluating overlapping windows until the operator moves the recorder, the window becomes non-credible, or the session ends; ordinary above-threshold active-axis stddev is reported but does not by itself reset the window.
 12. Once all six faces are captured, gains/offsets are computed and displayed.
 13. Web Save stores the accepted calibration in NVS and clears any recorder calibration fault latch.
 
 Calibration Web display behavior:
 
-- progress area: status, session state, current face, samples processed on that face, sensor temperature, current stddev and minimum stddev for that face, best update count for that face, and time since the last best update;
+- progress area: status, session state, current face, samples processed on that face, sensor temperature or the red bold `Temperature too high, Start again` restart instruction, current/min active-axis stddev for that face, and time since the retained minimum stddev was last improved;
 - face summary: compact six-face status using `OK` for captured faces, `ACTIVE` for the currently detected/sampled face, and `—` for missing faces;
 - states are intentionally simple: `ACTIVE` for the currently detected/sampled face, `OK` for captured faces, and `—` for missing faces;
 - result area: `Calibration: Ready / Active / Done`, NVS date, and `Axis | Gain | NVS Gain | Offset | NVS Offset`.

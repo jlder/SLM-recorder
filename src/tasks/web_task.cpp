@@ -1402,8 +1402,12 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     out += cal_vec_json_(st.mean_mg);
     out += ",\"stddev\":";
     out += cal_vec_json_(st.stddev_mg);
+    out += ",\"current_stddev_valid\":";
+    out += st.current_stddev_valid ? "true" : "false";
     out += ",\"current_stddev\":";
     out += cal_vec_json_(st.current_stddev_mg);
+    out += ",\"sample_period_ms\":";
+    out += String((unsigned long)CALIBRATION_SAMPLE_PERIOD_MS);
     out += ",\"stability_stddev_max_mg\":";
     out += String(CALIBRATION_STABILITY_STDDEV_MAX_MG, 2);
     out += ",\"face_valid\":";
@@ -1420,6 +1424,8 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     out += st.temperature_in_range ? "true" : "false";
     out += ",\"temperature_stable\":";
     out += st.temperature_stable ? "true" : "false";
+    out += ",\"temperature_fault\":";
+    out += st.temperature_fault ? "true" : "false";
     out += ",\"temperature_c\":";
     out += st.temperature_available ? String(st.temperature_c, 2) : "null";
     out += ",\"temperature_min_c\":";

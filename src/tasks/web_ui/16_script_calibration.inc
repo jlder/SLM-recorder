@@ -123,13 +123,23 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
             return '<span class="' + (ok ? 'ok' : 'bad') + '">' + text + '</span>';
         }
 
+
         function fmtTemperature(v) {
             if (v === null || v === undefined || !isFinite(Number(v))) return '-';
             return Number(v).toFixed(1) + ' °C';
         }
 
-        // Display the temperature gate that must be satisfied before recorder calibration can be saved.
+        // Display the recorder-calibration temperature gate. A high absolute
+        // temperature or excessive session temperature span cancels the session
+        // in the service; in that case the normal temperature readout is
+        // replaced by a direct restart instruction.
         function updateCalibrationTemperature(data) {
+            const el = document.getElementById('calSensorTemp');
+            if (!!data.temperature_fault) {
+                el.innerHTML = '<span class="bad">Temperature too high, Start again</span>';
+                return;
+            }
+
             const available = !!data.temperature_available;
             const stable = !!data.temperature_stable;
             const minAllowed = data.temperature_allowed_min_c;
@@ -150,7 +160,7 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
             if (available && !stable && spanAllowed !== undefined) {
                 text += ' (span max ' + Number(spanAllowed).toFixed(1) + ' °C)';
             }
-            document.getElementById('calSensorTemp').textContent = text;
+            el.textContent = text;
         }
 
         // Render the six recorder faces with active and completed state.
@@ -198,6 +208,10 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
         }
 
         // Poll the live recorder-calibration session. The service keeps best captures per face.
+        // Current/min stddev are both active-axis values. When the per-face best
+        // update counter changes, the current field is forced to the same
+        // accepted-window value for that refresh so the operator does not see a
+        // best update that appears unrelated to the displayed current value.
         function calSample() {
             fetch('/api/cal/sample')
                 .then(r => r.json().then(j => ({ok:r.ok, status:r.status, json:j})))
@@ -212,22 +226,27 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                     const currentFaceName = data.current_face_valid ? data.current_face : (data.candidate_valid ? data.candidate_face : '-');
                     document.getElementById('calSamplesProcessed').textContent = data.samples || 0;
                     const activeIdx = currentFaceName !== '-' ? faceIndexFromName(currentFaceName) : -1;
-                    const activeUpdates = (activeIdx >= 0 && data.face_updates) ? (data.face_updates[activeIdx] || 0) : 0;
-                    const activeAge = (activeIdx >= 0 && data.face_last_update_age_ms) ? data.face_last_update_age_ms[activeIdx] : null;
-                    const currentNoise = stddevForFace(data.current_stddev || data.stddev, currentFaceName);
-                    document.getElementById('calCurrentNoise').innerHTML = fmtNoiseLimit(currentNoise, data.stability_stddev_max_mg);
-                    document.getElementById('calLowestNoise').textContent = activeIdx >= 0 ? fmtNoise(data.face_quality && data.face_quality[activeIdx]) : '-';
-                    if (activeIdx < 0 || activeUpdates === 0) {
-                        calLastBestLocalMs = 0;
-                        calLastBestLocalUpdates = 0;
-                        calLastBestLocalFace = activeIdx;
-                    } else if (calLastBestLocalFace !== activeIdx || calLastBestLocalUpdates !== activeUpdates) {
-                        const ageMs = (activeAge !== undefined && activeAge !== null) ? Number(activeAge) : 0;
-                        calLastBestLocalMs = Date.now() - Math.max(0, ageMs);
-                        calLastBestLocalUpdates = activeUpdates;
-                        calLastBestLocalFace = activeIdx;
+                    const activeUpdates = (activeIdx >= 0 && data.face_updates) ? Number(data.face_updates[activeIdx] || 0) : 0;
+                    const bestNoise = (activeIdx >= 0 && activeUpdates > 0 && data.face_quality) ? Number(data.face_quality[activeIdx]) : null;
+                    const bestUpdateCount = activeUpdates;
+                    const bestUpdatedSinceLastPoll = (activeIdx >= 0 && bestUpdateCount > 0 && bestUpdateCount !== calFaceBestUpdateSeen[activeIdx]);
+                    if (activeIdx >= 0) calFaceBestUpdateSeen[activeIdx] = bestUpdateCount;
+
+                    let currentNoise = data.current_stddev_valid ? stddevForFace(data.current_stddev, currentFaceName) : null;
+                    if (bestUpdatedSinceLastPoll && bestNoise !== null && isFinite(bestNoise)) {
+                        currentNoise = bestNoise;
                     }
-                    document.getElementById('calLastBestUpdate').textContent = activeUpdates > 0 ? fmtAgeFromLocal(calLastBestLocalMs) : '-';
+                    document.getElementById('calCurrentNoise').innerHTML = fmtNoiseLimit(currentNoise, data.stability_stddev_max_mg);
+                    document.getElementById('calLowestNoise').textContent = (bestNoise !== null && isFinite(bestNoise)) ? fmtNoise(bestNoise) : '-';
+
+                    // Show how long the retained minimum has been stable on
+                    // the current face. This is more useful than the total time on
+                    // the face because it tells the operator whether the best
+                    // capture is still improving.
+                    const bestAgeMs = (activeIdx >= 0 && bestUpdateCount > 0 && data.face_last_update_age_ms) ?
+                        Number(data.face_last_update_age_ms[activeIdx] || 0) : null;
+                    document.getElementById('calFaceTime').textContent =
+                        (bestAgeMs !== null && isFinite(bestAgeMs)) ? fmtAge(bestAgeMs) : '-';
                     updateCalibrationTemperature(data);
 
                     updateFaceSummary(data.face_valid, activeIdx, !!data.active);
@@ -476,10 +495,6 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
         }
 
 
-        function fmtAgeFromLocal(startMs) {
-            if (!startMs) return '-';
-            return fmtAge(Date.now() - startMs);
-        }
 
         // Poll the live installation session. Only the current stable rolling window is saveable.
         // Overlapping requests are skipped so an older response cannot overwrite newer state.

@@ -46,6 +46,7 @@ static uint32_t s_session_current_face_samples = 0u;
 static bool s_session_temp_available = false;
 static bool s_session_temp_in_range = false;
 static bool s_session_temp_stable = false;
+static bool s_session_temp_fault = false;
 static float s_session_temp_c = 0.0f;
 static float s_session_temp_min_c = 0.0f;
 static float s_session_temp_max_c = 0.0f;
@@ -59,6 +60,7 @@ static uint32_t s_window_index = 0u;
 static uint32_t s_window_count = 0u;
 
 static bool s_latest_stable = false;
+static bool s_latest_stats_valid = false;
 static calibration_vec_t s_latest_mean = {};
 static calibration_vec_t s_latest_stddev = {};
 
@@ -107,6 +109,7 @@ static void calibration_temperature_reset_(void){
   s_session_temp_available = false;
   s_session_temp_in_range = false;
   s_session_temp_stable = false;
+  s_session_temp_fault = false;
   s_session_temp_c = 0.0f;
   s_session_temp_min_c = 0.0f;
   s_session_temp_max_c = 0.0f;
@@ -142,6 +145,14 @@ static bool calibration_temperature_sample_update_(void){
   s_session_temp_sum_c += t_c;
   s_session_temp_count++;
   s_session_temp_stable = ((s_session_temp_max_c - s_session_temp_min_c) <= CALIBRATION_TEMP_MAX_SPAN_C);
+
+  // A high absolute temperature or an excessive session temperature span makes
+  // the six-face recorder calibration invalid. The service auto-cancels the
+  // session and latches a clear operator message instead of leaving the page in
+  // a state where Save is simply disabled. Low/unavailable readings still just
+  // prevent progress because they may recover without restarting.
+  s_session_temp_fault = ((t_c > CALIBRATION_TEMP_MAX_C) || !s_session_temp_stable);
+
   return s_session_temp_in_range && s_session_temp_stable;
 }
 
@@ -195,6 +206,8 @@ public:
 };
 
 static bool calibration_detect_face_(const calibration_vec_t *mean, calibration_face_t *out_face);
+static float calibration_face_quality_(calibration_face_t face, const calibration_vec_t *stddev);
+static bool calibration_face_quality_valid_(float stddev_mg);
 static void calibration_session_quality_reset_(void);
 static void calibration_store_session_face_(calibration_face_t face,
                                             const calibration_vec_t *mean,
@@ -203,6 +216,7 @@ static bool calibration_track_current_face_sample_(const calibration_vec_t *v);
 static void calibration_session_reset_unlocked_(void);
 static void calibration_installation_session_reset_unlocked_(void);
 static bool calibration_temperature_sample_update_(void);
+static void calibration_session_temperature_fault_unlocked_(void);
 static bool calibration_delta_within_limits_(const sensor_calibration_t *a, const sensor_calibration_t *b);
 static void calibration_set_fault_reason_(calibration_fault_reason_t reason);
 
@@ -544,18 +558,37 @@ bool calibration_service_support_clear_installation(void){
 }
 
 /**
- * Reset the current sample stability window.
+ * Clear only the samples used to build the next stability window.
+ *
+ * The latest evaluated mean/stddev remain available for status reporting.
  *
  * Parameters:
- *   none
+ *   none.
+ *
+ * Return:
+ *   none.
+ */
+static void calibration_window_samples_reset_(void){
+  memset(s_window, 0, sizeof(s_window));
+  s_window_index = 0u;
+  s_window_count = 0u;
+}
+
+/**
+ * Reset the sample window and invalidate the latest evaluated statistics.
+ *
+ * Use this when the physical face/orientation is no longer continuous or when
+ * samples are not meaningful for calibration status.
+ *
+ * Parameters:
+ *   none.
  *
  * Return:
  *   none.
  */
 static void calibration_window_reset_(void){
-  memset(s_window, 0, sizeof(s_window));
-  s_window_index = 0u;
-  s_window_count = 0u;
+  calibration_window_samples_reset_();
+  s_latest_stats_valid = false;
   s_latest_stable = false;
   s_latest_mean = {};
   s_latest_stddev = {};
@@ -650,9 +683,10 @@ static bool calibration_raw_sample_in_range_(const calibration_vec_t *v){
 /**
  * Track the currently sampled physical face from each accepted raw sample.
  *
- * The Web UI uses this counter to show how long the recorder has been held on
- * the current face. It resets immediately when the detected face changes, so
- * the operator sees a fresh sample count after rotating the recorder.
+ * The per-face sample counter resets immediately when the detected face changes.
+ * It is kept for progress reporting and for associating retained captures with
+ * the current face session; the Web UI displays time since the retained minimum
+ * was last improved rather than total time on the face.
  *
  * Parameters:
  *   v - raw acceleration sample already checked against gravity range.
@@ -758,33 +792,49 @@ static void calibration_window_evaluate_(void){
 
   s_latest_mean = mean;
   s_latest_stddev = stddev;
+  s_latest_stats_valid = true;
 
-  s_latest_stable =
-      (stddev.x_mg <= CALIBRATION_STABILITY_STDDEV_MAX_MG) &&
-      (stddev.y_mg <= CALIBRATION_STABILITY_STDDEV_MAX_MG) &&
-      (stddev.z_mg <= CALIBRATION_STABILITY_STDDEV_MAX_MG);
+  calibration_face_t detected_face = CAL_FACE_PX;
+  if(!calibration_detect_face_(&mean, &detected_face)){
+    s_latest_stable = false;
+    calibration_window_samples_reset_();
+    return;
+  }
 
-  if(!s_latest_stable){
-    // The full window was evaluated and found unstable. Reset it so motion
-    // samples do not continue to pollute the next stability window.
+  // Recorder calibration uses the standard deviation of the face axis only.
+  // The +X/-X faces calibrate X, +Y/-Y calibrate Y, and +Z/-Z calibrate Z.
+  // Off-axis stddev does not reject a face capture because it is not used by
+  // that face's gain/offset calculation. Installation calibration keeps the
+  // all-axis check.
+  const float face_stddev_mg = calibration_face_quality_(detected_face, &stddev);
+  if(!calibration_face_quality_valid_(face_stddev_mg)){
+    // A zero or near-zero full-window stddev is not a credible live sensor
+    // measurement for this integer-mg stream. Do not display or retain it as a
+    // best capture; clear the window and wait for fresh samples.
     calibration_window_reset_();
     return;
   }
 
-  calibration_face_t detected_face = CAL_FACE_PX;
-  if(calibration_detect_face_(&mean, &detected_face)){
-    s_candidate_valid = true;
-    s_candidate_face = detected_face;
-    s_candidate_mean = mean;
-    s_candidate_stddev = stddev;
-    s_session_valid_windows++;
+  s_latest_stable = (face_stddev_mg <= CALIBRATION_STABILITY_STDDEV_MAX_MG);
 
-    // A valid stable face is offered to the current calibration session.
-    // If the same face already has a current-session value, only a lower
-    // dominant-axis standard-deviation result replaces it. The window remains
-    // rolling so a patient operator can continue improving the same face.
-    calibration_store_session_face_(detected_face, &mean, &stddev);
+  if(!s_latest_stable){
+    // The full rolling window was evaluated and found unstable on the active
+    // face axis. Keep the window rolling instead of resetting it so the Web UI
+    // continues to show a real current value while motion/noise decays.
+    return;
   }
+
+  s_candidate_valid = true;
+  s_candidate_face = detected_face;
+  s_candidate_mean = mean;
+  s_candidate_stddev = stddev;
+  s_session_valid_windows++;
+
+  // A valid stable face is offered to the current calibration session. If the
+  // same face already has a current-session value, only a lower dominant-axis
+  // standard-deviation result replaces it. The window remains rolling so a
+  // patient operator can continue improving the same face.
+  calibration_store_session_face_(detected_face, &mean, &stddev);
 }
 
 /**
@@ -965,6 +1015,25 @@ static float calibration_face_quality_(calibration_face_t face, const calibratio
 }
 
 /**
+ * Return whether a face-axis standard deviation is a plausible live value.
+ *
+ * A value that is exactly zero or unrealistically close to zero is treated as
+ * invalid because it usually indicates a stale/repeated sensor sample stream or
+ * an uninitialized status value rather than a real 40-sample measurement.
+ *
+ * Parameters:
+ *   stddev_mg - face-axis standard deviation in milli-g.
+ *
+ * Return:
+ *   true if the value can be displayed and used for face acceptance.
+ */
+static bool calibration_face_quality_valid_(float stddev_mg){
+  return isfinite(stddev_mg) &&
+         (stddev_mg >= CALIBRATION_STABILITY_STDDEV_MIN_MG) &&
+         (stddev_mg < 900000.0f);
+}
+
+/**
  * Store the best current-session capture for one face.
  *
  * Parameters:
@@ -990,9 +1059,9 @@ static void calibration_store_session_face_(calibration_face_t face,
     const float current_quality = s_session_face_quality[(uint32_t)face];
 
     // During a calibration session, keep the best stable capture for each face.
-    // Face quality is the standard deviation of the gravity-aligned axis only;
-    // off-axis stddev is still validated for stability but cannot replace a face
-    // capture by itself. Stored/NVS calibration is displayed only for comparison.
+    // Face quality is the standard deviation of the gravity-aligned axis only.
+    // Off-axis stddev is recorded for diagnostics, but the face is accepted and
+    // ranked using the axis that is used by the gain/offset calculation.
     if(new_quality >= current_quality){
       return;
     }
@@ -1071,6 +1140,18 @@ static void calibration_session_reset_unlocked_(void){
   s_last_sample_ms = 0u;
 }
 
+/**
+ * Cancel the recorder calibration after a non-recoverable temperature fault.
+ *
+ * The normal reset clears transient sample data. The temperature-fault flag is
+ * then re-latched so the Web page can replace the temperature line with a
+ * direct instruction to start again.
+ */
+static void calibration_session_temperature_fault_unlocked_(void){
+  calibration_session_reset_unlocked_();
+  s_session_temp_fault = true;
+}
+
 static void calibration_installation_session_reset_unlocked_(void){
   s_install_session_active = false;
   s_install_candidate_valid = false;
@@ -1084,6 +1165,7 @@ static void calibration_installation_session_reset_unlocked_(void){
   s_install_last_update_ms = 0u;
   s_latest_mean = {};
   s_latest_stddev = {};
+  s_latest_stats_valid = false;
   s_latest_stable = false;
   calibration_window_reset_();
   s_last_sample_ms = 0u;
@@ -1249,10 +1331,13 @@ static void installation_session_service_(uint32_t now_ms){
 
   s_latest_mean = mean;
   s_latest_stddev = stddev;
+  s_latest_stats_valid = true;
   s_latest_stable = calibration_stable_(&stddev);
 
   if(!s_latest_stable){
-    calibration_window_reset_();
+    // Preserve the failed-window stddev for status reporting and clear only
+    // the samples used to build the next candidate window.
+    calibration_window_samples_reset_();
     return;
   }
 
@@ -1305,6 +1390,10 @@ void calibration_session_service(uint32_t now_ms){
   s_last_sample_ms = now_ms;
 
   if(!calibration_temperature_sample_update_()){
+    if(s_session_temp_fault){
+      calibration_session_temperature_fault_unlocked_();
+      return;
+    }
     calibration_window_reset_();
     s_session_current_face_valid = false;
     s_session_current_face_samples = 0u;
@@ -1368,6 +1457,7 @@ bool calibration_session_get_status(calibration_sample_status_t *out){
   out->current_face = s_session_current_face;
   out->mean_mg = s_candidate_valid ? s_candidate_mean : s_latest_mean;
   out->stddev_mg = s_candidate_valid ? s_candidate_stddev : s_latest_stddev;
+  out->current_stddev_valid = s_latest_stats_valid;
   out->current_stddev_mg = s_latest_stddev;
   out->sample_count = s_window_count;
   out->current_face_samples = s_session_current_face_samples;
@@ -1386,6 +1476,7 @@ bool calibration_session_get_status(calibration_sample_status_t *out){
   out->temperature_available = s_session_temp_available;
   out->temperature_in_range = s_session_temp_in_range;
   out->temperature_stable = s_session_temp_stable;
+  out->temperature_fault = s_session_temp_fault;
   out->temperature_c = s_session_temp_c;
   out->temperature_min_c = s_session_temp_min_c;
   out->temperature_max_c = s_session_temp_max_c;

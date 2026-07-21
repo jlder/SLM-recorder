@@ -72,8 +72,8 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.15` | version text displayed on device |
-| `RECORDER_VERSION_TEXT` | `sw ver 1.15` / `hw ver 1.00` | main display version text |
+| `RECORDER_SOFTWARE_VERSION` | `1.16` | version text displayed on device |
+| `RECORDER_VERSION_TEXT` | `sw ver 1.16` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
 
@@ -121,7 +121,8 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `INSTALLATION_GRAVITY_TOL_PCT` | 10% | installation-calibration gravity magnitude tolerance |
 | `CALIBRATION_SAMPLE_PERIOD_MS` | 50 ms | calibration sampling period |
 | `CALIBRATION_WINDOW_SAMPLE_COUNT` | 40 samples | calibration stability window |
-| `CALIBRATION_STABILITY_STDDEV_MAX_MG` | 2.5 mg | calibration stability threshold |
+| `CALIBRATION_STABILITY_STDDEV_MAX_MG` | 2.5 mg | calibration stability upper threshold |
+| `CALIBRATION_STABILITY_STDDEV_MIN_MG` | 0.05 mg | minimum credible full-window stddev; lower values are rejected as stale/uninitialized measurements |
 | `CALIBRATION_GAIN_MIN` | 0.8 | minimum acceptable calibration gain |
 | `CALIBRATION_GAIN_MAX` | 1.2 | maximum acceptable calibration gain |
 | `CALIBRATION_OFFSET_ABS_MAX_MG` | 200 mg | maximum absolute calibration offset |
@@ -129,7 +130,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `CALIBRATION_OFFSET_DELTA_MAX_MG` | 50 mg | maximum acceptable offset delta against active/reference calibration |
 | `CALIBRATION_TEMP_MIN_C` | 25 °C | minimum accepted sensor temperature during recorder calibration |
 | `CALIBRATION_TEMP_MAX_C` | 55 °C | maximum accepted sensor temperature during recorder calibration |
-| `CALIBRATION_TEMP_MAX_SPAN_C` | 3 °C | maximum accepted temperature span during one recorder calibration session |
+| `CALIBRATION_TEMP_MAX_SPAN_C` | 3 °C | maximum accepted temperature span during one recorder calibration session; exceeding this span auto-cancels the recorder-calibration session |
 
 ### 3.6 Recording format
 
@@ -540,7 +541,7 @@ Status:
 
 #### OP-CAL-004 — Automatic calibration capture
 
-During calibration, the recorder shall automatically capture stable face values without requiring the operator to manually accept each face. The current session shall retain the best capture for each face using the dominant face-axis standard deviation as the replacement metric. A valid capture shall not reset the rolling window; the recorder shall continue to evaluate overlapping windows while the face remains stable.
+During calibration, the recorder shall automatically capture stable face values without requiring the operator to manually accept each face. For recorder six-face calibration, the stability decision shall use the standard deviation of the axis being calibrated by the current face only: X for +X/-X, Y for +Y/-Y, and Z for +Z/-Z. Off-axis standard deviations shall not reject the face capture because those axes are calibrated when their own faces are measured. The current session shall retain the best capture for each face using the dominant face-axis standard deviation as the replacement metric. A valid capture shall not reset the rolling window; the recorder shall continue to evaluate overlapping windows while the same face is detected. An unstable full window shall also keep the window rolling so the displayed current value remains a live value while motion/noise decays. A zero or near-zero full-window stddev shall not be accepted or retained as a best value because it is not a credible live measurement for the integer-mg sample stream. Installation calibration shall continue to require all three axes to satisfy the stability threshold because it uses the complete gravity vector.
 
 Status:
 
@@ -548,7 +549,7 @@ Status:
 
 #### OP-CAL-005 — Calibration review and save
 
-The operator shall be able to review current calibration results and stored NVS calibration values before saving the accepted calibration. The accelerometer page shall use a simplified live progress area showing validity status with NVS date when valid, session state, current face, samples processed on that face, current stddev and minimum stddev for that face, current-face update count, time since the last best update, sensor temperature status, and a compact six-face completion summary. The accelerometer workflow text shall instruct the operator to start calibration, place the recorder still on each of its six faces, wait for each face to show OK, and save calibration when all six face values are satisfactory. The face summary shall show unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. The installation page shall show validity status with NVS date when valid, session state, samples processed, current noise, stability state, and the current stable candidate angles or stored installation angles. The installation workflow text shall direct the operator to put the glider in flight-level attitude with wings leveled following the AMM procedure, confirm sensor calibration is already valid, start calibration, leave the glider still, and save only when the current rolling window is stable and the noise is satisfactory.
+The operator shall be able to review current calibration results and stored NVS calibration values before saving the accepted calibration. The accelerometer page shall use a simplified live progress area showing validity status with NVS date when valid, session state, current face, samples processed on that face, current/min dominant-axis stddev for that face, time since the retained minimum stddev was last improved on that face, sensor temperature status, and a compact six-face completion summary. If the recorder-calibration temperature exceeds the allowed maximum or the allowed session span, the calibration session shall be canceled automatically and the temperature line shall be replaced by the red bold message `Temperature too high, Start again`. The current stddev shall be displayed only after a credible full stability window has been evaluated; it shall be green when at or below `CALIBRATION_STABILITY_STDDEV_MAX_MG` and red when above it. The active-axis current value is the value used to accept/reject the current face. The minimum stddev is the best retained value for the current face and is shown only after at least one stable capture has been accepted for that face. When a new minimum is reported by the service, the Web page shall display the same accepted-window value in the current field for that refresh so the observed minimum update is not visually disconnected from the displayed current value. The accelerometer workflow text shall instruct the operator to start calibration, place the recorder still on each of its six faces, wait for each face to show OK, and save calibration when all six face values are satisfactory. The face summary shall show unprocessed faces in plain text, the active face in amber only until processed, and processed faces in green. The installation page shall show validity status with NVS date when valid, session state, samples processed, current noise, stability state, and the current stable candidate angles or stored installation angles. The installation workflow text shall direct the operator to put the glider in flight-level attitude with wings leveled following the AMM procedure, confirm sensor calibration is already valid, start calibration, leave the glider still, and save only when the current rolling window is stable and the noise is satisfactory.
 
 Status:
 
@@ -556,7 +557,7 @@ Status:
 
 #### OP-CAL-006 — Calibration fault recovery
 
-If recorder calibration fails plausibility, temperature, or delta-against-reference checks, the recorder shall retain the stored valid active calibration. A structurally valid but rejected recorder-calibration candidate may be retained for support diagnostics. If no trusted active/reference recorder calibration exists, the first trusted-looking recorder calibration shall be stored as the reference only and a second matching calibration shall be required before it becomes the active calibration. The operator shall be able to retry calibration before rejecting the recorder.
+If recorder calibration fails plausibility, temperature, or delta-against-reference checks, the recorder shall retain the stored valid active calibration. If the live recorder-calibration temperature gate fails because the sensor temperature is too high or the session temperature span is too large, the live session shall be canceled automatically and the operator shall be instructed to start again. A structurally valid but rejected recorder-calibration candidate may be retained for support diagnostics. If no trusted active/reference recorder calibration exists, the first trusted-looking recorder calibration shall be stored as the reference only and a second matching calibration shall be required before it becomes the active calibration. The operator shall be able to retry calibration before rejecting the recorder.
 
 Status:
 
