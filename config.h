@@ -78,6 +78,25 @@
 #define FLIGHT_ANALYSIS_LDG_HIRMS_GATE_ENABLED         1
 #define FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MIN_NORM        0.20
 #define FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MAX_AGE_S      20.0
+// Takeoff validation gate used by the browser-side flight-time analysis.
+// A FlightGround ground->flight transition is accepted only when normalized
+// high-frequency RMS has exceeded the configured peak threshold within the
+// preceding age window. This confirms rolling vibration before accepting a
+// takeoff after quiet/edge FlightGround excursions.
+#define FLIGHT_ANALYSIS_TO_HIRMS_GATE_ENABLED          1
+#define FLIGHT_ANALYSIS_TO_HIRMS_PEAK_MIN_NORM         0.20
+#define FLIGHT_ANALYSIS_TO_HIRMS_PEAK_MAX_AGE_S       30.0
+
+// Transition hardening for browser-side flight-time analysis.
+// The recorder is assumed to start on the ground. Ground->flight requests during
+// the startup settling time are ignored; strict takeoff transition requires the
+// signal to have been observed below the ON threshold before a later upward
+// crossing is accepted. The confirmation time rejects short bounces; accepted
+// transitions are back-filled to the first candidate sample by the browser logic.
+#define FLIGHT_ANALYSIS_TO_STARTUP_IGNORE_S            5.0
+#define FLIGHT_ANALYSIS_STRICT_TAKEOFF_TRANSITION_ENABLED 1
+#define FLIGHT_ANALYSIS_TRANSITION_CONFIRM_S           2.0
+
 
 // Software watchdog
 #define WATCHDOG_TIMEOUT_MS             3000u
@@ -132,7 +151,7 @@
 // Hardware version identifies the recorder hardware configuration.
 // Software version identifies the firmware build.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.17"
+#define RECORDER_SOFTWARE_VERSION      "1.18"
 #define RECORDER_VERSION_TEXT          "sw ver " RECORDER_SOFTWARE_VERSION "\nhw ver " RECORDER_HARDWARE_VERSION
 
 // Storage / SD

@@ -468,6 +468,13 @@ While a download session is active, the SD idle reprobe is skipped so the open d
 
 Web download uses the SD-file download path to transfer the selected daily `.bin` to the browser. The browser saves the `.bin` file and analyzes the same buffer locally to detect flight times. The displayed result is limited to the flight-time table and the sample-period average/standard deviation. Kossira occurrence/load-factor processing and CSV generation are intentionally disabled in this release baseline.
 
+The browser-side flight-time detector treats the start of each decoded recording session as ground. The FlightGround signal still requests state changes through the configured hysteresis thresholds, but transition acceptance is physically gated:
+- ground-to-flight requires recent normalized HIRMS evidence from the configured takeoff look-back window, is ignored during the configured startup settling period, and is accepted only after strict rising-transition arming when enabled;
+- flight-to-ground requires recent normalized HIRMS evidence from the configured landing look-back window when the landing gate is enabled;
+- both transition directions are debounced for the configured confirmation period, with the accepted transition back-filled to the first candidate sample.
+
+This keeps the detector compatible with the original HIRMS/LOWRMS/FlightGround concept while reducing false flight splits from calm in-flight FlightGround crossings and false startup segments from filter/RMS edge effects.
+
 ## 27. Web OTA Firmware Update Behavior
 
 Firmware update is available only through the Web interface. Since Web support is enabled from READY, firmware update is operationally separated from active recording. The Web Firmware Update page expects a recorder application binary named like `SLM_recorder_date_version.bin`.

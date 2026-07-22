@@ -104,8 +104,14 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `FLIGHT_ANALYSIS_LDG_ROLL_END_THR` | 0.10 | landing-roll end HIRMS threshold |
 | `FLIGHT_ANALYSIS_MIN_FILE_S` | 30.0 s | minimum decoded file duration for analysis |
 | `FLIGHT_ANALYSIS_LDG_HIRMS_GATE_ENABLED` | 1 | enables recent-HIRMS landing validation gate |
-| `FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MIN_NORM` | 0.10 | minimum normalized high-frequency RMS peak for landing validation |
+| `FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MIN_NORM` | 0.20 | minimum normalized high-frequency RMS peak for landing validation |
 | `FLIGHT_ANALYSIS_LDG_HIRMS_PEAK_MAX_AGE_S` | 20.0 s | maximum age of high-frequency RMS peak before landing transition |
+| `FLIGHT_ANALYSIS_TO_HIRMS_GATE_ENABLED` | 1 | enables recent-HIRMS takeoff validation gate |
+| `FLIGHT_ANALYSIS_TO_HIRMS_PEAK_MIN_NORM` | 0.20 | minimum normalized high-frequency RMS peak for takeoff validation |
+| `FLIGHT_ANALYSIS_TO_HIRMS_PEAK_MAX_AGE_S` | 30.0 s | maximum age of high-frequency RMS peak before takeoff transition |
+| `FLIGHT_ANALYSIS_TO_STARTUP_IGNORE_S` | 5.0 s | startup settling period during which ground-to-flight transitions are ignored |
+| `FLIGHT_ANALYSIS_STRICT_TAKEOFF_TRANSITION_ENABLED` | 1 | requires observed-below-ON arming before accepting takeoff |
+| `FLIGHT_ANALYSIS_TRANSITION_CONFIRM_S` | 2.0 s | debounce/confirmation time before accepting state transitions |
 
 ### 3.5 Calibration
 
@@ -875,7 +881,11 @@ Status:
 
 #### OP-PERF-004 — Browser flight-time analysis consistency
 
-The browser-side flight-time analysis shall use the decoded acceleration timeline to compute HIRMS, LOWRMS, FlightGround, flight/ground transitions, and roll-phase timing. Landing detection shall accept a FlightGround flight-to-ground transition only when the landing HIRMS gate is disabled or when normalized HIRMS has reached the configured peak threshold within the configured maximum age before the transition.
+The browser-side flight-time analysis shall use the decoded acceleration timeline to compute HIRMS, LOWRMS, FlightGround, flight/ground transitions, and roll-phase timing. Landing detection shall accept a FlightGround flight-to-ground transition only when the landing HIRMS gate is disabled or when normalized HIRMS has reached the configured peak threshold within the configured maximum age before the transition. The configured landing validation threshold is `0.20` normalized HIRMS over the preceding `20.0 s`.
+
+Takeoff detection shall assume the beginning of each decoded recording session is ground. When the takeoff HIRMS gate is enabled, a FlightGround ground-to-flight transition shall be accepted only when normalized HIRMS has reached the configured peak threshold within the configured maximum age before the transition. The configured takeoff validation threshold is `0.20` normalized HIRMS over the preceding `30.0 s`.
+
+When strict takeoff transition validation is enabled, the detector shall ignore ground-to-flight requests during the configured startup settling period, shall arm takeoff only after FlightGround has been observed below the ON threshold, and shall require a rising transition before entering flight. Flight/ground transitions shall remain requested for the configured confirmation time before being accepted; accepted transitions shall be reported at the first candidate sample so the confirmation does not intentionally delay the displayed takeoff or landing time.
 
 Displayed takeoff and landing times shall be rounded to the nearest minute. The displayed flight time shall be calculated from those same rounded minute values so that the displayed start time, landing time, and flight time are arithmetically consistent.
 

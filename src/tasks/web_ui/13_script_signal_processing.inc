@@ -132,30 +132,59 @@ R"rawliteral(        // Fourth-order filters are built from cascaded second-orde
         }
 
         // Convert a continuous flight/ground score into a state with hysteresis.
-        // The ground-to-flight transition uses FlightGround alone. The
-        // flight-to-ground transition may also require a recent normalized
-        // HIRMS peak so that a calm in-flight FlightGround zero crossing is not
-        // accepted as landing unless touchdown/rollout vibration was observed
-        // during the configured look-back window.
-        function calculateBooleanState(data, threshold, hysteresis, landingHirmsNorm) {
+        // FlightGround still drives both transitions. HIRMS gates add physical
+        // confirmation that rolling/touchdown vibration was recently observed.
+        function calculateBooleanState(data, threshold, hysteresis, hirmsNorm) {
             const tUp = threshold + hysteresis / 2.0;
             const tDown = threshold - hysteresis / 2.0;
-            const useLandingGate = (SLM_ANALYSIS_LDG_HIRMS_GATE_ENABLED !== 0) && Array.isArray(landingHirmsNorm);
+            const useLandingGate = (SLM_ANALYSIS_LDG_HIRMS_GATE_ENABLED !== 0) && Array.isArray(hirmsNorm);
             const landingRecentMax = useLandingGate
-                ? rollingPastMax(landingHirmsNorm, SLM_ANALYSIS_LDG_HIRMS_PEAK_MAX_AGE_S * SLM_ANALYSIS_FS)
+                ? rollingPastMax(hirmsNorm, SLM_ANALYSIS_LDG_HIRMS_PEAK_MAX_AGE_S * SLM_ANALYSIS_FS)
                 : null;
+            const useTakeoffGate = (SLM_ANALYSIS_TO_HIRMS_GATE_ENABLED !== 0) && Array.isArray(hirmsNorm);
+            const takeoffRecentMax = useTakeoffGate
+                ? rollingPastMax(hirmsNorm, SLM_ANALYSIS_TO_HIRMS_PEAK_MAX_AGE_S * SLM_ANALYSIS_FS)
+                : null;
+            const startupIgnoreSamples = Math.max(0, Math.round(SLM_ANALYSIS_TO_STARTUP_IGNORE_S * SLM_ANALYSIS_FS));
+            const strictTakeoff = (SLM_ANALYSIS_STRICT_TAKEOFF_TRANSITION_ENABLED !== 0);
+            const confirmSamples = Math.max(1, Math.round(SLM_ANALYSIS_TRANSITION_CONFIRM_S * SLM_ANALYSIS_FS));
+            const out = new Array(data.length).fill(0);
             let state = 0;
-
-            return data.map((value, i) => {
-                if (state === 0 && value >= tUp) {
-                    state = 1;
-                } else if (state === 1 && value <= tDown) {
-                    if (!useLandingGate || landingRecentMax[i] >= SLM_ANALYSIS_LDG_HIRMS_PEAK_MIN_NORM) {
-                        state = 0;
+            let takeoffArmed = !strictTakeoff;
+            let pendingKind = null;
+            let pendingStart = -1;
+            function resetPending() { pendingKind = null; pendingStart = -1; }
+            function acceptTransition(kind, startIdx, endIdx) {
+                state = (kind === 'takeoff') ? 1 : 0;
+                if (kind === 'takeoff') takeoffArmed = false;
+                for (let j = startIdx; j <= endIdx; j++) out[j] = state;
+                resetPending();
+            }
+            for (let i = 0; i < data.length; i++) {
+                const value = data[i];
+                if (state === 0) {
+                    if (i >= startupIgnoreSamples && value < tUp) takeoffArmed = true;
+                    const requestTakeoff = (i >= startupIgnoreSamples) && (value >= tUp) && (!strictTakeoff || takeoffArmed);
+                    const takeoffGatePass = !useTakeoffGate || (takeoffRecentMax[i] >= SLM_ANALYSIS_TO_HIRMS_PEAK_MIN_NORM);
+                    if (requestTakeoff && takeoffGatePass) {
+                        if (pendingKind !== 'takeoff') { pendingKind = 'takeoff'; pendingStart = i; }
+                        if ((i - pendingStart + 1) >= confirmSamples) acceptTransition('takeoff', pendingStart, i);
+                    } else if (pendingKind === 'takeoff') {
+                        resetPending();
+                    }
+                } else {
+                    const requestLanding = (value <= tDown);
+                    const landingGatePass = !useLandingGate || (landingRecentMax[i] >= SLM_ANALYSIS_LDG_HIRMS_PEAK_MIN_NORM);
+                    if (requestLanding && landingGatePass) {
+                        if (pendingKind !== 'landing') { pendingKind = 'landing'; pendingStart = i; }
+                        if ((i - pendingStart + 1) >= confirmSamples) acceptTransition('landing', pendingStart, i);
+                    } else if (pendingKind === 'landing') {
+                        resetPending();
                     }
                 }
-                return state;
-            });
+                out[i] = state;
+            }
+            return out;
         }
 
         // Pair flight/ground transitions and locate nearby activity peaks for roll timing.

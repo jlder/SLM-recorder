@@ -616,6 +616,7 @@ Procedure:
 5. Verify that no Kossira/occurrence/load-factor table is displayed and no CSV file is saved.
 6. For a recording with detected flights, confirm the displayed flight time equals the difference between the displayed minute-rounded takeoff and landing times.
 7. Review the source constants and JavaScript logic for the landing HIRMS gate, or use a test file with a calm in-flight FlightGround crossing, to confirm a flight-to-ground transition is not accepted unless the configured recent-HIRMS condition is satisfied.
+8. Review the source constants and JavaScript logic for the takeoff HIRMS gate, startup-ground assumption, strict takeoff arming, and transition confirmation/debounce, or use regression files with startup/edge transients, to confirm false ground-to-flight transitions are not accepted.
 
 Expected result:
 
@@ -623,6 +624,8 @@ Expected result:
 - The flight-time table is displayed when complete flights are detected.
 - Displayed takeoff, landing, and flight-time values are arithmetically consistent after minute rounding.
 - Landing transitions require the configured recent high-frequency RMS evidence when the gate is enabled.
+- Takeoff transitions require the configured recent high-frequency RMS evidence when the gate is enabled, are blocked during the startup settling period, and respect strict takeoff arming when enabled.
+- Transition confirmation/debounce rejects short threshold bounces without intentionally changing the reported first candidate time.
 - Sample statistics show only average sample period and standard deviation.
 - No Markov/Kossira/occurrence CSV files are downloaded.
 

@@ -124,7 +124,7 @@ The Web interface supports:
 
 - SD file listing;
 - file download;
-- browser-side flight-time analysis during download, displaying detected flight times and sample-period average/standard deviation;
+- browser-side flight-time analysis during download, displaying detected flight times and sample-period average/standard deviation, with HIRMS-gated takeoff/landing validation and transition debounce;
 - file archive through the root file-list Archive button, which moves the file to `/processed`;
 - permanent deletion of selected files already archived in `/processed` from the Maintenance / Delete page;
 - calibrations;
