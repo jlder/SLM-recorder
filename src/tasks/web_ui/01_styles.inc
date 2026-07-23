@@ -251,6 +251,9 @@ R"rawliteral(    <style>
         .main-menu-grid .btn, .maintenance-grid .btn {
             min-height: 42px;
         }
+        .main-menu-grid {
+            grid-template-columns: repeat(3, minmax(90px, 160px));
+        }
         .cal-menu-item { margin-bottom: 10px; text-align: center; }
         .cal-menu-item .small { margin-top: 3px; }
         .last-cal-heading {

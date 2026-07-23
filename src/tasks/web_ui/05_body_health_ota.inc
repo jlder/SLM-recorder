@@ -7,7 +7,7 @@
  * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
-R"rawliteral(        <!-- About/support page. Support actions require an additional support authorization code. -->
+R"rawliteral(        <!-- About/support page. One support unlock grants access to all actions for this page session. -->
         <div id="healthSection" class="hidden section">
             <div class="card workflow-card">
                 <h2>About</h2>
@@ -15,22 +15,36 @@ R"rawliteral(        <!-- About/support page. Support actions require an additio
                 <div>Hardware version: <span class="mono">)rawliteral" RECORDER_HARDWARE_VERSION R"rawliteral(</span></div>
             </div>
 
-            <div class="controls cal-actions">
-                <button class="btn btn-primary" onclick="supportDownloadData()">Download Support Data</button>
-                <button class="btn btn-primary" onclick="supportGenerateCalibrationReports()">Generate Calibration Reports</button>
-                <button class="btn btn-primary" onclick="supportClearRecorderCalibration()">Clear Recorder Calibration</button>
-                <button class="btn btn-primary" onclick="supportClearInstallationCalibration()">Clear Installation Calibration</button>
+            <div id="aboutAuthPanel" class="card">
+                <h2>About Access</h2>
+                <p><b>Support functions are restricted.</b> Enter the support code once to unlock all About functions.</p>
+                <input type="password" id="aboutPassword" placeholder="Support code" class="mono" style="padding:10px; margin:5px;">
+                <div class="button-grid two-button-grid">
+                    <button class="btn btn-primary" id="btnAboutUnlock" onclick="aboutUnlock()">Unlock About</button>
+                    <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
+                </div>
+                <div id="aboutAuthStatus" class="small">Locked.</div>
             </div>
-            <div id="aboutSupportStatus" class="small">Support actions require support authorization.</div>
 
-            <!-- Watchdog diagnostic exposes the last supervision fault captured by firmware. -->
-            <div id="watchdogDiagPanel" class="card">
-                <h2>Watchdog Diagnostic</h2>
-                <div id="watchdogDiagText" class="small mono">Loading...</div>
-            </div>
-            <div class="controls cal-actions">
-                <button class="btn btn-primary" onclick="updateWatchdogDiag()">Refresh</button>
-                <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
+            <div id="aboutMenuPanel" class="hidden">
+                <div class="controls cal-actions">
+                    <button class="btn btn-primary" onclick="supportDownloadData()">Download Support Data</button>
+                    <button class="btn btn-primary" onclick="supportGenerateCalibrationReports()">Generate Calibration Reports</button>
+                    <button class="btn btn-primary" onclick="supportClearRecorderCalibration()">Clear Recorder Calibration</button>
+                    <button class="btn btn-primary" onclick="supportClearInstallationCalibration()">Clear Installation Calibration</button>
+                    <button class="btn btn-primary" onclick="openDeletePage()">Delete Files/Reports</button>
+                </div>
+                <div id="aboutSupportStatus" class="small">About functions unlocked.</div>
+
+                <!-- Watchdog diagnostic exposes the last supervision fault captured by firmware. -->
+                <div id="watchdogDiagPanel" class="card">
+                    <h2>Watchdog Diagnostic</h2>
+                    <div id="watchdogDiagText" class="small mono">Loading...</div>
+                </div>
+                <div class="controls cal-actions">
+                    <button class="btn btn-primary" onclick="updateWatchdogDiag()">Refresh</button>
+                    <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
+                </div>
             </div>
         </div>
 

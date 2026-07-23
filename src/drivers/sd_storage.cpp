@@ -1169,15 +1169,18 @@ bool sd_storage_list_json(const char *dir_path, char *out_json, uint32_t out_cap
   const bool list_root = (strcmp(dir, "/") == 0);
   const bool list_processed = (strcmp(dir, "/processed") == 0);
   const bool list_reports = (strcmp(dir, "/calibration_reports") == 0);
-  if((!list_root) && (!list_processed) && (!list_reports)){
+  // /logbook is a virtual Web-only view over .log files in /processed. These
+  // are the companion logs of recordings already downloaded and archived.
+  const bool list_logbook = (strcmp(dir, "/logbook") == 0);
+  if((!list_root) && (!list_processed) && (!list_reports) && (!list_logbook)){
     return false;
   }
 
-  File root = SD_MMC.open(dir);
+  File root = SD_MMC.open(list_logbook ? "/processed" : dir);
   if(!root){
     // /processed and /calibration_reports are created on first use. Before
-    // that, the corresponding maintenance pages simply have no files to show.
-    return list_processed || list_reports;
+    // that, the corresponding maintenance and logbook pages are simply empty.
+    return list_processed || list_reports || list_logbook;
   }
 
   if(!root.isDirectory()){
@@ -1204,6 +1207,9 @@ bool sd_storage_list_json(const char *dir_path, char *out_json, uint32_t out_cap
     }
 
     if(list_root && (!sd_name_has_extension_(name, ".bin"))){
+      continue;
+    }
+    if(list_logbook && (!sd_name_has_extension_(name, ".log"))){
       continue;
     }
 

@@ -12,8 +12,8 @@ R"rawliteral(        <!-- Protected maintenance area. JavaScript switches betwee
             <!-- Registration/password gate for calibration, support, delete, report, and OTA actions. -->
             <div id="calAuthPanel" class="card">
                 <h2>Maintenance Access</h2>
-                <p><b>Maintenance is restricted.</b> Enter the recorder registration to unlock calibration and firmware update functions.</p>
-                <input type="password" id="calPassword" placeholder="Registration" class="mono" style="padding:10px; margin:5px;">
+                <p><b>Maintenance is restricted.</b> Enter the password to unlock maintenance functions.</p>
+                <input type="password" id="calPassword" placeholder="Password" class="mono" style="padding:10px; margin:5px;">
                 <div class="button-grid two-button-grid">
                     <button class="btn btn-primary" id="btnMaintenanceUnlock" onclick="calUnlock()">Unlock Maintenance</button>
                     <button class="btn btn-return" onclick="showHome()">Return</button>
@@ -37,7 +37,6 @@ R"rawliteral(        <!-- Protected maintenance area. JavaScript switches betwee
                         <div class="small mono last-cal-date" id="installationCalTime">-</div>
                     </div>
                     <button class="btn btn-primary" onclick="openReportPage()">Report Management</button>
-                    <button class="btn btn-primary" onclick="openDeletePage()">Delete Files/Reports</button>
                     <button class="btn btn-primary" onclick="openOtaPage()">Firmware Update</button>
                     <button class="btn btn-primary" onclick="openHealthPage()">About</button>
                     <button class="btn btn-return" onclick="showHome()">Return</button>

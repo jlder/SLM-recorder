@@ -114,7 +114,7 @@ R"rawliteral(        <!-- Recorder six-face calibration page. The JavaScript cal
             <h2>SLM Delete Files/Reports</h2>
             <div class="controls cal-actions">
                 <button class="btn btn-primary" id="btnProcessedDelete" onclick="deleteProcessedSelected()">Delete</button>
-                <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
+                <button class="btn btn-return" onclick="openHealthPage()">Return</button>
             </div>
             <div class="card workflow-card">
                 <p>Select archived files or reports from <span class="mono">/processed</span>, then press Delete.</p>

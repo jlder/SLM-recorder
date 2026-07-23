@@ -11,6 +11,7 @@
 
 #include "src/tasks/web_task.h"
 #include "config.h"
+#include "slm_drive_config_private.h"
 #include <Arduino.h>
 #include <stdio.h>
 #include <string.h>
@@ -66,11 +67,11 @@ static bool s_web_client_locked = false;
 static uint32_t s_web_client_ip = 0u; // IPv4 packed
 static uint32_t s_web_client_last_ms = 0u;
 
-// Calibration is a maintenance/mechanical activity.  A client must unlock the
-// calibration routes with the recorder registration string before access.
+// Calibration is a maintenance/mechanical activity. A client must unlock the
+// maintenance routes before access. Authorization remains valid for the
+// current recorder Web session and is cleared when Web/Wi-Fi is restarted.
 static bool s_cal_client_authorized = false;
 static uint32_t s_cal_client_ip = 0u;
-static uint32_t s_cal_client_last_ms = 0u;
 
 /**
  * Ip to u32 performs the web task operation represented by this function and
@@ -152,24 +153,15 @@ static bool cal_support_password_matches_(const String& password){
 static void cal_authorize_client_(AsyncWebServerRequest *req){
   s_cal_client_authorized = true;
   s_cal_client_ip = ip_to_u32(req->client()->remoteIP());
-  s_cal_client_last_ms = (uint32_t)millis();
 }
 
 /**
- * Check whether this client IP has a non-expired calibration authorization.
+ * Check whether this client IP has calibration authorization for this session.
  *
  * Inputs: `req`.
  * Returns: `true` when calibration access is authorized.
  */
 static bool cal_client_authorized_(AsyncWebServerRequest *req){
-  const uint32_t now_ms = (uint32_t)millis();
-
-  if(s_cal_client_authorized){
-    if((now_ms - s_cal_client_last_ms) > (uint32_t)WEB_SINGLE_CLIENT_TIMEOUT_MS){
-      s_cal_client_authorized = false;
-    }
-  }
-
   if(!s_cal_client_authorized){
     return false;
   }
@@ -178,7 +170,6 @@ static bool cal_client_authorized_(AsyncWebServerRequest *req){
     return false;
   }
 
-  s_cal_client_last_ms = now_ms;
   return true;
 }
 
@@ -195,6 +186,74 @@ static bool cal_require_auth_(AsyncWebServerRequest *req){
 
   req->send(403, "application/json", "{\"ok\":false,\"reason\":\"calibration_auth_required\"}");
   return false;
+}
+
+/** Append one C string as escaped JSON string content. */
+static void web_json_append_escaped_(String& out, const char *value){
+  if(value == nullptr){
+    return;
+  }
+  static const char hex[] = "0123456789abcdef";
+  const unsigned char *cursor = (const unsigned char *)value;
+  while(*cursor != 0u){
+    const unsigned char c = *cursor++;
+    if((c == '"') || (c == '\\')){
+      out += '\\';
+      out += (char)c;
+    } else if(c < 0x20u){
+      out += "\\u00";
+      out += hex[(c >> 4) & 0x0fu];
+      out += hex[c & 0x0fu];
+    } else {
+      out += (char)c;
+    }
+  }
+}
+
+/** Send a JSON response that browsers and intermediaries must not cache. */
+static void web_send_private_json_(AsyncWebServerRequest *request,
+                                   int status,
+                                   const String& body){
+  AsyncWebServerResponse *response = request->beginResponse(status, "application/json", body);
+  if(response == nullptr){
+    request->send(500, "application/json", "{\"ok\":false,\"reason\":\"response_alloc\"}");
+    return;
+  }
+  response->addHeader("Cache-Control", "no-store, max-age=0");
+  response->addHeader("Pragma", "no-cache");
+  response->addHeader("X-Content-Type-Options", "nosniff");
+  request->send(response);
+}
+
+/** Return whether every compile-time Drive authorization value is present. */
+static bool web_drive_config_available_(void){
+#if SLM_DRIVE_CONFIG_ENABLED
+  return (SLM_DRIVE_CLIENT_ID[0] != '\0') &&
+         (SLM_DRIVE_CLIENT_SECRET[0] != '\0') &&
+         (SLM_DRIVE_REFRESH_TOKEN[0] != '\0') &&
+         (SLM_DRIVE_ROOT_FOLDER_ID[0] != '\0') &&
+         (strcmp(SLM_DRIVE_TOKEN_URI, "https://oauth2.googleapis.com/token") == 0);
+#else
+  return false;
+#endif
+}
+
+/** Build the Android bridge Drive authorization response. */
+static String web_drive_config_json_(void){
+  String out;
+  out.reserve(640u);
+  out += "{\"version\":1,\"client_id\":\"";
+  web_json_append_escaped_(out, SLM_DRIVE_CLIENT_ID);
+  out += "\",\"client_secret\":\"";
+  web_json_append_escaped_(out, SLM_DRIVE_CLIENT_SECRET);
+  out += "\",\"refresh_token\":\"";
+  web_json_append_escaped_(out, SLM_DRIVE_REFRESH_TOKEN);
+  out += "\",\"token_uri\":\"";
+  web_json_append_escaped_(out, SLM_DRIVE_TOKEN_URI);
+  out += "\",\"root_folder_id\":\"";
+  web_json_append_escaped_(out, SLM_DRIVE_ROOT_FOLDER_ID);
+  out += "\"}";
+  return out;
 }
 
 static volatile bool s_web_sd_busy = false;
@@ -303,6 +362,7 @@ static const char* content_type_from_name(const String& filename){
   if(filename.endsWith(".png")) return "image/png";
   if(filename.endsWith(".jpg")) return "image/jpeg";
   if(filename.endsWith(".bin")) return "application/octet-stream";
+  if(filename.endsWith(".txt")) return "text/plain";
   if(filename.endsWith(".log")) return "text/plain";
   return "application/octet-stream";
 }
@@ -816,6 +876,18 @@ static void register_routes(){
 
 
   // API endpoints used by the embedded HTML interface.
+  s_server->on("/api/slm-drive-config", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!web_single_client_allow(request)){
+      web_send_private_json_(request, 409, "{\"ok\":false,\"reason\":\"busy\"}");
+      return;
+    }
+    if(!web_drive_config_available_()){
+      web_send_private_json_(request, 503, "{\"ok\":false,\"reason\":\"drive_not_configured\"}");
+      return;
+    }
+    web_send_private_json_(request, 200, web_drive_config_json_());
+  });
+
   s_server->on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
     const system_status_t st = state_task_get_status();
     const bool recording = (st.state == ST_RECORDING) || (st.state == ST_STARTING) || (st.state == ST_STOPPING);
@@ -914,6 +986,22 @@ static void register_routes(){
     String out = String("{\"files\":") + String(json) + String("}");
     request->send(200, "application/json", out);
 });
+
+  s_server->on("/api/logbook/files", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
+    WebSdBusyScope _sdscope;
+    if (!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
+
+    static char json[SD_FILE_LIST_JSON_MAX];
+    uint32_t out_len = 0u;
+    const bool ok = sd_files_list_json("/logbook", json, sizeof(json), &out_len);
+    if (!ok) {
+      request->send(500, "application/json", "{\"ok\":false,\"reason\":\"sd_list_failed\"}");
+      return;
+    }
+    String out = String("{\"ok\":true,\"files\":") + String(json) + String("}");
+    request->send(200, "application/json", out);
+  });
 
   // Sequential download context.  The SD task opens the file once in
   // sd_files_download_begin(), then the HTTP chunk callback reads the next
@@ -1020,6 +1108,12 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
         }
 
         ctx->sent += got;
+        // The last bytes are already in the HTTP response buffer, so the SD
+        // file and busy flag can be released immediately.  Waiting solely for
+        // the TCP disconnect can leave list/report requests transiently BUSY.
+        if (ctx->sent >= ctx->size) {
+          ctx->release_once();
+        }
         return (size_t)got;
       });
 
@@ -1263,6 +1357,24 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     }
 
     cal_authorize_client_(request);
+    request->send(200, "application/json", "{\"ok\":true}");
+  });
+
+  s_server->on("/api/cal/support_auth", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+
+    String password = "";
+    if(request->hasParam("support", true)){
+      password = request->getParam("support", true)->value();
+    } else if(request->hasParam("support")){
+      password = request->getParam("support")->value();
+    }
+
+    if(!cal_support_password_matches_(password)){
+      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"bad_support_code\"}");
+      return;
+    }
+
     request->send(200, "application/json", "{\"ok\":true}");
   });
 

@@ -15,6 +15,8 @@ R"rawliteral(    <script>
         let reportFiles = [];
         let calPoll = null;
         let calAuth = false;
+        let aboutAuth = false;
+        let aboutSupportCode = '';
         let calView = 'menu';
         let calRecorderSaveMessageSticky = false;
         let installSampleRequestActive = false;
@@ -29,6 +31,7 @@ R"rawliteral(    <script>
 
         function hideAllPages() {
             document.getElementById('homeSection').classList.add('hidden');
+            document.getElementById('logbookSection').classList.add('hidden');
             document.getElementById('filesSection').classList.add('hidden');
             document.getElementById('maintenanceSection').classList.add('hidden');
             document.getElementById('accelCalPage').classList.add('hidden');
@@ -56,6 +59,14 @@ R"rawliteral(    <script>
             refreshFiles();
         }
 
+        function openLogbookPage() {
+            setPageTitle('SLM Logbook');
+            stopCalPolling();
+            hideAllPages();
+            document.getElementById('logbookSection').classList.remove('hidden');
+            refreshLogbook();
+        }
+
         function openMaintenancePage() {
             setPageTitle('SLM Maintenance');
             stopCalPolling();
@@ -73,6 +84,8 @@ R"rawliteral(    <script>
             document.getElementById('maintenanceSection').classList.remove('hidden');
             document.getElementById('calAuthPanel').classList.remove('hidden');
             document.getElementById('calMenuPanel').classList.add('hidden');
+            const password = document.getElementById('calPassword');
+            if (password) password.value = '';
             resetAccelCalUi();
             resetInstallCalUi();
         }
@@ -124,7 +137,50 @@ R"rawliteral(    <script>
             stopCalPolling();
             hideAllPages();
             document.getElementById('healthSection').classList.remove('hidden');
+            if (aboutAuth) showAboutMenu();
+            else showAboutLocked();
+        }
+
+        function showAboutLocked() {
+            document.getElementById('aboutAuthPanel').classList.remove('hidden');
+            document.getElementById('aboutMenuPanel').classList.add('hidden');
+            const password = document.getElementById('aboutPassword');
+            if (password) password.value = '';
+            const status = document.getElementById('aboutAuthStatus');
+            if (status) status.textContent = 'Locked.';
+        }
+
+        function showAboutMenu() {
+            document.getElementById('aboutAuthPanel').classList.add('hidden');
+            document.getElementById('aboutMenuPanel').classList.remove('hidden');
+            aboutStatus('About functions unlocked.');
             updateWatchdogDiag();
+        }
+
+        function aboutUnlock() {
+            const code = document.getElementById('aboutPassword').value || '';
+            const status = document.getElementById('aboutAuthStatus');
+            status.textContent = 'Checking...';
+            fetch('/api/cal/support_auth?support=' + encodeURIComponent(code), { method: 'POST' })
+                .then(r => r.json().then(j => ({ok:r.ok, status:r.status, json:j})))
+                .then(res => {
+                    handleCalibrationAuthError(res);
+                    if (res.ok && res.json && res.json.ok) {
+                        aboutAuth = true;
+                        aboutSupportCode = code;
+                        status.textContent = 'Unlocked.';
+                        showAboutMenu();
+                    } else {
+                        aboutAuth = false;
+                        aboutSupportCode = '';
+                        status.textContent = 'Wrong support code or access denied.';
+                    }
+                })
+                .catch(err => {
+                    aboutAuth = false;
+                    aboutSupportCode = '';
+                    status.textContent = 'Unlock error: ' + err;
+                });
         }
 
         function openReportPage() {
@@ -147,6 +203,7 @@ R"rawliteral(    <script>
         function openDeletePage() {
             setPageTitle('SLM Delete Files/Reports');
             if (!calAuth) { showMaintenanceLocked(); return; }
+            if (!aboutAuth) { openHealthPage(); return; }
             stopCalPolling();
             hideAllPages();
             document.getElementById('deleteSection').classList.remove('hidden');
@@ -169,7 +226,7 @@ R"rawliteral(    <script>
                         showMaintenanceMenu();
                     } else {
                         calAuth = false;
-                        status.textContent = 'Wrong registration or calibration access denied.';
+                        status.textContent = 'Wrong password or maintenance access denied.';
                     }
                 })
                 .catch(err => {
@@ -245,6 +302,8 @@ R"rawliteral(    <script>
         function handleCalibrationAuthError(res) {
             if (res && res.status === 403 && res.json && res.json.reason === 'calibration_auth_required') {
                 calAuth = false;
+                aboutAuth = false;
+                aboutSupportCode = '';
                 showMaintenanceLocked();
             }
         }

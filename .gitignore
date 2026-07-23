@@ -14,3 +14,6 @@ Thumbs.db
 # Notepad++ backup files, only if you use backup/autosave plugins
 *.bak
 *.orig
+
+# Private demonstrator OAuth authorization generated during provisioning.
+slm_drive_config_private.h

@@ -26,8 +26,7 @@ R"rawliteral(        // Archive a root recording into /processed. Permanent dele
             status.textContent = 'Loading...';
             container.innerHTML = '<div class="loading">Loading files...</div>';
 
-            fetch('/api/processed/files')
-                .then(r => r.json().then(j => ({ok:r.ok, json:j})))
+            recorderJsonWithRetry('/api/processed/files')
                 .then(res => {
                     if (!res.ok || !res.json || !res.json.ok) {
                         processedFiles = [];
@@ -175,8 +174,7 @@ R"rawliteral(        // Archive a root recording into /processed. Permanent dele
             if (!container) return;
             container.innerHTML = '<div class="loading">Loading reports...</div>';
 
-            fetch('/api/reports/files')
-                .then(r => r.json().then(j => ({ok:r.ok, json:j})))
+            recorderJsonWithRetry('/api/reports/files')
                 .then(res => {
                     if (!res.ok || !res.json || !res.json.ok) {
                         reportFiles = [];
@@ -258,7 +256,6 @@ R"rawliteral(        // Archive a root recording into /processed. Permanent dele
             fetch('/api/status')
                 .then(r => r.json())
                 .then(data => {
-                    document.getElementById('battery').textContent = data.battery + '%';
                     const badge = document.getElementById('statusBadge');
                     if (data.recording) {
                         badge.innerHTML = '<span class="status-recording">● Recording</span>';

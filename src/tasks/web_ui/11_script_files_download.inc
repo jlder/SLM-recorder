@@ -7,11 +7,38 @@
  * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
-R"rawliteral(        // Root recorder-file list. Refresh also updates SD, recording, and calibration badges.
+R"rawliteral(        // Retry short recorder/SD busy windows instead of showing a false empty/unavailable list.
+        function recorderJsonWithRetry(url, attempt) {
+            const tryNumber = attempt || 1;
+            return fetch(url, { cache: 'no-store' })
+                .then(r => r.json().catch(() => ({})).then(json => ({
+                    ok: r.ok,
+                    status: r.status,
+                    json: json
+                })))
+                .then(result => {
+                    const retryable = result.status === 409 || result.status === 500 || result.status === 503;
+                    if (!result.ok && retryable && tryNumber < 6) {
+                        return new Promise(resolve => setTimeout(resolve, 200 * tryNumber))
+                            .then(() => recorderJsonWithRetry(url, tryNumber + 1));
+                    }
+                    return result;
+                })
+                .catch(err => {
+                    if (tryNumber < 6) {
+                        return new Promise(resolve => setTimeout(resolve, 200 * tryNumber))
+                            .then(() => recorderJsonWithRetry(url, tryNumber + 1));
+                    }
+                    throw err;
+                });
+        }
+
+        // Root recorder-file list. Refresh also updates SD, recording, and calibration badges.
         function refreshFiles() {
-            fetch('/api/files')
-                .then(r => r.json())
-                .then(data => {
+            recorderJsonWithRetry('/api/files')
+                .then(result => {
+                    if (!result.ok) throw new Error('Recorder file list returned HTTP ' + result.status);
+                    const data = result.json || {};
                     allFiles = data.files || [];
                     displayFiles(allFiles);
                     updateSDInfo();
@@ -55,13 +82,12 @@ R"rawliteral(        // Root recorder-file list. Refresh also updates SD, record
                 html += `<div class="file-item">
                     <div class="file-row">
                         <div class="file-name">${safeName}</div>
-                        <button class="btn btn-primary file-btn" onclick='downloadFile(${jsName})'>Download</button>
+                        <button class="btn btn-primary file-btn download-file-btn" onclick='downloadFile(${jsName})'>Download</button>
                     </div>
                     <div class="file-row">
                         <div class="file-size">Size: ${sizeKb} kB</div>
-                        <button class="btn btn-primary file-btn" onclick='viewStoredFlightLog(${jsName})'>View Log</button>
                     </div>
-                    <div class="file-row">
+                    <div class="file-row manual-archive-row">
                         <div class="file-size">Stored analysis, if available</div>
                         <button class="btn btn-primary file-btn" onclick='deleteFile(${jsName})'>Archive</button>
                     </div>
@@ -69,6 +95,22 @@ R"rawliteral(        // Root recorder-file list. Refresh also updates SD, record
             });
             html += '</div>';
             container.innerHTML = html;
+            if (androidAutomaticArchiveAvailable()) {
+                document.querySelectorAll('.manual-archive-row').forEach(row => row.remove());
+            }
+        }
+
+        function androidAutomaticArchiveAvailable() {
+            if (!window.SLMAndroid || typeof window.SLMAndroid.getCapabilities !== 'function') {
+                return false;
+            }
+            try {
+                const capabilities = JSON.parse(window.SLMAndroid.getCapabilities());
+                return capabilities && Array.isArray(capabilities.features) &&
+                    capabilities.features.indexOf('automatic-recorder-archive') >= 0;
+            } catch (err) {
+                return false;
+            }
         }
 
         // Download one binary recording, save it locally, then analyze the same buffer in the browser.
@@ -79,11 +121,16 @@ R"rawliteral(        // Root recorder-file list. Refresh also updates SD, record
 
             panel.classList.remove('hidden');
             table.innerHTML = '';
-            const sampleStats = document.getElementById('samplePeriodStats');
-            if (sampleStats) sampleStats.textContent = 'Sample period: -';
-            status.textContent = 'Preparing download and analysis for ' + filename + '...';
+            setRecorderDownloadAvailable(false);
+            status.textContent = filename + ' \u2014 Downloading';
             setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Download: starting...');
 
+            // In the Android shell, download once into app-private storage. The
+            // same private bytes are analyzed here and queued for Drive without
+            // displaying Android's Save As dialog to the pilot.
+            if (startAndroidRecorderTransfer(filename)) {
+                return;
+            }
 
             downloadFileBuffer(filename, function(percent, text) {
                 setProgress('downloadProgressBar', 'downloadProgressText', percent, text);
@@ -100,19 +147,106 @@ R"rawliteral(        // Root recorder-file list. Refresh also updates SD, record
                     // Analysis is then performed from the same buffer.
                     saveDownloadedBuffer(filename, buffer);
 
-                    status.textContent = 'Processing ' + filename + '...';
+                    status.textContent = filename + ' \u2014 Analyzing';
 
                     return analyzeRecorderFileAsync(buffer)
                         .then(analysis => {
                             showFlightAnalysis(filename, analysis);
                             writeFlightAnalysisLog(filename, analysis);
-                        });
+                        })
+                        .finally(() => setRecorderDownloadAvailable(true));
                 })
                 .catch(err => {
-                    status.textContent = 'Download or analysis failed. Falling back to direct download.';
+                    status.textContent = filename + ' \u2014 Download/analysis failed';
+                    setRecorderDownloadAvailable(true);
                     console.error(err);
                     window.location.href = '/api/download?file=' + encodeURIComponent(filename);
                 });
+        }
+
+        function setRecorderDownloadAvailable(available) {
+            document.querySelectorAll('.download-file-btn').forEach(button => {
+                button.disabled = !available;
+            });
+        }
+
+        function startAndroidRecorderTransfer(filename) {
+            if (!window.SLMAndroid ||
+                typeof window.SLMAndroid.downloadRecorderFile !== 'function' ||
+                typeof window.SLMAndroid.getCapabilities !== 'function') {
+                return false;
+            }
+
+            try {
+                const capabilities = JSON.parse(window.SLMAndroid.getCapabilities());
+                if (!capabilities || Number(capabilities.bridgeVersion) < 2) {
+                    return false;
+                }
+                window.SLMAndroid.downloadRecorderFile(JSON.stringify({
+                    filename: filename,
+                    analyze: true,
+                    upload: true
+                }));
+                return true;
+            } catch (err) {
+                console.warn('SLM Android bridge is unavailable', err);
+                return false;
+            }
+        }
+
+        window.addEventListener('slm-transfer-event', function(event) {
+            const detail = event && event.detail ? event.detail : {};
+            const state = String(detail.state || '');
+            const filename = String(detail.filename || 'recording');
+            const percent = Math.max(0, Math.min(100, Number(detail.percent) || 0));
+            const status = document.getElementById('flightAnalysisStatus');
+
+            if (state === 'download-started') {
+                setRecorderDownloadAvailable(false);
+                status.textContent = filename + ' \u2014 Downloading';
+                setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Download: starting...');
+            } else if (state === 'downloading') {
+                status.textContent = filename + ' \u2014 Downloading ' + Math.round(percent) + '%';
+                setProgress('downloadProgressBar', 'downloadProgressText', percent,
+                    'Download: ' + Math.round(percent) + '%');
+            } else if (state === 'download-complete') {
+                setProgress('downloadProgressBar', 'downloadProgressText', 100, 'Download: complete');
+                status.textContent = filename + ' \u2014 Analyzing';
+                fetch(detail.localUrl, { cache: 'no-store' })
+                    .then(function(response) {
+                        if (!response.ok) throw new Error('private file unavailable');
+                        return response.arrayBuffer();
+                    })
+                    .then(function(buffer) { return analyzeRecorderFileAsync(buffer); })
+                    .then(function(analysis) {
+                        showFlightAnalysis(filename, analysis);
+                        return writeFlightAnalysisLog(filename, analysis);
+                    })
+                    .catch(function(err) {
+                        console.error(err);
+                        status.textContent = filename + ' \u2014 Analysis failed';
+                    })
+                    .finally(function() {
+                        notifyAndroidAnalysisComplete(detail.transferId);
+                        setRecorderDownloadAvailable(true);
+                    });
+            } else if (state === 'archive-complete') {
+                refreshFiles();
+            } else if (state === 'failed') {
+                status.textContent = filename + ' \u2014 Transfer failed: ' +
+                    (detail.error || 'unknown error');
+                setRecorderDownloadAvailable(true);
+            }
+        });
+
+        function notifyAndroidAnalysisComplete(transferId) {
+            if (!transferId || !window.SLMAndroid ||
+                typeof window.SLMAndroid.analysisComplete !== 'function') return;
+            try {
+                window.SLMAndroid.analysisComplete(String(transferId));
+            } catch (err) {
+                console.warn('automatic recorder archive could not be scheduled', err);
+            }
         }
 
         // XMLHttpRequest is used here because fetch does not provide simple progress callbacks.
@@ -168,55 +302,110 @@ R"rawliteral(        // Root recorder-file list. Refresh also updates SD, record
             return b + ' B';
         }
 
-        // Companion logs are stored on SD with the same base name as the binary recording.
-        function flightLogNameFromBinary(filename) {
-            const name = String(filename || '');
-            return name.replace(/\.bin$/i, '.log');
+        function logbookFileParts(filename) {
+            const match = String(filename || '').match(/_(\d{4})(\d{2})(\d{2})_(\d+)\.log$/i);
+            if (!match) return null;
+            return {
+                dateKey: match[1] + match[2] + match[3],
+                date: match[1] + '-' + match[2] + '-' + match[3],
+                session: Number(match[4]) || 0
+            };
         }
 
-        // Load and display the stored SD analysis log without downloading or reprocessing the binary file.
-        function viewStoredFlightLog(filename) {
-            const status = document.getElementById('flightAnalysisStatus');
-            const panel = document.getElementById('flightAnalysisWindow');
-            const table = document.getElementById('flightAnalysisTable');
-            const sampleStats = document.getElementById('samplePeriodStats');
-            const logName = flightLogNameFromBinary(filename);
+        function compareLogbookFilesNewestFirst(left, right) {
+            const a = logbookFileParts(left.name);
+            const b = logbookFileParts(right.name);
+            if (a && b) {
+                if (a.dateKey !== b.dateKey) return b.dateKey.localeCompare(a.dateKey);
+                return b.session - a.session;
+            }
+            return String(right.name || '').localeCompare(String(left.name || ''));
+        }
 
-            panel.classList.remove('hidden');
-            table.innerHTML = '';
-            if (sampleStats) sampleStats.textContent = 'Stored SD log: -';
-            status.textContent = 'Loading stored analysis log for ' + filename + '...';
-            setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Log: loading...');
+        function recorderTextWithRetry(url, attempt) {
+            const tryNumber = attempt || 1;
+            return fetch(url, { cache: 'no-store' }).then(response => {
+                if (response.ok) return response.text();
+                if ((response.status === 409 || response.status === 500) && tryNumber < 6) {
+                    return delayMs(200 * tryNumber)
+                        .then(() => recorderTextWithRetry(url, tryNumber + 1));
+                }
+                throw new Error('Recorder log returned HTTP ' + response.status);
+            });
+        }
 
-            fetch('/api/download?file=' + encodeURIComponent(logName), { cache: 'no-store' })
-                .then(r => {
-                    if (!r.ok) {
-                        throw new Error('stored log unavailable');
+        function parseLogbookRows(filename, text) {
+            const parts = logbookFileParts(filename);
+            const date = parts ? parts.date : '-';
+            const rows = [];
+            String(text || '').split(/\r?\n/).forEach(line => {
+                const fields = line.trim().split(/\s+/);
+                if (fields.length < 4 || !/^\d+$/.test(fields[0])) return;
+                rows.push({
+                    date: date,
+                    takeoff: fields[1],
+                    landing: fields[2],
+                    flightTime: fields.slice(3).join(' ')
+                });
+            });
+            return rows;
+        }
+
+        function refreshLogbook() {
+            const container = document.getElementById('logbookContainer');
+            container.innerHTML = '<div class="loading">Loading logbook...</div>';
+            recorderJsonWithRetry('/api/logbook/files')
+                .then(result => {
+                    if (!result.ok || !result.json || !result.json.ok) {
+                        throw new Error('Recorder logbook list unavailable');
                     }
-                    return r.text();
-                })
-                .then(text => {
-                    showStoredFlightLog(filename, logName, text);
+                    const latest = (result.json.files || [])
+                        .slice()
+                        .sort(compareLogbookFilesNewestFirst)
+                        .slice(0, 5);
+                    if (latest.length === 0) {
+                        displayLogbookRows([]);
+                        return;
+                    }
+
+                    const rows = [];
+                    let chain = Promise.resolve();
+                    latest.forEach(file => {
+                        chain = chain.then(() =>
+                            recorderTextWithRetry('/api/download?file=' +
+                                encodeURIComponent('/processed/' + String(file.name || '')), 1)
+                                .then(text => {
+                                    rows.push.apply(rows, parseLogbookRows(file.name, text));
+                                })
+                                .catch(err => console.warn(err))
+                        );
+                    });
+                    return chain.then(() => displayLogbookRows(rows));
                 })
                 .catch(err => {
-                    console.warn(err);
-                    status.textContent = filename + ': no stored analysis log available. Download the binary once to generate it.';
-                    if (sampleStats) sampleStats.textContent = 'Stored SD log: unavailable';
-                    table.innerHTML = '';
-                    setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Log: unavailable');
+                    console.error(err);
+                    container.innerHTML = '<div class="loading">Logbook unavailable</div>';
                 });
         }
 
-        // Render a previously stored text log in the same panel used for live analysis results.
-        function showStoredFlightLog(filename, logName, text) {
-            const status = document.getElementById('flightAnalysisStatus');
-            const table = document.getElementById('flightAnalysisTable');
-            const sampleStats = document.getElementById('samplePeriodStats');
-
-            status.textContent = filename + ': stored analysis log loaded from ' + logName + '.';
-            if (sampleStats) sampleStats.textContent = 'Stored SD log: loaded';
-            setProgress('downloadProgressBar', 'downloadProgressText', 100, 'Log: loaded');
-            table.innerHTML = '<pre class="flight-log-view mono">' + escapeHtml(text) + '</pre>';
+        function displayLogbookRows(rows) {
+            const container = document.getElementById('logbookContainer');
+            if (!rows || rows.length === 0) {
+                container.innerHTML = '<div class="loading">No downloaded flight logs found</div>';
+                return;
+            }
+            let html = '<table class="analysis-table"><thead><tr>' +
+                '<th>Date</th><th>T/O</th><th>LDG</th><th>Flight<br>Time</th>' +
+                '</tr></thead><tbody>';
+            rows.forEach(row => {
+                html += '<tr>' +
+                    '<td class="mono">' + escapeHtml(row.date) + '</td>' +
+                    '<td class="mono">' + escapeHtml(row.takeoff) + '</td>' +
+                    '<td class="mono">' + escapeHtml(row.landing) + '</td>' +
+                    '<td class="mono">' + escapeHtml(row.flightTime) + '</td>' +
+                    '</tr>';
+            });
+            container.innerHTML = html + '</tbody></table>';
         }
 
 
@@ -246,37 +435,29 @@ R"rawliteral(        // Root recorder-file list. Refresh also updates SD, record
         function showFlightAnalysis(filename, analysis) {
             const status = document.getElementById('flightAnalysisStatus');
             const table = document.getElementById('flightAnalysisTable');
-            const sampleStats = document.getElementById('samplePeriodStats');
-
-            if (sampleStats) {
-                sampleStats.textContent = samplePeriodStatsText(analysis && analysis.samplePeriod);
-            }
             if (!analysis || !analysis.ok) {
                 const reason = analysis && analysis.reason ? analysis.reason : 'Analysis failed.';
-                status.textContent = reason;
+                status.textContent = filename + ' \u2014 Complete: ' + reason;
                 table.innerHTML = '';
                 return;
             }
 
             if (analysis.flights.length === 0) {
-                status.textContent = filename + ': no complete flight detected.';
+                status.textContent = filename + ' \u2014 Complete: no flight detected';
                 table.innerHTML = '';
                 return;
             }
 
-            status.textContent = filename + ': ' + analysis.flights.length + ' flight(s) detected.';
+            status.textContent = filename + ' \u2014 Complete: ' + analysis.flights.length + ' flight(s)';
 
             let html = '<table class="analysis-table"><thead><tr>' +
-                '<th>FLT<br>#</th><th>T/O<br>START</th><th>T/O<br>ROLL</th>' +
-                '<th>LDG<br>ROLL</th><th>LDG<br>STOP</th><th>FLT<br>TIME</th>' +
+                '<th>FLT<br>#</th><th>T/O</th><th>LDG</th><th>FLT<br>TIME</th>' +
                 '</tr></thead><tbody>';
 
             analysis.flights.forEach(f => {
                 html += '<tr>' +
                     '<td>' + f.number + '</td>' +
                     '<td class="mono">' + escapeHtml(f.takeoffRollStartShort || f.takeoffRollStart) + '</td>' +
-                    '<td class="mono">' + escapeHtml(f.takeoffRollDuration || '-') + '</td>' +
-                    '<td class="mono">' + escapeHtml(f.landingRollDuration || '-') + '</td>' +
                     '<td class="mono">' + escapeHtml(f.landingRollEndShort || f.landingRollEnd) + '</td>' +
                     '<td class="mono">' + escapeHtml(f.flightDurationShort || f.flightDuration) + '</td>' +
                     '</tr>';
@@ -316,21 +497,19 @@ R"rawliteral(        // Root recorder-file list. Refresh also updates SD, record
         // Store the same flight-analysis summary on the recorder SD card.
         // The recorder derives the .log file name from the original .bin name.
         function writeFlightAnalysisLog(filename, analysis) {
-            const status = document.getElementById('flightAnalysisStatus');
             const text = buildFlightAnalysisLogText(filename, analysis);
             const body = new URLSearchParams();
             body.set('file', filename);
             body.set('log', text);
 
-            fetch('/api/flightlog', {
+            return fetch('/api/flightlog', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: body.toString()
             })
                 .then(r => r.json().then(data => ({ ok: r.ok, data: data })))
                 .then(result => {
-                    if (!status || !result.ok || !result.data || !result.data.ok) return;
-                    status.textContent += ' Log stored on SD.';
+                    if (!result.ok || !result.data || !result.data.ok) return;
                 })
                 .catch(err => {
                     console.warn('flight log not stored', err);

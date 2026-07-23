@@ -20,7 +20,19 @@ R"rawliteral(<body>
             <h2>Main Menu</h2>
             <div class="button-grid main-menu-grid">
                 <button class="btn btn-primary" onclick="openFilesPage()">File Management</button>
+                <button class="btn btn-primary" onclick="openLogbookPage()">Logbook</button>
                 <button class="btn btn-primary" id="btnHomeMaintenance" onclick="openMaintenancePage()">Maintenance</button>
+            </div>
+        </div>
+
+        <!-- Logbook combines the stored analysis logs for the five latest downloaded recordings. -->
+        <div id="logbookSection" class="hidden">
+            <p class="small"><b>Only files downloaded through the SLM app are included in the logbook.</b></p>
+            <div class="controls compact-controls cal-actions">
+                <button class="btn btn-return" onclick="showHome()">Return</button>
+            </div>
+            <div id="logbookContainer">
+                <div class="loading">Loading logbook...</div>
             </div>
         </div>
 
@@ -30,12 +42,9 @@ R"rawliteral(<body>
                 <span class="info-item">SD Card: <span class="info-value" id="sdSize">-</span></span>
                 <span class="info-item">Free: <span class="info-value" id="sdFree">-</span></span>
                 <span class="info-item">Files: <span class="info-value" id="fileCount">-</span></span>
-                <span class="info-item">Battery: <span class="info-value" id="battery">-</span></span>
-                <span class="info-item">Calibration: <span class="info-value" id="calTopStatus">-</span></span>
             </div>
 
             <div class="controls compact-controls cal-actions">
-                <button class="btn btn-primary" onclick="refreshFiles()">Refresh</button>
                 <button class="btn btn-return" onclick="showHome()">Return</button>
             </div>
             <div id="fileListContainer">
@@ -45,7 +54,6 @@ R"rawliteral(<body>
             <div id="flightAnalysisWindow" class="analysis-window hidden">
                 <h2>SLM Flight Analysis</h2>
                 <div id="flightAnalysisStatus" class="small">No analysis available.</div>
-                <div id="samplePeriodStats" class="small mono">Sample period: -</div>
                 <div class="progress-block">
                     <div id="downloadProgressText" class="progress-label small">Download: idle</div>
                     <div class="progress-track"><div id="downloadProgressBar" class="progress-fill"></div></div>

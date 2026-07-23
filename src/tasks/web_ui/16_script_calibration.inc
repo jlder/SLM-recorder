@@ -13,7 +13,6 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
             fetch('/api/cal/status')
                 .then(r => r.json())
                 .then(data => {
-                    document.getElementById('calTopStatus').textContent = data.recording_allowed ? 'ready' : (data.sensor_valid ? 'install required' : data.status);
                     const sensorDateText = data.sensor_valid ? fmtDate(data.sensor_date) : '-';
                     const installDateText = data.installation_valid ? fmtDate(data.installation_date) : '-';
                     const sensorParts = data.sensor_valid ? fmtDateParts(data.sensor_date) : {date:'-', time:'-'};
@@ -360,16 +359,37 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                 });
         }
 
-        // Support actions are grouped on the About page and require an additional support code.
+        // Support actions share the support code entered once on the About access panel.
         function aboutStatus(text) {
             const el = document.getElementById('aboutSupportStatus');
             if (el) el.textContent = text;
         }
 
+        function requireAboutAuthorization() {
+            if (aboutAuth && aboutSupportCode) return true;
+            aboutAuth = false;
+            aboutSupportCode = '';
+            openHealthPage();
+            return false;
+        }
+
+        function handleAboutAuthorizationError(res) {
+            if (res && res.status === 403 && res.json &&
+                res.json.reason === 'bad_support_code') {
+                aboutAuth = false;
+                aboutSupportCode = '';
+                openHealthPage();
+                const status = document.getElementById('aboutAuthStatus');
+                if (status) status.textContent = 'Support authorization expired or was rejected.';
+                return true;
+            }
+            return false;
+        }
+
         function supportDownloadData() {
-            const code = prompt('Support code required to download support data');
-            if (!code) return;
-            window.location = '/api/cal/export?support=' + encodeURIComponent(code);
+            if (!requireAboutAuthorization()) return;
+            window.location = '/api/cal/export?support=' +
+                encodeURIComponent(aboutSupportCode);
         }
 
         function calDownloadLastReport() {
@@ -379,17 +399,32 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
 
 
         function supportGenerateCalibrationReports() {
-            const code = prompt('Support code required to generate calibration reports');
-            if (!code) return;
+            if (!requireAboutAuthorization()) return;
             aboutStatus('Generating calibration reports from stored calibration data...');
-            postJson('/api/cal/support_generate_reports?support=' + encodeURIComponent(code))
+            postJson('/api/cal/support_generate_reports?support=' +
+                encodeURIComponent(aboutSupportCode))
                 .then(res => {
+                    if (handleAboutAuthorizationError(res)) return;
                     if (res.ok && res.json) {
                         const parts = [];
+                        const queued = [];
                         if (res.json.recorder_written) parts.push('recorder');
                         if (res.json.installation_written) parts.push('installation');
+                        if (res.json.recorder_written &&
+                            queueGeneratedCalibrationReport(res.json.recorder_path)) {
+                            queued.push('recorder');
+                        }
+                        if (res.json.installation_written &&
+                            queueGeneratedCalibrationReport(res.json.installation_path)) {
+                            queued.push('installation');
+                        }
                         if (parts.length > 0) {
                             let text = 'Generated ' + parts.join(' and ') + ' calibration report(s) on SD.';
+                            if (queued.length > 0) {
+                                text += ' Queued ' + queued.join(' and ') + ' report(s) for the SLM server.';
+                            } else {
+                                text += ' Connect with the SLM Android app to upload them.';
+                            }
                             if (res.json.write_failed) text += ' One requested report could not be written.';
                             aboutStatus(text);
                             calStatus();
@@ -403,12 +438,26 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                 .catch(err => aboutStatus('Calibration report generation error: ' + err));
         }
 
+        function queueGeneratedCalibrationReport(path) {
+            if (!path || !window.SLMAndroid ||
+                typeof window.SLMAndroid.queueCalibrationReport !== 'function') return false;
+            try {
+                window.SLMAndroid.queueCalibrationReport(String(path));
+                return true;
+            } catch (err) {
+                console.error('Calibration report queue error', err);
+                return false;
+            }
+        }
+
         function supportClearRecorderCalibration() {
-            const code = prompt('Support code required to clear recorder calibration history');
-            if (!code) return;
+            if (!requireAboutAuthorization()) return;
+            if (!confirm('Clear the recorder calibration history? Recorder calibration will be required again.')) return;
             aboutStatus('Clearing recorder calibration...');
-            postJson('/api/cal/support_clear?support=' + encodeURIComponent(code))
+            postJson('/api/cal/support_clear?support=' +
+                encodeURIComponent(aboutSupportCode))
                 .then(res => {
+                    if (handleAboutAuthorizationError(res)) return;
                     if (res.ok && res.json && res.json.cleared) {
                         aboutStatus('Recorder calibration history cleared. Recorder calibration is required.');
                         calStatus();
@@ -420,11 +469,13 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
         }
 
         function supportClearInstallationCalibration() {
-            const code = prompt('Support code required to clear installation calibration');
-            if (!code) return;
+            if (!requireAboutAuthorization()) return;
+            if (!confirm('Clear the installation calibration? Installation calibration will be required again.')) return;
             aboutStatus('Clearing installation calibration...');
-            postJson('/api/install/support_clear?support=' + encodeURIComponent(code))
+            postJson('/api/install/support_clear?support=' +
+                encodeURIComponent(aboutSupportCode))
                 .then(res => {
+                    if (handleAboutAuthorizationError(res)) return;
                     if (res.ok && res.json && res.json.cleared) {
                         aboutStatus('Installation calibration cleared. Installation calibration is required.');
                         calStatus();
