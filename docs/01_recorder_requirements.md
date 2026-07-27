@@ -272,7 +272,6 @@ Cleared data shall include:
 
 - date/time configured flags;
 - registration;
-- WiFi password;
 - stored calibration record;
 - recorder calibration fault latch.
 
@@ -369,7 +368,7 @@ The MENU button shall be:
 - orange when READY and a setup/calibration/SD-maintenance action is required;
 - gray when inactive.
 
-START WIFI shall be disabled while required settings are incomplete because the WiFi password is one of the required settings. Calibration and Firmware Update over the Web interface shall therefore only be offered after SETTINGS is complete.
+START WIFI shall be disabled while required settings are incomplete. The WiFi password is generated automatically from the stored registration, so Calibration and Firmware Update over the Web interface are offered after date, time, and registration settings are complete.
 
 The screen START RECORD action shall be disabled/gray while WiFi/Web access is active. The physical RECORD button remains available as an independent hardware recording control and may start recording when WiFi/Web is active; leaving READY for STARTING forces WiFi/Web OFF before recording.
 
@@ -450,8 +449,7 @@ The recorder shall require the following settings before recording is authorized
 
 - date;
 - time;
-- glider registration;
-- WiFi password.
+- glider registration.
 
 Status:
 
@@ -465,6 +463,16 @@ Status:
 
 - **Implemented.**
 
+#### OP-SET-002A — Registration format and generated WiFi password
+
+The glider registration setting shall consist of exactly five uppercase alphanumeric characters. The registration rollers shall offer only digits `0` to `9` and uppercase letters `A` to `Z`; spaces, lowercase letters, and other characters shall not be offered by the UI.
+
+The WiFi password shall not be user-editable. It shall be generated automatically from the stored registration as `SLM` followed by the five-character registration in reverse order. Example: registration `FCJAF` gives WiFi password `SLMFAJCF`.
+
+Status:
+
+- **Implemented.**
+
 #### OP-SET-003 — Settings pages
 
 The SETTINGS page shall provide:
@@ -472,7 +480,6 @@ The SETTINGS page shall provide:
 - DATE;
 - TIME;
 - REGISTRATION;
-- WIFI PASSWORD;
 - BACK.
 
 Each setting page shall provide rollers to change the setting and shall provide:
@@ -495,9 +502,9 @@ Required behavior:
 - when settings are required, the main message shall show `NEED SETTINGS` in orange;
 - MENU shall be orange to guide the operator to the menu;
 - the SETTINGS button shall be orange while any required setting is missing;
-- DATE, TIME, REGISTRATION, and WIFI PASSWORD buttons shall be orange until the respective setting has been saved;
+- DATE, TIME, and REGISTRATION buttons shall be orange until the respective setting has been saved;
 - each setting-specific button shall turn blue after its setting has been saved;
-- the SETTINGS button shall turn blue when all four required settings have been saved.
+- the SETTINGS button shall turn blue when all three required settings have been saved.
 
 Status:
 
@@ -507,7 +514,7 @@ Status:
 
 When settings are incomplete, the recorder shall display `NEED SETTINGS` in preference to calibration-required messages.
 
-The START WIFI action shall be disabled while required settings are incomplete because the WiFi password is one of the required settings. The operator shall complete SETTINGS before Web calibration can be started.
+The START WIFI action shall be disabled while required settings are incomplete. The operator shall complete date, time, and registration settings before Web calibration can be started.
 
 Status:
 
@@ -1027,7 +1034,7 @@ The table below lists messages rendered in the normal bottom message area of the
 | `STOPPING` | Green | transient | not an error |
 | `SHUTDOWN` | Green | shutdown | normal operator-requested shutdown transition; not an error |
 | `SD OK/CLR` | Green | SD recovered / clear prompt | yes, press clear after the SD condition is gone |
-| `NEED SETTINGS` | Amber | setup required | yes, perform date, time, registration, and password settings |
+| `NEED SETTINGS` | Amber | setup required | yes, perform date, time, and registration settings |
 | `REC CAL REQ` | Amber | recorder calibration required | yes, perform password-protected Web recorder calibration menu (`START WIFI`) |
 | `INST CAL REQ` | Amber | installation calibration required | yes, perform password-protected Web installation calibration menu (`START WIFI`) |
 | `NO SD` | Amber | SD/storage warning | yes, insert SD card |

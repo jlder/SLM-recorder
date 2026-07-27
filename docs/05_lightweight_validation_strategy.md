@@ -198,7 +198,7 @@ Confirm required settings can be entered and stored in NVS.
 Procedure:
 
 1. Enter SETTINGS page.
-2. Set date, time, registration, and WiFi password.
+2. Set date, time, and registration.
 3. Save each setting.
 4. Restart the device.
 5. Re-enter settings or observe operational state.

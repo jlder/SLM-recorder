@@ -105,14 +105,15 @@ Typical required setup:
 1. Configure date.
 2. Configure time.
 3. Configure glider registration.
-4. Configure WiFi password.
-5. Perform calibrations using the Web interface (see section 8).
+4. Perform calibrations using the Web interface (see section 8).
 
 The recorder will not authorize recording until required settings are stored and a valid calibration exists.
 
 ## 7. WiFi / Web Interface
 
 When the recorder is READY, open MENU and select START WIFI.
+
+The WiFi SSID is `SLM-` followed by the stored registration. The WiFi password is generated automatically as `SLM` followed by the stored five-character registration in reverse order. Example: registration `FCJAF` gives password `SLMFAJCF`.
 
 The recorder starts an access point and Web server at:
 

@@ -331,19 +331,18 @@ static String make_ssid(void){
 }
 
 /**
- * Make password performs the web task operation represented by this function
- * and keeps the module state consistent with recorder ownership rules.
+ * Build the local AP password from the stored registration.
  *
  * Inputs: None.
- * Returns: Requested value.
+ * Returns: Deterministic WPA password, or a safe fallback if settings are missing.
  */
 static String make_password(void){
   settings_t st;
-  if(settings_get(&st) && st.wifi_password[0]){
-    return String(st.wifi_password);
+  char password[SETTINGS_WIFI_PASSWORD_LEN] = {0};
+  if(settings_get(&st) && settings_make_wifi_password(password, sizeof(password), st.registration)){
+    return String(password);
   }
-  // If empty, create open AP (or set a default if you prefer).
-  return String("");
+  return String("SLMRECORDER");
 }
 
 /**

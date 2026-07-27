@@ -48,7 +48,7 @@ typedef enum {
     ROLLER_ALPHA_MIXED,   // A-Z + a-z
 
     // Application-specific
-    ROLLER_REG_CHAR,      // Space + 0-9 + A-Z
+    ROLLER_REG_CHAR,      // 0-9 + A-Z
     ROLLER_PWD_CHAR,      // 0-9 + a-z + A-Z
     ROLLER_ALPHANUM,      // Space + 0-9 + A-Z + a-z
 

@@ -73,7 +73,7 @@ const char* getRollerOptions(RollerType type, const char* custom_options) {
         
         strcpy(second_opts, minute_opts);
         
-        strcpy(reg_char_opts, "_\n0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n"
+        strcpy(reg_char_opts, "0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n"
                               "A\nB\nC\nD\nE\nF\nG\nH\nI\nJ\nK\nL\nM\n"
                               "N\nO\nP\nQ\nR\nS\nT\nU\nV\nW\nX\nY\nZ");
         

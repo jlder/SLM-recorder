@@ -274,8 +274,9 @@ The driver applies the active correction chain but does not compute or store cal
 
 - date-set flag;
 - time-set flag;
-- registration;
-- WiFi password.
+- registration.
+
+The local AP password is not stored as a user setting. It is generated from the normalized registration as `SLM` followed by the registration in reverse order.
 
 `datetime_service` owns the current application date/time cache and synchronizes with the RTC. UI reads the cache for display; state/recording uses the cache for filenames and calibration freshness checks.
 

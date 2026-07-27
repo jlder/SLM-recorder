@@ -61,8 +61,6 @@ static void ui_rtc_from_status(rtc_datetime_t* dt)
 // Task handle (registered for stack telemetry)
 
 extern lv_obj_t *reg_rollers[5];
-extern lv_obj_t *pwd_rollers[8];
-
 #include "Arduino_GFX_Library.h"
 #include "src/services/ui_message.h"
 
@@ -83,7 +81,6 @@ void createSettingsMenuScreen(lv_style_t &style_huge);
 void createSetDateScreen(lv_style_t &style_huge, lv_style_t &style_large);
 void createSetTimeScreen(lv_style_t &style_huge, lv_style_t &style_large);
 void createSetRegScreen(lv_style_t &style_huge, lv_style_t &style_large);
-void createSetWifiPwdScreen(lv_style_t &style_huge, lv_style_t &style_large);
 void createLowBatteryScreen(lv_style_t &style_huge);
 
 void wifi_btn_cb(lv_event_t * e);
@@ -91,7 +88,6 @@ void record_btn_event_cb(lv_event_t * e);
 void save_date_cb(lv_event_t * e);
 void save_time_cb(lv_event_t * e);
 void save_reg_cb(lv_event_t * e);
-void save_wifi_pwd_cb(lv_event_t * e);
 
 /**
  * Convert a registration character to its roller index performs the ui task
@@ -102,24 +98,9 @@ void save_wifi_pwd_cb(lv_event_t * e);
  * Returns: Roller index for the character, or zero for unsupported characters.
  */
 static int reg_char_to_index(char c){
-    if(c=='_') return 0;
-    if(c>='0' && c<='9') return 1 + (c - '0');         // '_' then digits
-    if(c>='A' && c<='Z') return 11 + (c - 'A');        // '_' + 10 digits => 11
-    return 0;
-}
-
-/**
- * Convert a Wi-Fi password character to its roller index performs the ui task
- * operation represented by this function and keeps the module state consistent
- * with recorder ownership rules.
- *
- * Inputs: `c`.
- * Returns: Roller index for the character, or zero for unsupported characters.
- */
-static int pwd_char_to_index(char c){
-    if(c>='0' && c<='9') return (c - '0');             // digits first
-    if(c>='a' && c<='z') return 10 + (c - 'a');        // then lowercase
-    if(c>='A' && c<='Z') return 36 + (c - 'A');        // then uppercase (10+26=36)
+    if(c>='a' && c<='z') c = (char)(c - 'a' + 'A');
+    if(c>='0' && c<='9') return (c - '0');
+    if(c>='A' && c<='Z') return 10 + (c - 'A');
     return 0;
 }
 
@@ -133,15 +114,13 @@ static int pwd_char_to_index(char c){
 static void load_registration_into_rollers(void){
     settings_t s;
     if(!settings_get(&s)){
-        // fallback to blanks
         for(int i=0;i<5;i++) lv_roller_set_selected(reg_rollers[i], 0, LV_ANIM_OFF);
         return;
     }
-    // Ensure at least 5 chars; pad with '_'
     char reg5[5];
     for(int i=0;i<5;i++){
         char c = s.registration[i];
-        if(c=='\0') c = '_';
+        if(c=='\0') c = '0';
         reg5[i]=c;
     }
     for(int i=0;i<5;i++){
@@ -149,29 +128,6 @@ static void load_registration_into_rollers(void){
     }
 }
 
-/**
- * Loads stored/default values into the relevant UI controls so the operator
- * starts from the current configuration.
- *
- * Inputs: None.
- * Returns: None.
- */
-static void load_wifi_pwd_into_rollers(void){
-    settings_t s;
-    if(!settings_get(&s)){
-        for(int i=0;i<8;i++) lv_roller_set_selected(pwd_rollers[i], 0, LV_ANIM_OFF);
-        return;
-    }
-    char pwd8[8];
-    for(int i=0;i<8;i++){
-        char c = s.wifi_password[i];
-        if(c=='\0') c = '0';
-        pwd8[i]=c;
-    }
-    for(int i=0;i<8;i++){
-        lv_roller_set_selected(pwd_rollers[i], pwd_char_to_index(pwd8[i]), LV_ANIM_OFF);
-    }
-}
 
 // =============================================================================
 // GLOBAL UI STATE
@@ -192,7 +148,6 @@ lv_obj_t *settings_menu_screen = NULL;
 lv_obj_t *set_date_screen = NULL;
 lv_obj_t *set_time_screen = NULL;
 lv_obj_t *set_reg_screen = NULL;
-lv_obj_t *set_wifi_pwd_screen = NULL;
 lv_obj_t *low_battery_screen = NULL;
 
 lv_obj_t *lbl_main_time = NULL;
@@ -219,7 +174,6 @@ lv_obj_t *d_roller = NULL;
 lv_obj_t *h_roller = NULL;
 lv_obj_t *m_roller = NULL;
 lv_obj_t *reg_rollers[5] = {NULL};
-lv_obj_t *pwd_rollers[8] = {NULL};
 
 lv_obj_t *btn_wifi_label = NULL;
 lv_obj_t *btn_wifi = NULL;
@@ -229,7 +183,6 @@ lv_obj_t *btn_set = NULL;
 lv_obj_t *btn_settings_date = NULL;
 lv_obj_t *btn_settings_time = NULL;
 lv_obj_t *btn_settings_reg = NULL;
-lv_obj_t *btn_settings_wifi = NULL;
 
 
 // UI START/STOP RECORD button hold state.  The touch button deliberately uses
@@ -600,11 +553,10 @@ static void ui_record_button_hold_service_(const system_status_t& st){
 static void refreshSettingsButtons(void) {
     settings_t s = {};
     const bool have_settings = settings_get(&s);
-    const bool reg_ok = have_settings && (s.registration[0] != '\0');
-    const bool wifi_ok = have_settings && (s.wifi_password[0] != '\0');
+    const bool reg_ok = have_settings && (s.registration[4] != '\0') && (s.registration[5] == '\0');
     const bool date_ok = have_settings && s.date_set;
     const bool time_ok = have_settings && s.time_set;
-    const bool complete = reg_ok && wifi_ok && date_ok && time_ok;
+    const bool complete = reg_ok && date_ok && time_ok;
 
     const lv_color_t blue = lv_palette_main(LV_PALETTE_BLUE);
     const lv_color_t amber = lv_palette_main(LV_PALETTE_AMBER);
@@ -618,7 +570,6 @@ static void refreshSettingsButtons(void) {
     if (btn_settings_date) enable_button(btn_settings_date, date_ok ? blue : amber);
     if (btn_settings_time) enable_button(btn_settings_time, time_ok ? blue : amber);
     if (btn_settings_reg) enable_button(btn_settings_reg, reg_ok ? blue : amber);
-    if (btn_settings_wifi) enable_button(btn_settings_wifi, wifi_ok ? blue : amber);
 }
 
 // =============================================================================
@@ -794,20 +745,10 @@ void createSettingsMenuScreen(lv_style_t &style_huge) {
                                     },
                                     lv_palette_main(LV_PALETTE_BLUE));
 
-    btn_settings_wifi = createButton(settings_menu_screen, "WIFI PWD", &style_huge, NULL,
-                                     BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
-                                     LV_ALIGN_TOP_MID, 0, 340,
-                                     [](lv_event_t* e){
-                                         (void)e;
-                                         load_wifi_pwd_into_rollers();
-                                         lv_scr_load(set_wifi_pwd_screen);
-                                     },
-                                     lv_palette_main(LV_PALETTE_BLUE));
-
     // BACK is a navigation action, not a corrective action, so it remains green.
     (void)createButton(settings_menu_screen, "BACK", &style_huge, NULL,
                        BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
-                       LV_ALIGN_TOP_MID, 0, 430,
+                       LV_ALIGN_TOP_MID, 0, 340,
                        [](lv_event_t* e){
                            (void)e;
                            lv_scr_load(menu_screen);
@@ -947,7 +888,7 @@ void createSetRegScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     (void)createLabel(set_reg_screen, "SET REGISTRATION", NULL, FONT_MEDIUM,
                       LV_ALIGN_TOP_MID, 0, 20, 0, LV_TEXT_ALIGN_CENTER);
 
-    (void)createLabel(set_reg_screen, "Aircraft Registration (5 chars)",
+    (void)createLabel(set_reg_screen, "5 uppercase letters/digits",
         NULL, FONT_SMALL, LV_ALIGN_TOP_MID, 0, 60, 0, LV_TEXT_ALIGN_CENTER);
 
     static const RollerType kTypes[5] = { ROLLER_REG_CHAR, ROLLER_REG_CHAR, ROLLER_REG_CHAR, ROLLER_REG_CHAR, ROLLER_REG_CHAR };
@@ -974,50 +915,6 @@ void createSetRegScreen(lv_style_t &style_huge, lv_style_t &style_large) {
                        lv_palette_main(LV_PALETTE_GREEN));
 }
 
-// =============================================================================
-// SCREEN: SET WIFI PASSWORD
-// =============================================================================
-
-/**
- * Creates and configures the Set Wifi Pwd Screen UI objects, labels,
- * callbacks, and initial styling.
- *
- * Inputs: `style_huge`, `style_large`.
- * Returns: None.
- */
-void createSetWifiPwdScreen(lv_style_t &style_huge, lv_style_t &style_large) {
-    set_wifi_pwd_screen = lv_obj_create(NULL);
-
-    (void)createLabel(set_wifi_pwd_screen, "SET WIFI PASSWORD",
-        NULL, &lv_font_montserrat_28, LV_ALIGN_TOP_MID, 0, 15, 0, LV_TEXT_ALIGN_CENTER);
-
-    (void)createLabel(set_wifi_pwd_screen, "8 characters minimum",
-        NULL, FONT_SMALL, LV_ALIGN_TOP_MID, 0, 50, 0, LV_TEXT_ALIGN_CENTER);
-
-    static const RollerType kTypes[8] = { ROLLER_PWD_CHAR, ROLLER_PWD_CHAR, ROLLER_PWD_CHAR, ROLLER_PWD_CHAR,
-                                          ROLLER_PWD_CHAR, ROLLER_PWD_CHAR, ROLLER_PWD_CHAR, ROLLER_PWD_CHAR };
-    ui_roller_grid_layout_t lay = ui_calc_roller_grid(set_wifi_pwd_screen,
-                                                     8,
-                                                     /*top_y*/85,
-                                                     /*bottom_reserved*/(BTN_ACTION_HEIGHT + 70),
-                                                     /*side_margin*/12,
-                                                     /*col_gap*/8,
-                                                     /*row_gap*/10);
-    ui_create_typed_roller_grid(set_wifi_pwd_screen, pwd_rollers, 8, kTypes, &style_huge, &lay, nullptr);
-
-    (void)createButton(set_wifi_pwd_screen, "SAVE", &style_huge, NULL,
-                       BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
-                       LV_ALIGN_BOTTOM_LEFT, 30, -30, save_wifi_pwd_cb,
-                       lv_palette_main(LV_PALETTE_BLUE));
-    (void)createButton(set_wifi_pwd_screen, "BACK", &style_huge, NULL,
-                       BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
-                       LV_ALIGN_BOTTOM_RIGHT, -30, -30,
-                       [](lv_event_t*e){
-                           (void)e;
-                           lv_scr_load(settings_menu_screen);
-                       },
-                       lv_palette_main(LV_PALETTE_GREEN));
-}
 
 // =============================================================================
 // INITIALIZATION
@@ -1074,7 +971,6 @@ lv_init();
     createSetDateScreen(style_huge, style_large);
     createSetTimeScreen(style_huge, style_large);
     createSetRegScreen(style_huge, style_large);
-    createSetWifiPwdScreen(style_huge, style_large);
     createLowBatteryScreen(style_huge);
 
     // Initialize status manager
@@ -1195,9 +1091,8 @@ void syncUIToSystemState() {
         lv_label_set_text(btn_wifi_label, wifi_active ? "STOP WIFI" : "START WIFI");
     }
 
-    // START WIFI is disabled while settings are incomplete. The WiFi password
-    // is part of the required settings, so calibration/Web access is only
-    // offered after the settings path has been completed.
+    // START WIFI is disabled while settings are incomplete. The AP password is
+    // generated from the registration after the settings path is complete.
     if (btn_wifi) {
         if (recording || settings_action_required) {
             disable_button(btn_wifi);
@@ -1423,7 +1318,7 @@ void save_time_cb(lv_event_t * e) {
  */
 void save_reg_cb(lv_event_t * e) {
     // Store the registration through the settings store abstraction.
-    static const char kRegOpts[] = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    static const char kRegOpts[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     char reg[6] = {0};
     for(int i = 0; i < 5; i++) {
         int idx = (int)lv_roller_get_selected(reg_rollers[i]);
@@ -1439,31 +1334,6 @@ void save_reg_cb(lv_event_t * e) {
     lv_scr_load(settings_menu_screen);
 }
 
-/**
- * WiFi password save callback stores the selected access-point password in NVS
- * and refreshes settings button state.
- *
- * Inputs: `e`.
- * Returns: None.
- */
-void save_wifi_pwd_cb(lv_event_t * e) {
-    const char* pwd_chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    char password[9];
-
-    for(int i = 0; i < 8; i++) {
-        int idx = lv_roller_get_selected(pwd_rollers[i]);
-        password[i] = pwd_chars[idx];
-    }
-    password[8] = '\0';
-
-    // Persist settings directly via settings_store (updates RAM cache + NVS).
-    (void)settings_set_wifi_password(password);
-
-    // Never print secrets to the serial console.
-// message set omitted
-
-    lv_scr_load(settings_menu_screen);
-}
 
 
 /**

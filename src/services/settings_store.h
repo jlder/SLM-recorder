@@ -21,7 +21,7 @@ static const size_t SETTINGS_WIFI_PASSWORD_LEN = 32u;
 
 typedef struct {
   char registration[SETTINGS_REGISTRATION_LEN];
-  char wifi_password[SETTINGS_WIFI_PASSWORD_LEN];
+  char wifi_password[SETTINGS_WIFI_PASSWORD_LEN]; // generated from registration, not user-editable
   bool date_set;
   bool time_set;
 } settings_t;
@@ -57,10 +57,24 @@ bool settings_get(settings_t *out);
  *   in - settings structure to validate.
  *
  * Return:
- *   true if registration, Wi-Fi password, date-set and time-set flags are present,
+ *   true if registration, date-set and time-set flags are present,
  *   false otherwise.
  */
 bool settings_is_complete(const settings_t *in);
+
+/**
+ * Build the deterministic WiFi password from the normalized registration.
+ *
+ * Parameters:
+ *   out    - destination buffer for the generated password.
+ *   out_sz - destination buffer size in bytes.
+ *   reg    - normalized registration string.
+ *
+ * Return:
+ *   true if the password was generated successfully,
+ *   false otherwise.
+ */
+bool settings_make_wifi_password(char *out, size_t out_sz, const char *reg);
 
 // NOTE: These functions write to NVS/flash via Preferences.
 // Project policy: only the State task shall call these setters.
@@ -78,13 +92,17 @@ bool settings_is_complete(const settings_t *in);
 bool settings_set_registration(const char *reg);
 
 /**
- * Save the Wi-Fi password string.
+ * Save a Wi-Fi password string.
+ *
+ * @note The current AP password is generated from the registration. This setter
+ * is kept only for compatibility with older code paths and does not change the
+ * generated AP password.
  *
  * Parameters:
- *   pwd - null-terminated Wi-Fi password string to store.
+ *   pwd - ignored legacy password string.
  *
  * Return:
- *   true if the value was written successfully,
+ *   true if settings storage is available,
  *   false otherwise.
  */
 bool settings_set_wifi_password(const char *pwd);
