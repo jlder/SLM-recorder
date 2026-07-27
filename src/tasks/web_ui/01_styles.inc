@@ -79,11 +79,12 @@ R"rawliteral(    <style>
         .btn-return { background: #27ae60; color: white; }
 
         /* File, report, and processed-delete lists use the same compact rows. */
-        input[type="password"], input[type="file"] {
+        input[type="password"], input[type="file"], select {
             max-width: 100%;
             min-height: 40px;
             font-size: 16px;
         }
+        select { width: 100%; margin: 6px 0; }
         .file-list { margin-top: 8px; }
         .file-item {
             border-bottom: 1px solid #ecf0f1;

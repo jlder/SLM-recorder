@@ -72,8 +72,8 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.16` | version text displayed on device |
-| `RECORDER_VERSION_TEXT` | `sw ver 1.16` / `hw ver 1.00` | main display version text |
+| `RECORDER_SOFTWARE_VERSION` | `1.23` | version text displayed on device |
+| `RECORDER_VERSION_TEXT` | `sw ver 1.23` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
 
@@ -768,6 +768,8 @@ with one aligned row per detected flight. Takeoff and landing times shall use th
 
 The normal active file list shall remain focused on root-level `.bin` recording files. The operator shall be able to view an existing companion `.log` from the matching `.bin` row without re-downloading or reprocessing the binary file. When a `.bin` is archived to `/processed`, the matching `.log` shall be archived with it if present. `.log` files shall not count against `SD_MAX_RECORD_FILES`.
 
+The Web logbook shall list the five newest archived `.log` files. With the current daily-file scheme, one archived `.log` file corresponds to one flying day, so the Web page shall present this as the last five flying days rather than the last five calendar days. The File Management page shall clear any previous analysis display when the page is opened; automatic archiving shall not clear the analysis panel because multiple transfers may complete out of order.
+
 Status:
 
 - **Implemented.**
@@ -1236,3 +1238,14 @@ Items to continue monitoring:
 
 
 
+
+#### OP-WEB-003A — Firmware from server through SLM Bridge
+
+When the recorder Web interface is opened inside SLM Bridge, the Firmware Update page may offer **Firmware from Server** in addition to local file upload. The recorder remains the operator interface and the recorder `/api/ota` endpoint remains the only authority performing the firmware update. The bridge may list and download firmware from the server over its validated Internet network, then upload the selected recorder application `.bin` to `/api/ota` over recorder WiFi.
+
+The server firmware lookup order shall be:
+
+1. the connected recorder-specific folder `<registration>/FIRMWARE`;
+2. if that folder is absent or contains no accepted firmware file, the common `SLM-STC-DATA/FIRMWARE` folder.
+
+The UI shall not call this the "latest firmware" function because deliberate selection of an older firmware version may be required for test or recovery work.

@@ -516,7 +516,9 @@ Both state changes use a configurable transition confirmation/debounce time. The
 
 Takeoff and landing times shown to the operator are rounded to the nearest minute. Flight time is calculated from those same rounded values so the displayed takeoff time, landing time, and duration remain consistent.
 
-After a download analysis completes, the browser sends a compact companion `.log` text file back to the recorder. The recorder derives the `.log` path from the `.bin` basename and accepts only root-level `.bin` basenames for this endpoint. The File Management page provides `View Log` to display the stored analysis later without downloading or reprocessing the binary file.
+After a download analysis completes, the browser sends a compact companion `.log` text file back to the recorder. The recorder derives the `.log` path from the `.bin` basename and accepts only root-level `.bin` basenames for this endpoint. The File Management page provides `View Log` to display the stored analysis later without downloading or reprocessing the binary file. The analysis panel is reset when the File Management page is opened, not when an archive completion event is received, so a delayed archive event from an earlier download cannot erase the analysis for a later file.
+
+The Logbook page reads archived `.log` files from `/processed`, sorts them newest first by the daily recorder filename, and displays the five newest files. Because the recorder maintains one active file per flying day, this is presented to the operator as the last five flying days.
 
 ## 29. Web OTA Firmware Update
 
@@ -528,3 +530,9 @@ Firmware update is exposed as a manual Web maintenance function from the recorde
 
 After the update image is written and accepted by the update API, `web_task` sends the final Web response and requests a restart. Boot selection of the new OTA application is handled by the ESP32 OTA boot infrastructure.
 
+
+### 29.1 Firmware from server through SLM Bridge
+
+The recorder Firmware page can delegate server firmware retrieval to SLM Bridge when the page is running in the Android WebView. The recorder itself remains a local WiFi access point and does not fetch Internet files. SLM Bridge advertises a `server-firmware` JavaScript capability, lists firmware files from Drive using the phone Internet network, downloads the selected file, and submits it to the recorder `/api/ota` endpoint over the recorder WiFi network. The recorder OTA endpoint performs the same authorization, USB-power, filename, and update checks as for a local file upload.
+
+The bridge searches the recorder-specific `<registration>/FIRMWARE` server folder before the common `SLM-STC-DATA/FIRMWARE` folder so test firmware can be offered for a single glider without affecting the common firmware list.

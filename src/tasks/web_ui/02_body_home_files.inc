@@ -25,9 +25,10 @@ R"rawliteral(<body>
             </div>
         </div>
 
-        <!-- Logbook combines the stored analysis logs for the five latest downloaded recordings. -->
+        <!-- Logbook combines the stored analysis logs for the last five flying days of downloaded recordings. -->
         <div id="logbookSection" class="hidden">
             <p class="small"><b>Only files downloaded through the SLM app are included in the logbook.</b></p>
+            <p class="small">Only the last 5 flying days are displayed.</p>
             <div class="controls compact-controls cal-actions">
                 <button class="btn btn-return" onclick="showHome()">Return</button>
             </div>

@@ -55,6 +55,7 @@ R"rawliteral(    <script>
             setPageTitle('SLM File Management');
             stopCalPolling();
             hideAllPages();
+            clearFlightAnalysisPanel();
             document.getElementById('filesSection').classList.remove('hidden');
             refreshFiles();
         }
@@ -198,6 +199,7 @@ R"rawliteral(    <script>
             stopCalPolling();
             hideAllPages();
             document.getElementById('otaSection').classList.remove('hidden');
+            otaUpdateBridgeControls();
         }
 
         function openDeletePage() {

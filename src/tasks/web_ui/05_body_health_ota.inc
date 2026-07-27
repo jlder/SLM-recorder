@@ -48,7 +48,7 @@ R"rawliteral(        <!-- About/support page. One support unlock grants access t
             </div>
         </div>
 
-        <!-- OTA page. Upload is deliberately simple: one firmware .bin file posted to /api/ota. -->
+        <!-- OTA page. Local upload posts one .bin file to /api/ota; SLM Bridge can also fetch firmware from Drive. -->
         <div id="otaSection" class="hidden section">
             <div class="card workflow-card">
                 <p><b>USB power is required for firmware update.</b></p>
@@ -57,9 +57,23 @@ R"rawliteral(        <!-- About/support page. One support unlock grants access t
             </div>
 
             <div class="card">
+                <h2>Firmware from server</h2>
+                <p class="small">Requires SLM Bridge with server connection.</p>
+                <div class="controls cal-actions">
+                    <button class="btn btn-primary" id="btnOtaServerList" onclick="otaListServerFirmware()">Firmware from Server</button>
+                </div>
+                <select id="otaServerFirmwareSelect" class="hidden"></select>
+                <div class="controls cal-actions hidden" id="otaServerInstallControls">
+                    <button class="btn btn-primary" id="btnOtaServerInstall" onclick="otaInstallServerFirmware()">Upload Selected Firmware</button>
+                </div>
+                <div id="otaServerStatus" class="small">Server firmware requires SLM Bridge.</div>
+            </div>
+
+            <div class="card">
+                <h2>Local firmware file</h2>
                 <input type="file" id="otaFile" accept=".bin">
                 <div class="controls cal-actions">
-                    <button class="btn btn-primary" id="btnOtaUpload" onclick="otaUpload()">Upload Firmware</button>
+                    <button class="btn btn-primary" id="btnOtaUpload" onclick="otaUpload()">Upload Local Firmware</button>
                     <button class="btn btn-return" onclick="showMaintenanceMenu()">Return</button>
                 </div>
                 <div id="otaStatus" class="small">Ready.</div>

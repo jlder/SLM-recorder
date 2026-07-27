@@ -285,6 +285,16 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             });
         }
 
+        function clearFlightAnalysisPanel() {
+            const panel = document.getElementById('flightAnalysisWindow');
+            const status = document.getElementById('flightAnalysisStatus');
+            const table = document.getElementById('flightAnalysisTable');
+            if (table) table.innerHTML = '';
+            if (status) status.textContent = 'No analysis available.';
+            setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Download: idle');
+            if (panel) panel.classList.add('hidden');
+        }
+
         // Shared progress-bar helper for download and analysis progress.
         function setProgress(barId, textId, percent, text) {
             const bar = document.getElementById(barId);
@@ -320,6 +330,14 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                 return b.session - a.session;
             }
             return String(right.name || '').localeCompare(String(left.name || ''));
+        }
+
+        function latestLogbookFiles(files, fileCount) {
+            return (files || [])
+                .filter(file => logbookFileParts(file.name))
+                .slice()
+                .sort(compareLogbookFilesNewestFirst)
+                .slice(0, fileCount);
         }
 
         function recorderTextWithRetry(url, attempt) {
@@ -359,10 +377,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                     if (!result.ok || !result.json || !result.json.ok) {
                         throw new Error('Recorder logbook list unavailable');
                     }
-                    const latest = (result.json.files || [])
-                        .slice()
-                        .sort(compareLogbookFilesNewestFirst)
-                        .slice(0, 5);
+                    const latest = latestLogbookFiles(result.json.files || [], 5);
                     if (latest.length === 0) {
                         displayLogbookRows([]);
                         return;

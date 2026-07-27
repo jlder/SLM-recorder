@@ -633,7 +633,7 @@ Expected result:
 
 Purpose:
 
-Confirm the Web file-management page stores and later displays the compact flight-analysis log without reprocessing the binary file.
+Confirm the Web file-management page stores and later displays the compact flight-analysis log without reprocessing the binary file. Confirm that entering File Management clears any previous analysis display, and that archive completion for one file does not clear a later file analysis.
 
 Procedure:
 
@@ -650,6 +650,7 @@ Expected result:
 - View Log displays the stored text without downloading or reprocessing the `.bin`.
 - The root file list still shows recording `.bin` files rather than separate `.log` entries.
 - Archiving the `.bin` also archives the matching `.log` when present.
+- The Logbook view displays the five newest archived `.log` files and labels the scope as the last five flying days.
 
 ### VAL-SD-006 — SD maintenance access when recording is blocked
 
@@ -770,3 +771,7 @@ Verify that installation calibration workflow text instructs the operator to put
 ## VAL-CAL-007 — Support generation of stored calibration reports
 
 Verify that the support-only About page action generates recorder and installation calibration report files from valid NVS calibration data without starting a calibration session or modifying stored calibration records. Confirm the generated reports explicitly state that their source is stored NVS calibration data.
+
+### VAL-OTA-002 — Firmware from server through SLM Bridge
+
+Validation shall verify that the recorder Firmware page can request firmware from the bridge without changing the recorder OTA endpoint behavior. Test with a recorder-specific `<registration>/FIRMWARE` folder containing at least one application `.bin`, then with that folder absent or empty to confirm fallback to `SLM-STC-DATA/FIRMWARE`. Confirm that USB power is still required and that the recorder rejects the upload if USB power is absent.

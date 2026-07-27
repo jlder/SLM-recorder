@@ -485,3 +485,7 @@ The Web Firmware Update tab provides a file selector and upload button. Browser-
 
 During upload, received chunks are written through the ESP32 Arduino `Update` API. If write or finalization fails, the update is aborted and the current firmware remains active. If finalization succeeds, the Web response reports success and `web_task` restarts the recorder.
 
+
+### 27.1 Firmware from server through SLM Bridge
+
+The recorder state-machine impact is unchanged. Firmware installation still occurs through the recorder Web Firmware Update page and `/api/ota`, which requires maintenance authorization and USB power. When SLM Bridge is available, the page may ask the bridge to list firmware files from the server and upload the selected file back to `/api/ota`. The recorder does not need Internet access and does not change the OTA state transitions.

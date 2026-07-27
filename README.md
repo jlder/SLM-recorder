@@ -127,6 +127,7 @@ The Web interface supports:
 - file download;
 - browser-side flight-time analysis during download, displaying detected flight times and sample-period average/standard deviation, with HIRMS-gated takeoff/landing validation and transition debounce;
 - file archive through the root file-list Archive button, which moves the file to `/processed`;
+- a Logbook view showing the five newest archived `.log` files, presented as the last five flying days;
 - permanent deletion of selected files already archived in `/processed` from the Maintenance / Delete page;
 - calibrations;
 - firmware update using an application binary named like `SLM_recorder_date_version.bin` (firmware update is accepted only when USB power is connected to the device);
@@ -214,3 +215,7 @@ For commercial licensing, contact:
 ```text
 aginggliders@gmail.com
 ```
+
+## Firmware from server through SLM Bridge
+
+The Firmware Update page can use SLM Bridge to install recorder firmware from the server while keeping the operator workflow in the recorder Web UI. The bridge searches the connected recorder's server folder `<registration>/FIRMWARE` first. If that folder does not exist or contains no accepted recorder firmware `.bin`, it falls back to the common `SLM-STC-DATA/FIRMWARE` folder. The operator selects the firmware file to upload; the feature is intentionally named "Firmware from Server" rather than "latest firmware" because older versions may be selected for recovery or test work.
