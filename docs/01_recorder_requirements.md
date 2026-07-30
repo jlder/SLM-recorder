@@ -72,14 +72,14 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.23` | version text displayed on device |
-| `RECORDER_VERSION_TEXT` | `sw ver 1.23` / `hw ver 1.00` | main display version text |
+| `RECORDER_SOFTWARE_VERSION` | `1.24` | version text displayed on device |
+| `RECORDER_VERSION_TEXT` | `sw ver 1.24` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
 
 | Configuration | Current value | Requirement use |
 |---|---:|---|
-| `AP_SSID_PREFIX` | `SLM-` | recorder WiFi access-point SSID prefix |
+| `AP_SSID_PREFIX` | `SLM2-` | recorder WiFi access-point SSID prefix |
 | `WEB_SERVER_PORT` | 80 | Web server port |
 | `AP_IP_ADDRESS` | `192.168.4.1` | Web interface address |
 | `AP_GATEWAY` | `192.168.4.1` | access-point gateway |

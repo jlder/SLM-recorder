@@ -41,7 +41,7 @@
 #define PACKET_TYPE_CALIBRATION 0x72
 
 // WiFi / web
-#define AP_SSID_PREFIX               "SLM-"
+#define AP_SSID_PREFIX               "SLM2-"
 #define WEB_SERVER_PORT              80
 #define AP_IP_ADDRESS                IPAddress(192, 168, 4, 1)
 #define AP_GATEWAY                   IPAddress(192, 168, 4, 1)
@@ -151,7 +151,7 @@
 // Hardware version identifies the recorder hardware configuration.
 // Software version identifies the firmware build.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.23"
+#define RECORDER_SOFTWARE_VERSION      "1.24"
 #define RECORDER_VERSION_TEXT          "sw ver " RECORDER_SOFTWARE_VERSION "\nhw ver " RECORDER_HARDWARE_VERSION
 
 // Storage / SD
