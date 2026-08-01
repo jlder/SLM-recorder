@@ -79,10 +79,10 @@ error_code_t sd_open_record(const char *path);
 /**
  * Open the daily recording file and append a new recording session.
  *
- * Expected root-directory policy: for one registration/date prefix there shall
- * be either zero or one matching file.  If the file exists, its _N suffix is
- * incremented before the new session is appended.  More than one matching file
- * is treated as an SD file-management inconsistency.
+ * For one registration/date prefix, an existing root file has its _N suffix
+ * incremented before the new session is appended. If no root file exists but a
+ * matching binary is archived under /processed, that binary is restored first
+ * and its stale companion analysis log is deleted.
  *
  * Inputs: `prefix`.
  * Returns: `ERR_NONE` on success; otherwise an error code that explains the failure.

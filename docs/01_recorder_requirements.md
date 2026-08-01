@@ -72,8 +72,8 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.24` | version text displayed on device |
-| `RECORDER_VERSION_TEXT` | `sw ver 1.24` / `hw ver 1.00` | main display version text |
+| `RECORDER_SOFTWARE_VERSION` | `1.25` | version text displayed on device |
+| `RECORDER_VERSION_TEXT` | `sw ver 1.25` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
 
@@ -333,7 +333,7 @@ Status:
 
 The display shall start at full brightness and enter standby after `DISPLAY_DIM_TIMEOUT_MS` without local operator interaction.
 
-Standby display behavior shall be page-independent for normal recorder UI pages. It shall be allowed from the main page, MENU, SETTINGS, setting-edit pages, and WiFi-support pages. The active recorder message shall not by itself prevent standby. The dedicated low-battery shutdown notice is excluded because it intentionally displays mandatory red recharge instructions before PMU shutdown.
+Standby display behavior shall be page-independent for normal recorder UI pages. It shall be allowed from the main page, MENU, SETTINGS, setting-edit pages, and WiFi-support pages. The active recorder message shall not by itself prevent standby. The dedicated low-battery shutdown notice and every active recorder error are excluded. If an error becomes active while the display is in standby, the recorder shall wake the display immediately and keep it on until the error clears.
 
 During RECORDING, date/time cache refresh is allowed while the display is active so the displayed clock continues to update. Recording sample timestamps remain based on the captured recording start time plus the monotonic ESP timer and do not depend on periodic RTC refresh.
 
@@ -788,9 +788,9 @@ where `N` is the number of recording sessions that have been started in that dai
 
 On the first session of the day, `N` shall be `1`. For each subsequent session on the same day, the recorder shall rename the existing matching daily file from `_N.bin` to `_(N+1).bin`, then open it in append mode and write the session data to the end of the same file.
 
-If more than one root file matches the same registration/date daily prefix, the recorder shall treat this as an SD fault rather than guessing which file should be appended.
+Before creating a new daily file, if no matching file is present in the root and one matching `.bin` file is present in `/processed`, the recorder shall move that `.bin` file back to the root. Its matching archived `.log` shall be deleted because it describes the earlier, shorter binary and will be recreated after the expanded file is downloaded and analysed again. The restored binary shall then follow the normal suffix increment and append sequence.
 
-Only root-level files shall be considered for daily append/rename matching. Files in `/processed` or any other subdirectory shall not be selected, even if their basename matches the daily filename pattern for the same registration and date. Files that do not match the daily filename pattern shall not be selected for append/rename matching.
+If the restore or subsequent daily-file operation cannot be completed safely, recording shall not start and the one-line error `SD FILE ERR` shall be displayed. Files that do not match the daily filename pattern shall not be selected for append/rename matching.
 
 Status:
 
@@ -1211,7 +1211,7 @@ Recording files use a daily-file policy. `record_format` builds the daily prefix
 /REGISTRATION_YYYYMMDD_1.bin
 ```
 
-For each subsequent recording session on the same day, the existing root-level file is renamed to the next suffix, for example `_2.bin`, and opened in append mode. The suffix is the daily session count. Archived files under `/processed` are ignored and are never selected as the active daily file for append.
+For each subsequent recording session on the same day, the existing root-level file is renamed to the next suffix, for example `_2.bin`, and opened in append mode. The suffix is the daily session count. If the same-day binary has already been archived to `/processed`, it is first restored to the root; its stale archived `.log` is deleted, then the normal rename and append sequence is applied.
 
 Each session appended to the daily file has the normal session block sequence:
 
@@ -1233,7 +1233,7 @@ Items to continue monitoring:
 |---|---|
 | Final acceptance tolerance for 20 Hz timing/jitter | validation method exists; acceptance tolerance can still be formalized |
 | Recorded-file validation for binary format revisions | required for each block-format revision |
-| Daily recording file behavior | validate first session creates `_1.bin`; second same-day session renames/appends to `_2.bin`; archived same-day files under `/processed` and non-daily-pattern files are ignored for append/rename matching |
+| Daily recording file behavior | validate first session creates `_1.bin`; second same-day session renames/appends to `_2.bin`; a same-day `.bin` archived under `/processed` is restored, its stale `.log` deleted, and the next session appended with an incremented suffix |
 
 
 
@@ -1249,3 +1249,11 @@ The server firmware lookup order shall be:
 2. if that folder is absent or contains no accepted firmware file, the common `SLM-STC-DATA/FIRMWARE` folder.
 
 The UI shall not call this the "latest firmware" function because deliberate selection of an older firmware version may be required for test or recovery work.
+
+### OP-WEB-006 — Recorder file processing lock
+
+When the Android automatic download/analysis/upload/archive workflow is available, each root recording file shall have a **Process** action. The action shall become inactive immediately after selection and remain inactive while that exact file is downloading, being analysed, queued for upload, uploading, or awaiting archive. A successful archive removes the file from the root list. A definite download or analysis failure restores the active **Process** action. Reloading or reconnecting shall restore the lock from the Android durable-transfer state. Duplicate process requests for the same recorder registration and filename shall be rejected by the Android bridge.
+
+#### File-processing concurrency
+
+Only one root recording file may be in the local Downloading or Analyzing phase at a time. During either phase, all other Process buttons shall be grey and inactive. The UI lock shall be released when the active file reaches Queued or when download/analysis fails. Upload and finalisation of a queued file shall not prevent another root file from being downloaded and analysed.

@@ -859,10 +859,6 @@ static bool sd_daily_suffix_from_name_(const char *name,
     return false;
   }
 
-  if(!sd_entry_name_is_root_file_(name)){
-    return false;
-  }
-
   const char *base = sd_basename_(name);
   if(base == nullptr){
     return false;
@@ -935,6 +931,118 @@ static bool sd_daily_path_build_(const char *prefix,
 }
 
 /**
+ * Restore today's already-processed recording to the SD root before a new
+ * session is appended.  The companion analysis log is deliberately deleted:
+ * it describes the previous shorter binary and will be recreated after the
+ * expanded daily file is downloaded and analysed again.
+ *
+ * Inputs: `prefix_base` without the leading slash.
+ * Returns: `ERR_NONE` when no restore is needed or restoration succeeds;
+ * otherwise an SD error code.
+ */
+static error_code_t sd_restore_daily_from_processed_(const char *prefix_base){
+  if((prefix_base == nullptr) || (prefix_base[0] == '\0')){
+    return ERR_SD_FAULT;
+  }
+
+  File processed = SD_MMC.open("/processed");
+  if(!processed){
+    // /processed is created only after the first archive. Its absence is the
+    // normal case on a new or unused SD card.
+    return ERR_NONE;
+  }
+
+  if(!processed.isDirectory()){
+    processed.close();
+    return ERR_SD_FAULT;
+  }
+
+  uint32_t match_count = 0u;
+  char processed_bin[SD_STORAGE_PATH_MAX] = "";
+  char processed_log[SD_STORAGE_PATH_MAX] = "";
+  char root_bin[SD_STORAGE_PATH_MAX] = "";
+
+  for(;;){
+    File entry = processed.openNextFile();
+    if(!entry){
+      break;
+    }
+
+    const char *entry_name = entry.name();
+    uint32_t suffix = 0u;
+    const bool matches = sd_daily_suffix_from_name_(entry_name,
+                                                    prefix_base,
+                                                    &suffix);
+    (void)suffix;
+
+    if(matches){
+      if(entry.isDirectory()){
+        entry.close();
+        processed.close();
+        return ERR_SD_FAULT;
+      }
+
+      ++match_count;
+      if(match_count > 1u){
+        entry.close();
+        processed.close();
+        return ERR_SD_FAULT;
+      }
+
+      const char *base = sd_basename_(entry_name);
+      if(base == nullptr){
+        entry.close();
+        processed.close();
+        return ERR_SD_FAULT;
+      }
+
+      const int src_n = snprintf(processed_bin, sizeof(processed_bin),
+                                 "/processed/%s", base);
+      const int dst_n = snprintf(root_bin, sizeof(root_bin), "/%s", base);
+      if((src_n <= 0) || ((size_t)src_n >= sizeof(processed_bin)) ||
+         (dst_n <= 0) || ((size_t)dst_n >= sizeof(root_bin))){
+        entry.close();
+        processed.close();
+        return ERR_SD_FAULT;
+      }
+
+      const size_t bin_len = strlen(processed_bin);
+      if((bin_len < 4u) || (bin_len >= sizeof(processed_log))){
+        entry.close();
+        processed.close();
+        return ERR_SD_FAULT;
+      }
+      memcpy(processed_log, processed_bin, bin_len - 4u);
+      memcpy(processed_log + bin_len - 4u, ".log", 5u);
+    }
+
+    entry.close();
+  }
+
+  processed.close();
+
+  if(match_count == 0u){
+    return ERR_NONE;
+  }
+
+  if(sd_path_exists_(root_bin)){
+    return ERR_SD_FAULT;
+  }
+
+  // The old analysis log describes the shorter binary. Delete it before the
+  // binary is restored so a failed delete cannot leave a stale archived log.
+  if(sd_path_exists_(processed_log) && !SD_MMC.remove(processed_log)){
+    return sd_classify_io_fault();
+  }
+
+  if(!SD_MMC.rename(processed_bin, root_bin)){
+    return sd_classify_io_fault();
+  }
+
+  return ERR_NONE;
+}
+
+/**
  * Open the daily recording file and append a new recording session.
  *
  * Normal case: zero or one file exists for a given registration/date prefix.
@@ -961,6 +1069,16 @@ error_code_t sd_open_record_daily(const char *prefix){
   }
 
   const char *prefix_base = prefix + 1;
+
+  // If today's complete file was already downloaded, analysed, uploaded and
+  // archived, restore only its binary to the root so the new session can be
+  // appended to the same daily record.  The old analysis log is discarded and
+  // will be recreated after the next download.
+  const error_code_t restore_rc = sd_restore_daily_from_processed_(prefix_base);
+  if(restore_rc != ERR_NONE){
+    return restore_rc;
+  }
+
   uint32_t match_count = 0u;
   uint32_t current_session = 0u;
   char current_path[SD_STORAGE_PATH_MAX] = "";

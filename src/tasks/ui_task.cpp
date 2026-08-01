@@ -275,8 +275,16 @@ static void ui_display_standby_service_(void){
         s_display_prev_usb_present = false;
     }
 
-    // Do not blank the mandatory low-battery shutdown notice.
-    const bool standby_allowed = (lv_scr_act() != low_battery_screen);
+    // Keep the display on for mandatory notices and while any recorder error
+    // is active.  If an error appears while the AMOLED is in standby, the
+    // existing wake path below turns it on immediately and restarts the
+    // inactivity timer only after the error has cleared.
+    const bool error_active =
+        (st.state == ST_ERROR) ||
+        (st.last_error != 0);
+    const bool standby_allowed =
+        (lv_scr_act() != low_battery_screen) &&
+        !error_active;
 
     if((!standby_allowed) ||
        touch_activity ||

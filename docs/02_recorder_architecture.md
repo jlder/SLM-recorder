@@ -365,7 +365,7 @@ Orange buttons form an operator guidance path to resolve the current blocking co
 
 After the configured display inactivity timeout, the UI may switch directly to display standby. In standby the AMOLED output is switched off, the panel supply controlled by `LCD_EN` is disabled, and the display appears black with no standby text.
 
-Display standby is a UI sub-state, not a recorder state. It is page-independent for normal recorder UI pages: main, MENU, SETTINGS, setting-edit pages, and WiFi-support pages may all be replaced by the standby screen. The active message does not by itself prevent standby. The dedicated low-battery shutdown notice is excluded because it must remain visible until PMU shutdown.
+Display standby is a UI sub-state, not a recorder state. It is page-independent for normal recorder UI pages: main, MENU, SETTINGS, setting-edit pages, and WiFi-support pages may all be replaced by the standby screen. The active message does not by itself prevent standby. The dedicated low-battery shutdown notice and any active recorder error are excluded. An error wakes a display that is already in standby and keeps it on until the error clears.
 
 While standby is active, the UI task skips the normal `updateUI()` refresh and runs at a reduced loop rate, currently about 5 Hz in standby while keeping LVGL/touch processing active for wake detection. Wake conditions are touch, power/clear button press, record button press, or USB insertion. On wake, the display supply is re-enabled and the UI restores the previously active page at full brightness.
 
@@ -403,7 +403,7 @@ Recording files are grouped by registration and date. `record_format` builds the
 
 The first session of a day creates `_1.bin`. If another session starts on the same day, the existing daily file is renamed to the next suffix and then opened in append mode. The suffix therefore records how many sessions have been started in that daily file.
 
-Only root-level files matching the daily filename pattern are selected for append/rename matching. Files under `/processed` or any other subdirectory are ignored, even if their basename matches the daily registration/date prefix. Files with any other recording-file naming pattern are left unchanged.
+Root-level files matching the daily filename pattern are selected for append/rename matching. If no root match exists but one same-day `.bin` is present under `/processed`, the binary is restored to the root and its stale archived `.log` is deleted before the normal suffix increment and append sequence. Files with any other recording-file naming pattern are left unchanged. A restore or file-operation failure blocks recording and is reported as `SD FILE ERR`.
 
 ## 21. SD Maintenance While READY
 
@@ -535,4 +535,14 @@ After the update image is written and accepted by the update API, `web_task` sen
 
 The recorder Firmware page can delegate server firmware retrieval to SLM Bridge when the page is running in the Android WebView. The recorder itself remains a local WiFi access point and does not fetch Internet files. SLM Bridge advertises a `server-firmware` JavaScript capability, lists firmware files from Drive using the phone Internet network, downloads the selected file, and submits it to the recorder `/api/ota` endpoint over the recorder WiFi network. The recorder OTA endpoint performs the same authorization, USB-power, filename, and update checks as for a local file upload.
 
+The recorder access-point SSID uses WiFi connection generation 2: `SLM2-` followed by the stored registration. The generation marker is changed only for an incompatible SSID/password or connection-method transition.
+
 The bridge searches the recorder-specific `<registration>/FIRMWARE` server folder before the common `SLM-STC-DATA/FIRMWARE` folder so test firmware can be offered for a single glider without affecting the common firmware list.
+
+### File-process state ownership
+
+The recorder Web page maintains the visible per-file state, but the Android bridge owns the durable process lock. The Web page queries `SLMAndroid.getRecorderTransferStates()` whenever the root list is refreshed. Transfer events update the visible state through downloading, analysing, queued, uploading, and finalising. The bridge does not place a recording in the upload queue until browser analysis calls `analysisComplete`. If analysis calls `analysisFailed`, the incomplete transfer is removed and the file becomes processable again. This ordering prevents upload and archive of a file whose analysis did not complete.
+
+#### File-management UI lock
+
+The browser maintains per-file process states and derives a page-wide local-processing lock from any `downloading` or `analyzing` state. The active row keeps its state label; all other Process controls remain labelled Process but are disabled. Transition to `queued` releases the page-wide lock while preserving the active file's own disabled state.

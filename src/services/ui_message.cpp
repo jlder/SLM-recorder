@@ -51,7 +51,7 @@ static const row_t kTable[] = {
   { MSG_NO_SD, "NO SD", UI_SEV_WARN, UI_COLOR_AMBER, true, true },
   { MSG_SD_LOW_SPACE, "SD LOW", UI_SEV_WARN, UI_COLOR_AMBER, true, true },
   { MSG_SD_FULL_FILES, "SD FULL (FILES)", UI_SEV_WARN, UI_COLOR_AMBER, false, true },
-  { MSG_SD_ERROR, "SD ERROR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
+  { MSG_SD_ERROR, "SD FILE ERR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
   { MSG_SD_OK_CLR, "SD OK/CLR", UI_SEV_INFO, UI_COLOR_GREEN, true, false },
 
   // Power / shutdown

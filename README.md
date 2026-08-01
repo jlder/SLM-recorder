@@ -113,7 +113,7 @@ The recorder will not authorize recording until required settings are stored and
 
 When the recorder is READY, open MENU and select START WIFI.
 
-The WiFi SSID is `SLM-` followed by the stored registration. The WiFi password is generated automatically as `SLM` followed by the stored five-character registration in reverse order. Example: registration `FCJAF` gives password `SLMFAJCF`.
+The WiFi SSID is `SLM2-` followed by the stored registration. The `2` identifies WiFi connection generation 2 and changes only when an incompatible SSID/password or connection solution is introduced. The WiFi password is generated automatically as `SLM` followed by the stored five-character registration in reverse order. Example: registration `FCJAF` gives password `SLMFAJCF`.
 
 The recorder starts an access point and Web server at:
 
@@ -161,7 +161,7 @@ Recording files use a daily-file policy. The first recording session of a day cr
 /REGISTRATION_YYYYMMDD_1.bin
 ```
 
-For each subsequent session on the same day, the existing daily file is renamed to the next session count, for example `_2.bin`, and the session data is appended to that same file. The suffix is the number of recording sessions contained in the daily file.
+For each subsequent session on the same day, the existing daily file is renamed to the next session count, for example `_2.bin`, and the session data is appended to that same file. If the same-day binary has already been moved to `/processed`, it is restored to the SD root first and its stale archived `.log` is deleted. The suffix is the number of recording sessions contained in the daily file.
 
 Important SD conditions:
 
@@ -219,3 +219,11 @@ aginggliders@gmail.com
 ## Firmware from server through SLM Bridge
 
 The Firmware Update page can use SLM Bridge to install recorder firmware from the server while keeping the operator workflow in the recorder Web UI. The bridge searches the connected recorder's server folder `<registration>/FIRMWARE` first. If that folder does not exist or contains no accepted recorder firmware `.bin`, it falls back to the common `SLM-STC-DATA/FIRMWARE` folder. The operator selects the firmware file to upload; the feature is intentionally named "Firmware from Server" rather than "latest firmware" because older versions may be selected for recovery or test work.
+
+### Recorder file processing lock (v1.26)
+
+The root file-list action is labelled **Process** when the Android bridge automatic workflow is available. The selected file is locked immediately and its button is grey and inactive while it is downloading, being analysed, queued, uploading, or being archived. The row disappears after successful archive. A definite download or analysis failure clears the lock and restores the blue **Process** button. The Android bridge remains the authoritative source of pending file states, so a page refresh or reconnection does not re-enable a file that is still in the durable queue.
+
+### Version 1.27
+
+- File processing is serialized through the local Downloading and Analyzing phases. While either phase is active, every other Process button is grey and inactive. Other files become processable again as soon as the active file reaches Queued or if processing fails.

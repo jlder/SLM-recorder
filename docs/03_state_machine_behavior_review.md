@@ -386,7 +386,7 @@ The RTC/date-time cache is required before recording start to create the filenam
 
 ## 20. Display Standby Sub-State
 
-Display standby is not a high-level recorder state. It is a UI/display sub-state that may replace any normal recorder UI page after the configured inactivity timeout. It is not limited to the main page and is not blocked only because a particular READY/RECORDING/setup message is active. The low-battery shutdown notice is excluded from standby.
+Display standby is not a high-level recorder state. It is a UI/display sub-state that may replace any normal recorder UI page after the configured inactivity timeout. It is not limited to the main page and is not blocked only because a particular READY/RECORDING/setup message is active. The low-battery shutdown notice and every active recorder error are excluded from standby. An error wakes the display immediately and prevents standby until the error clears.
 
 While in standby:
 
@@ -410,6 +410,9 @@ While `SD_WRITING` is active, the SD storage layer updates a cached free-space e
 When SD max-file-count is detected while not recording and free space is still above `SD_RECORD_START_MIN_FREE_MB`, the condition blocks recording but does not force the high-level recorder into ERROR. READY remains active, MENU remains available, and Web file maintenance can be started. SD low-space remains a blocking SD condition because archiving files to `/processed` does not free SD memory.
 
 `MSG_SD_FULL_FILES` is included in the UI non-forcing menu-access lock set, the same way settings/calibration setup-lock messages are. This prevents the UI sync layer from forcing the MENU page back to main while file-count maintenance is needed.
+
+
+Before a recording session opens its daily file, storage reconciles the SD root with `/processed`. If no same-day root file exists but the archived same-day `.bin` exists, the binary is moved back to the root and its stale archived `.log` is deleted. The usual suffix increment and append then proceed. A failed restore or daily-file operation blocks recording and reports `SD FILE ERR`.
 
 `SD FULL (FILES)` is orange/amber because the operator can resolve it through MENU -> START WIFI -> Web archive. `SD LOW` remains a blocking condition because archive moves files to `/processed` and does not free SD memory.
 
@@ -489,3 +492,11 @@ During upload, received chunks are written through the ESP32 Arduino `Update` AP
 ### 27.1 Firmware from server through SLM Bridge
 
 The recorder state-machine impact is unchanged. Firmware installation still occurs through the recorder Web Firmware Update page and `/api/ota`, which requires maintenance authorization and USB power. When SLM Bridge is available, the page may ask the bridge to list firmware files from the server and upload the selected file back to `/api/ota`. The recorder does not need Internet access and does not change the OTA state transitions.
+
+### Web file-processing state
+
+For each root `.bin` file, the Android-assisted process follows:
+
+`PROCESS -> DOWNLOADING -> ANALYZING -> QUEUED -> UPLOADING -> FINALIZING -> row removed`
+
+A download or analysis failure returns the file to `PROCESS`. Temporary Internet or upload failures remain `QUEUED`; they do not permit a second process request because the durable queue will retry automatically.

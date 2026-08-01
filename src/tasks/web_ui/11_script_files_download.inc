@@ -40,6 +40,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                     if (!result.ok) throw new Error('Recorder file list returned HTTP ' + result.status);
                     const data = result.json || {};
                     allFiles = data.files || [];
+                    restoreRecorderProcessStates();
                     displayFiles(allFiles);
                     updateSDInfo();
                     updateStatus();
@@ -61,6 +62,61 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                 .replace(/'/g, '&#39;');
         }
 
+        const recorderProcessStates = {};
+
+        function recorderProcessState(filename) {
+            return recorderProcessStates[String(filename || '')] || 'ready';
+        }
+
+        function recorderProcessLabel(state) {
+            if (state === 'downloading') return 'Downloading';
+            if (state === 'analyzing') return 'Analyzing';
+            if (state === 'queued') return 'Queued';
+            if (state === 'uploading') return 'Uploading';
+            if (state === 'finalizing') return 'Finalizing';
+            return 'Process';
+        }
+
+        function recorderLocalProcessingActive() {
+            return Object.keys(recorderProcessStates).some(filename => {
+                const state = recorderProcessState(filename);
+                return state === 'downloading' || state === 'analyzing';
+            });
+        }
+
+        function refreshRecorderProcessButtons() {
+            const localProcessingActive = recorderLocalProcessingActive();
+            document.querySelectorAll('.process-file-btn').forEach(button => {
+                const current = recorderProcessState(button.dataset.filename);
+                button.disabled = current !== 'ready' || localProcessingActive;
+                button.textContent = recorderProcessLabel(current);
+            });
+        }
+
+        function setRecorderProcessState(filename, state) {
+            const name = String(filename || '');
+            if (!name) return;
+            if (!state || state === 'ready') delete recorderProcessStates[name];
+            else recorderProcessStates[name] = state;
+            refreshRecorderProcessButtons();
+        }
+
+        function restoreRecorderProcessStates() {
+            if (!window.SLMAndroid ||
+                typeof window.SLMAndroid.getRecorderTransferStates !== 'function') return;
+            try {
+                const states = JSON.parse(window.SLMAndroid.getRecorderTransferStates());
+                if (!states || !Array.isArray(states.files)) return;
+                states.files.forEach(item => {
+                    if (item && item.filename) {
+                        recorderProcessStates[String(item.filename)] = String(item.state || 'queued');
+                    }
+                });
+            } catch (err) {
+                console.warn('Recorder process state could not be restored', err);
+            }
+        }
+
         // Build the visible root file list. File names are preserved for API calls and shortened only for display.
         function displayFiles(files) {
             const container = document.getElementById('fileListContainer');
@@ -79,10 +135,15 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                 const jsName = JSON.stringify(name);
                 const sizeKb = Math.round((file.size || 0) / 1000);
 
+                const processState = recorderProcessState(name);
+                const processDisabled = processState !== 'ready' || recorderLocalProcessingActive()
+                    ? ' disabled' : '';
+                const processLabel = recorderProcessLabel(processState);
+
                 html += `<div class="file-item">
                     <div class="file-row">
                         <div class="file-name">${safeName}</div>
-                        <button class="btn btn-primary file-btn download-file-btn" onclick='downloadFile(${jsName})'>Download</button>
+                        <button class="btn btn-primary file-btn process-file-btn" data-filename="${escapeHtml(name)}" onclick='downloadFile(${jsName})'${processDisabled}>${processLabel}</button>
                     </div>
                     <div class="file-row">
                         <div class="file-size">Size: ${sizeKb} kB</div>
@@ -98,6 +159,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             if (androidAutomaticArchiveAvailable()) {
                 document.querySelectorAll('.manual-archive-row').forEach(row => row.remove());
             }
+            refreshRecorderProcessButtons();
         }
 
         function androidAutomaticArchiveAvailable() {
@@ -121,7 +183,8 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
 
             panel.classList.remove('hidden');
             table.innerHTML = '';
-            setRecorderDownloadAvailable(false);
+            if (recorderProcessState(filename) !== 'ready') return;
+            setRecorderProcessState(filename, 'downloading');
             status.textContent = filename + ' \u2014 Downloading';
             setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Download: starting...');
 
@@ -154,20 +217,14 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                             showFlightAnalysis(filename, analysis);
                             writeFlightAnalysisLog(filename, analysis);
                         })
-                        .finally(() => setRecorderDownloadAvailable(true));
+                        .finally(() => setRecorderProcessState(filename, 'ready'));
                 })
                 .catch(err => {
                     status.textContent = filename + ' \u2014 Download/analysis failed';
-                    setRecorderDownloadAvailable(true);
+                    setRecorderProcessState(filename, 'ready');
                     console.error(err);
                     window.location.href = '/api/download?file=' + encodeURIComponent(filename);
                 });
-        }
-
-        function setRecorderDownloadAvailable(available) {
-            document.querySelectorAll('.download-file-btn').forEach(button => {
-                button.disabled = !available;
-            });
         }
 
         function startAndroidRecorderTransfer(filename) {
@@ -202,15 +259,17 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             const status = document.getElementById('flightAnalysisStatus');
 
             if (state === 'download-started') {
-                setRecorderDownloadAvailable(false);
+                setRecorderProcessState(filename, 'downloading');
                 status.textContent = filename + ' \u2014 Downloading';
                 setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Download: starting...');
             } else if (state === 'downloading') {
+                setRecorderProcessState(filename, 'downloading');
                 status.textContent = filename + ' \u2014 Downloading ' + Math.round(percent) + '%';
                 setProgress('downloadProgressBar', 'downloadProgressText', percent,
                     'Download: ' + Math.round(percent) + '%');
             } else if (state === 'download-complete') {
                 setProgress('downloadProgressBar', 'downloadProgressText', 100, 'Download: complete');
+                setRecorderProcessState(filename, 'analyzing');
                 status.textContent = filename + ' \u2014 Analyzing';
                 fetch(detail.localUrl, { cache: 'no-store' })
                     .then(function(response) {
@@ -222,22 +281,45 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                         showFlightAnalysis(filename, analysis);
                         return writeFlightAnalysisLog(filename, analysis);
                     })
+                    .then(function() {
+                        setRecorderProcessState(filename, 'queued');
+                        notifyAndroidAnalysisComplete(detail.transferId);
+                    })
                     .catch(function(err) {
                         console.error(err);
                         status.textContent = filename + ' \u2014 Analysis failed';
-                    })
-                    .finally(function() {
-                        notifyAndroidAnalysisComplete(detail.transferId);
-                        setRecorderDownloadAvailable(true);
+                        notifyAndroidAnalysisFailed(detail.transferId);
+                        setRecorderProcessState(filename, 'ready');
                     });
+            } else if (state === 'upload-pending') {
+                setRecorderProcessState(filename, 'queued');
+                status.textContent = filename + ' \u2014 Queued for upload';
+            } else if (state === 'upload-started' || state === 'uploading') {
+                setRecorderProcessState(filename, 'uploading');
+                status.textContent = filename + ' \u2014 Uploading' +
+                    (state === 'uploading' ? ' ' + Math.round(percent) + '%' : '');
+            } else if (state === 'upload-complete' || state === 'archive-pending') {
+                setRecorderProcessState(filename, 'finalizing');
+                status.textContent = filename + ' \u2014 Finalizing';
             } else if (state === 'archive-complete') {
+                delete recorderProcessStates[filename];
                 refreshFiles();
             } else if (state === 'failed') {
                 status.textContent = filename + ' \u2014 Transfer failed: ' +
                     (detail.error || 'unknown error');
-                setRecorderDownloadAvailable(true);
+                setRecorderProcessState(filename, 'ready');
             }
         });
+
+        function notifyAndroidAnalysisFailed(transferId) {
+            if (!transferId || !window.SLMAndroid ||
+                typeof window.SLMAndroid.analysisFailed !== 'function') return;
+            try {
+                window.SLMAndroid.analysisFailed(String(transferId));
+            } catch (err) {
+                console.warn('failed recorder transfer could not be cleared', err);
+            }
+        }
 
         function notifyAndroidAnalysisComplete(transferId) {
             if (!transferId || !window.SLMAndroid ||
