@@ -58,7 +58,7 @@ The table lists values that affect operational behavior, operator-visible behavi
 |---|---:|---|
 | `GPIO_RECORD_SWITCH` | 0 | physical record/start-stop button input |
 | `GPIO_POWER_BUTTON` | 10 | physical power/clear button input |
-| `POWER_CLEAR_HOLD_MS` | 150 ms | error clear / acknowledgement |
+| `POWER_CLEAR_HOLD_MS` | 250 ms | error clear / acknowledgement |
 | `POWER_SHUTDOWN_HOLD_MS` | 2000 ms | application-level shutdown request |
 | `RECORD_START_HOLD_MS` | 500 ms | recording start gesture |
 | `RECORD_STOP_HOLD_MS` | 2000 ms | recording stop gesture |
@@ -1257,3 +1257,24 @@ When the Android automatic download/analysis/upload/archive workflow is availabl
 #### File-processing concurrency
 
 Only one root recording file may be in the local Downloading or Analyzing phase at a time. During either phase, all other Process buttons shall be grey and inactive. The UI lock shall be released when the active file reaches Queued or when download/analysis fails. Upload and finalisation of a queued file shall not prevent another root file from being downloaded and analysed.
+
+### Audible error alert
+
+- The recorder shall enable audible alert generation only while the recorder is
+  in `ST_ERROR`.
+- A new error shall start a pattern of three equal 250 ms beeps separated by
+  250 ms silence and repeated approximately every four seconds.
+- Before the first audible beep of each cycle, the audio path shall output
+  300 ms of silence to allow the amplifier, codec, and I2S path to settle.
+- PWR/CLR shall silence the audible alert for the current active error without
+  requiring the underlying error to be clearable or cleared.
+- A changed active error code, or a later re-entry into `ST_ERROR`, shall re-arm
+  audible alerting.
+- Leaving `ST_ERROR` shall mute the codec output and disable the speaker
+  amplifier.
+- Audio initialization and playback are auxiliary functions. Failure of the
+  audio subsystem shall not raise a recorder error, reboot the recorder, block
+  recorder-critical tasks, or prevent normal error display and recovery.
+- Audio sample generation and playback shall execute in a dedicated task with a
+  priority below State, SD, UI, and Web tasks.
+

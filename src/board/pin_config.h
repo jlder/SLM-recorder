@@ -22,6 +22,15 @@
 #define TP_INT 38
 #define TP_RESET 9
 
+
+// AUDIO - ES8311 codec and speaker amplifier
+#define AUDIO_I2S_MCLK 41
+#define AUDIO_I2S_BCLK 45
+#define AUDIO_I2S_DOUT 40
+#define AUDIO_I2S_WS   42
+#define AUDIO_I2S_DIN  16
+#define AUDIO_AMP_ENABLE 46
+
 // SD
 const int SDMMC_CLK = 2;
 const int SDMMC_CMD = 1;

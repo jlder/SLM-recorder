@@ -147,11 +147,24 @@
 #define CALIBRATION_TEMP_MAX_SPAN_C         3.0f
 
 
+// Error audio alert. Audio hardware remains disabled outside ST_ERROR.
+#define AUDIO_ALERT_BEEP_COUNT          3u
+#define AUDIO_ALERT_BEEP_MS             250u
+#define AUDIO_ALERT_GAP_MS              250u
+// Silent warm-up required for equal first and subsequent beeps.
+#define AUDIO_ALERT_PREROLL_SILENCE_MS  300u
+#define AUDIO_ALERT_TRAILING_SILENCE_MS 100u
+#define AUDIO_ALERT_REPEAT_MS           4000u
+#define AUDIO_ALERT_TONE_HZ             1000u
+#define AUDIO_ALERT_AMPLITUDE           7000
+#define AUDIO_ALERT_VOLUME_PERCENT      60u
+#define AUDIO_ALERT_AMP_SETTLE_MS       20u
+
 // Product version displayed on the device main screen.
 // Hardware version identifies the recorder hardware configuration.
 // Software version identifies the firmware build.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.27"
+#define RECORDER_SOFTWARE_VERSION      "1.30"
 #define RECORDER_VERSION_TEXT          "sw ver " RECORDER_SOFTWARE_VERSION "\nhw ver " RECORDER_HARDWARE_VERSION
 
 // Storage / SD

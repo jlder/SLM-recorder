@@ -224,6 +224,35 @@ The Firmware Update page can use SLM Bridge to install recorder firmware from th
 
 The root file-list action is labelled **Process** when the Android bridge automatic workflow is available. The selected file is locked immediately and its button is grey and inactive while it is downloading, being analysed, queued, uploading, or being archived. The row disappears after successful archive. A definite download or analysis failure clears the lock and restores the blue **Process** button. The Android bridge remains the authoritative source of pending file states, so a page refresh or reconnection does not re-enable a file that is still in the durable queue.
 
-### Version 1.27
+### Version 1.29
+
+- Corrected ES8311 alert timing by pacing I2S PCM writes in real time.
+- Error alert is now three equal 250 ms beeps separated by 250 ms silence.
+- Added 100 ms trailing silence before muting the codec/amplifier.
+
+### Version 1.28
 
 - File processing is serialized through the local Downloading and Analyzing phases. While either phase is active, every other Process button is grey and inactive. Other files become processable again as soon as the active file reaches Queued or if processing fails.
+
+## Audible error alert (v1.28)
+
+The recorder uses the Waveshare ESP32-S3-Touch-AMOLED-2.06 ES8311 codec and
+on-board speaker to attract attention while the recorder is in `ST_ERROR`.
+The alert consists of three equal 250 ms beeps separated by 250 ms silence and
+repeated every four seconds. A 300 ms silent hardware warm-up occurs before the
+first beep so the three audible tones sound identical. Pressing PWR/CLR
+acknowledges and silences the current audible alert even when the
+underlying error condition is still present. A different error, or a new entry
+into `ST_ERROR` after the error has cleared, re-arms the alert.
+
+The audio feature is auxiliary and fail-silent. Its low-priority task remains
+dormant outside `ST_ERROR`; the codec output and speaker amplifier are disabled
+outside an active, unacknowledged alert. Audio initialization or playback
+failure does not raise a recorder error and does not affect acquisition,
+recording, SD handling, or state-machine timing.
+
+
+### Version 1.30
+
+- Added a 300 ms silent audio pre-roll after enabling the ES8311 playback path and speaker amplifier.
+- The pre-roll primes the codec and I2S DMA before the first audible tone so all three error beeps have the same duration and sound.

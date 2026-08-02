@@ -500,3 +500,20 @@ For each root `.bin` file, the Android-assisted process follows:
 `PROCESS -> DOWNLOADING -> ANALYZING -> QUEUED -> UPLOADING -> FINALIZING -> row removed`
 
 A download or analysis failure returns the file to `PROCESS`. Temporary Internet or upload failures remain `QUEUED`; they do not permit a second process request because the durable queue will retry automatically.
+
+### ST_ERROR audible acknowledgement
+
+On entry to `ST_ERROR`, State task enables the audio-alert service using the
+active error code as an alert key. The service produces three equal beeps every
+four seconds, preceded by a silent 300 ms audio-path warm-up. PWR/CLR has two
+independent effects in this state:
+
+1. it acknowledges and silences the audible alert immediately; and
+2. it continues through the existing error-clear path, which clears the error
+   only when the current error classification and recovery conditions permit.
+
+Therefore a user can silence a persistent fault without falsely clearing it.
+When the active error code changes, the new key re-arms the audible alert. Any
+transition out of `ST_ERROR` disables alerting and powers down the speaker
+amplifier.
+

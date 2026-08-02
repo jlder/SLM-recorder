@@ -546,3 +546,30 @@ The recorder Web page maintains the visible per-file state, but the Android brid
 #### File-management UI lock
 
 The browser maintains per-file process states and derives a page-wide local-processing lock from any `downloading` or `analyzing` state. The active row keeps its state label; all other Process controls remain labelled Process but are disabled. Transition to `queued` releases the page-wide lock while preserving the active file's own disabled state.
+
+### Audio alert subsystem
+
+The audio alert implementation follows the recorder layering convention:
+
+- `audio_alert_service` owns the high-level policy: active error, current error
+  key, acknowledgement latch, three-beep pattern repetition, silent hardware
+  warm-up, and the dormant low-priority FreeRTOS task.
+- `audio_tone_helpers` generates deterministic PCM tone and silence buffers and
+  contains no hardware access.
+- `audio_driver` is the hardware abstraction layer for ES8311 register setup,
+  ESP32 I2S output, codec mute, and speaker-amplifier enable.
+
+The service is informed by `state_task` when `ST_ERROR` is entered, while the
+active error code is refreshed, when PWR/CLR acknowledges the audible warning,
+and whenever the recorder leaves `ST_ERROR`. The audio driver is initialized
+lazily on first alert so normal boot and recording operation do not depend on
+codec availability. Driver failure is retained inside the auxiliary subsystem
+and is not propagated into the recorder error manager. Before the first beep
+of each cycle, the service writes 300 ms of silence so the amplifier, ES8311
+playback path, and I2S DMA are settled before audible output begins.
+
+The board mapping follows the Waveshare ES8311 demonstration: MCLK GPIO 41,
+BCLK GPIO 45, data out GPIO 40, word select GPIO 42, data in GPIO 16, and
+speaker-amplifier enable GPIO 46. The codec uses the existing shared I2C bus;
+the audio subsystem does not call `Wire.begin()` or reconfigure that bus.
+

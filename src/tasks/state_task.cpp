@@ -41,6 +41,7 @@
 #include "src/services/datetime_service.h"
 #include "src/services/calibration_service.h"
 #include "src/services/watchdog_service.h"
+#include "src/services/audio_alert_service.h"
 
 #include "src/services/touch_service.h"
 #include "src/tasks/sd_task.h"
@@ -265,6 +266,10 @@ static void state_set(recorder_state_t st){
     s_first_pass = true;
     s_entry_ms = now_ms();
     s_state_tick = 0u;
+    // Error audio is enabled only while the recorder is in ST_ERROR.
+    if(st != ST_ERROR){
+      audio_alert_service_set_error(false, 0u);
+    }
     // On state change, publish the default state message.
     set_msg(default_msg_for_state(st));
   }
@@ -301,8 +306,7 @@ static void update_error_clearable(void){
  * Inputs: None.
  * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
  */
-static bool handle_error_clear_request(void){
-  const bool clear_requested = (test_power_button(POWER_CLEAR_HOLD_MS) == true);
+static bool handle_error_clear_request(bool clear_requested){
   const error_code_t active = error_manager_get_active();
 
   if(error_manager_is_sd_error(active)){
@@ -1120,6 +1124,7 @@ static void state_task_main(void *arg){
           // Touch remains enabled in ERROR so the page-independent display
           // standby screen can always be woken by touching the display.
           touch_enable(true);
+          audio_alert_service_set_error(true, (uint32_t)error_manager_get_active());
           s_first_pass = false;
         }
 
@@ -1145,6 +1150,7 @@ static void state_task_main(void *arg){
         // with the latest SD-task classification. SD media state can change
         // while the system waits in ERROR.
         const error_code_t active_err = error_manager_get_active();
+        audio_alert_service_set_error(true, (uint32_t)active_err);
         if(error_manager_is_sd_error(active_err)){
           const error_code_t current_sd_err = sd_error_get();
 
@@ -1169,7 +1175,14 @@ static void state_task_main(void *arg){
         // operator clear request if the active error and recovery state allow it.
         update_error_clearable();
 
-        if(handle_error_clear_request()){
+        const bool clear_requested = (test_power_button(POWER_CLEAR_HOLD_MS) == true);
+        if(clear_requested){
+          // PWR/CLR acknowledges the audible alert even when the underlying
+          // error condition is still present and cannot yet be cleared.
+          audio_alert_service_acknowledge();
+        }
+
+        if(handle_error_clear_request(clear_requested)){
           break;
         }
         break;

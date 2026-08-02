@@ -41,5 +41,10 @@ static const uint32_t CFG_WEB_TASK_STACK_WORDS   = 6144u;
 static const uint32_t CFG_WEB_TASK_PRIO          = 10u;
 static const uint32_t CFG_WEB_TASK_CORE          = 0u;
 
+// Audio alert task is auxiliary and lower priority than all recorder tasks.
+static const uint32_t CFG_AUDIO_TASK_STACK_WORDS = 3072u;
+static const uint32_t CFG_AUDIO_TASK_PRIO        = 1u;
+static const uint32_t CFG_AUDIO_TASK_CORE        = 0u;
+
 // Shared capacities
 static const uint32_t CFG_RING_BUFFER_CAPACITY_ITEMS = 128u;

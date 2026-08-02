@@ -18,6 +18,7 @@
 #include "src/services/touch_service.h"
 #include "src/services/settings_store.h"
 #include "src/services/watchdog_service.h"
+#include "src/services/audio_alert_service.h"
 
 bool i2c_ok = false;
 bool pmu_ok = false;
@@ -71,6 +72,9 @@ void setup() {
 
   // Initialize watchdog service before monitored tasks start.
   watchdog_service_init();
+
+  // Create the dormant auxiliary audio-alert task before state handling.
+  audio_alert_service_init();
 
   // Start the state task after the first deterministic init pass.
   state_task_init();

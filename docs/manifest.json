@@ -1,10 +1,10 @@
 {
   "name": "SLM Recorder -",
-  "version": "1.27",
+  "version": "1.30",
   "builds": [{
     "chipFamily": "ESP32-S3",
     "parts": [{
-      "path": "https://jlder.github.io/SLM-recorder/firmware/SLM_recorder_20260731_v1_27.merged.bin",
+      "path": "https://jlder.github.io/SLM-recorder/firmware/SLM_recorder_20260801_v1_30.merged.bin",
       "offset": 0
     }]
   }]

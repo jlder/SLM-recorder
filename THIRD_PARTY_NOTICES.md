@@ -28,3 +28,10 @@ Known third-party components used by this recorder firmware release are:
   `THIRD_PARTY_VERSIONS.md`.
 - Arduino_DriveBus is not used by this firmware release; FT3168 touch
   access is implemented directly in project-owned code.
+
+### ES8311 configuration reference
+
+The ES8311 board configuration was developed with reference to the Waveshare
+ESP32-S3-Touch-AMOLED-2.06 `08_ES8311` Arduino example and the Espressif ES8311
+driver, distributed under the Apache License 2.0. The recorder contains an
+independent, limited hardware-abstraction implementation for alert playback.

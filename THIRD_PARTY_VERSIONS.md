@@ -21,3 +21,11 @@ firmware release.
   the dependency set used.
 
 Arduino_DriveBus is not a dependency of this release. FT3168 touch access is implemented directly using Wire/I2C in the project source.
+
+## Waveshare ES8311 reference
+
+- Project: Waveshare ESP32-S3-Touch-AMOLED-2.06 Arduino example `08_ES8311`
+- Repository: `waveshareteam/ESP32-S3-Touch-AMOLED-2.06`
+- Usage: board pin assignment and ES8311/I2S configuration reference for the
+  recorder audio abstraction layer
+- Retrieved: 2026-08-01
