@@ -299,7 +299,7 @@ Before opening a recording file, SD task verifies:
 
 If any check fails, SD task raises the corresponding SD error and the high-level state machine transitions to error handling.
 
-For file opening, SD task requests a daily prefix from `record_format` using the registration and recording-start date. It then calls `sd_open_record_daily()`. The SD storage layer creates `_1.bin` for the first session of the day or renames the existing same-day file to the next `_N.bin` suffix and appends the session data.
+For file opening, SD task requests a date prefix from `record_format` using the registration and recording-start date. It then calls `sd_open_record_daily()`. The SD storage layer scans matching immutable `.bin` files in root and `/processed`, selects the next suffix, and creates a new root file. It never modifies an existing recording file.
 
 ### 13.2 During writing
 
@@ -412,7 +412,7 @@ When SD max-file-count is detected while not recording and free space is still a
 `MSG_SD_FULL_FILES` is included in the UI non-forcing menu-access lock set, the same way settings/calibration setup-lock messages are. This prevents the UI sync layer from forcing the MENU page back to main while file-count maintenance is needed.
 
 
-Before a recording session opens its daily file, storage reconciles the SD root with `/processed`. If no same-day root file exists but the archived same-day `.bin` exists, the binary is moved back to the root and its stale archived `.log` is deleted. The usual suffix increment and append then proceed. A failed restore or daily-file operation blocks recording and reports `SD FILE ERR`.
+Before a recording session opens its file, storage scans the SD root and `/processed` for the highest matching same-day suffix. The next immutable file is created in the root. Archived files remain in `/processed`; no stale log is deleted and no previous binary is moved or appended. A failed scan or new-file operation blocks recording and reports `SD FILE ERR`.
 
 `SD FULL (FILES)` is orange/amber because the operator can resolve it through MENU -> START WIFI -> Web archive. `SD LOW` remains a blocking condition because archive moves files to `/processed` and does not free SD memory.
 

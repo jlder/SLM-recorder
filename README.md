@@ -155,13 +155,13 @@ Recording requires:
 - valid settings;
 - valid calibrations.
 
-Recording files use a daily-file policy. The first recording session of a day creates a file named:
+Recording files use an immutable session-file policy. The first recording session of a day creates:
 
 ```text
 /REGISTRATION_YYYYMMDD_1.bin
 ```
 
-For each subsequent session on the same day, the existing daily file is renamed to the next session count, for example `_2.bin`, and the session data is appended to that same file. If the same-day binary has already been moved to `/processed`, it is restored to the SD root first and its stale archived `.log` is deleted. The suffix is the number of recording sessions contained in the daily file.
+Each subsequent same-day session creates a new file with the next suffix, for example `_2.bin` and `_3.bin`. The recorder scans both the SD root and `/processed` when allocating the suffix, so an archived session number is never reused. Closed recording files are never renamed, restored, reopened, or appended. Legacy appended files remain readable and are left unchanged.
 
 Important SD conditions:
 
@@ -250,6 +250,13 @@ dormant outside `ST_ERROR`; the codec output and speaker amplifier are disabled
 outside an active, unacknowledged alert. Audio initialization or playback
 failure does not raise a recorder error and does not affect acquisition,
 recording, SD handling, or state-machine timing.
+
+
+### Version 1.31
+
+- Recording files are now immutable per session. Each recording start creates a new `REGISTRATION_YYYYMMDD_N.bin` file.
+- The next suffix is selected from matching `.bin` files in both the SD root and `/processed`.
+- Closed files are never renamed, restored, reopened, or appended. Legacy appended files remain supported and unchanged.
 
 
 ### Version 1.30

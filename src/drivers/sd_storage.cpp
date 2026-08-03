@@ -931,126 +931,67 @@ static bool sd_daily_path_build_(const char *prefix,
 }
 
 /**
- * Restore today's already-processed recording to the SD root before a new
- * session is appended.  The companion analysis log is deliberately deleted:
- * it describes the previous shorter binary and will be recreated after the
- * expanded daily file is downloaded and analysed again.
+ * Scan one directory and update the highest immutable daily-session suffix.
  *
- * Inputs: `prefix_base` without the leading slash.
- * Returns: `ERR_NONE` when no restore is needed or restoration succeeds;
- * otherwise an SD error code.
+ * Only files matching <prefix_base>_<N>.bin are considered. Other files,
+ * directories, logs, and future SHA metadata are ignored. A missing optional
+ * directory such as /processed is treated as empty.
+ *
+ * Inputs: `directory`, `prefix_base`, `directory_required`, `inout_highest`.
+ * Returns: `ERR_NONE` on success; otherwise an SD error code.
  */
-static error_code_t sd_restore_daily_from_processed_(const char *prefix_base){
-  if((prefix_base == nullptr) || (prefix_base[0] == '\0')){
+static error_code_t sd_daily_highest_suffix_in_dir_(const char *directory,
+                                                    const char *prefix_base,
+                                                    bool directory_required,
+                                                    uint32_t *inout_highest){
+  if((directory == nullptr) || (prefix_base == nullptr) ||
+     (inout_highest == nullptr)){
     return ERR_SD_FAULT;
   }
 
-  File processed = SD_MMC.open("/processed");
-  if(!processed){
-    // /processed is created only after the first archive. Its absence is the
-    // normal case on a new or unused SD card.
-    return ERR_NONE;
+  File dir = SD_MMC.open(directory);
+  if(!dir){
+    return directory_required ? sd_classify_io_fault() : ERR_NONE;
   }
 
-  if(!processed.isDirectory()){
-    processed.close();
+  if(!dir.isDirectory()){
+    dir.close();
     return ERR_SD_FAULT;
   }
-
-  uint32_t match_count = 0u;
-  char processed_bin[SD_STORAGE_PATH_MAX] = "";
-  char processed_log[SD_STORAGE_PATH_MAX] = "";
-  char root_bin[SD_STORAGE_PATH_MAX] = "";
 
   for(;;){
-    File entry = processed.openNextFile();
+    File entry = dir.openNextFile();
     if(!entry){
       break;
     }
 
-    const char *entry_name = entry.name();
-    uint32_t suffix = 0u;
-    const bool matches = sd_daily_suffix_from_name_(entry_name,
-                                                    prefix_base,
-                                                    &suffix);
-    (void)suffix;
-
-    if(matches){
-      if(entry.isDirectory()){
-        entry.close();
-        processed.close();
-        return ERR_SD_FAULT;
+    if(!entry.isDirectory()){
+      uint32_t suffix = 0u;
+      if(sd_daily_suffix_from_name_(entry.name(), prefix_base, &suffix) &&
+         (suffix > *inout_highest)){
+        *inout_highest = suffix;
       }
-
-      ++match_count;
-      if(match_count > 1u){
-        entry.close();
-        processed.close();
-        return ERR_SD_FAULT;
-      }
-
-      const char *base = sd_basename_(entry_name);
-      if(base == nullptr){
-        entry.close();
-        processed.close();
-        return ERR_SD_FAULT;
-      }
-
-      const int src_n = snprintf(processed_bin, sizeof(processed_bin),
-                                 "/processed/%s", base);
-      const int dst_n = snprintf(root_bin, sizeof(root_bin), "/%s", base);
-      if((src_n <= 0) || ((size_t)src_n >= sizeof(processed_bin)) ||
-         (dst_n <= 0) || ((size_t)dst_n >= sizeof(root_bin))){
-        entry.close();
-        processed.close();
-        return ERR_SD_FAULT;
-      }
-
-      const size_t bin_len = strlen(processed_bin);
-      if((bin_len < 4u) || (bin_len >= sizeof(processed_log))){
-        entry.close();
-        processed.close();
-        return ERR_SD_FAULT;
-      }
-      memcpy(processed_log, processed_bin, bin_len - 4u);
-      memcpy(processed_log + bin_len - 4u, ".log", 5u);
     }
 
     entry.close();
   }
 
-  processed.close();
-
-  if(match_count == 0u){
-    return ERR_NONE;
-  }
-
-  if(sd_path_exists_(root_bin)){
-    return ERR_SD_FAULT;
-  }
-
-  // The old analysis log describes the shorter binary. Delete it before the
-  // binary is restored so a failed delete cannot leave a stale archived log.
-  if(sd_path_exists_(processed_log) && !SD_MMC.remove(processed_log)){
-    return sd_classify_io_fault();
-  }
-
-  if(!SD_MMC.rename(processed_bin, root_bin)){
-    return sd_classify_io_fault();
-  }
-
+  dir.close();
   return ERR_NONE;
 }
 
 /**
- * Open the daily recording file and append a new recording session.
+ * Open a new immutable recording-session file for one registration/date.
  *
- * Normal case: zero or one file exists for a given registration/date prefix.
- * If today's file exists, it is renamed from _N.bin to _(N+1).bin before the
- * new session is appended.  If more than one matching file exists, the function
- * reports a fault instead of guessing which file should receive the new data.
+ * The highest existing suffix is found across the SD root and /processed.
+ * The new session is created as <prefix>_<highest+1>.bin. Existing files are
+ * never renamed, restored, reopened, or appended. This preserves every closed
+ * recording file as an immutable source artifact.
  *
- * Inputs: `prefix`.
+ * Legacy daily files created by earlier firmware remain valid: their suffixes
+ * participate in allocation, but their contents are never modified.
+ *
+ * Inputs: `prefix` in the form /REGISTRATION_YYYYMMDD.
  * Returns: `ERR_NONE` on success; otherwise an SD error code.
  */
 error_code_t sd_open_record_daily(const char *prefix){
@@ -1069,101 +1010,43 @@ error_code_t sd_open_record_daily(const char *prefix){
   }
 
   const char *prefix_base = prefix + 1;
+  uint32_t highest_suffix = 0u;
 
-  // If today's complete file was already downloaded, analysed, uploaded and
-  // archived, restore only its binary to the root so the new session can be
-  // appended to the same daily record.  The old analysis log is discarded and
-  // will be recreated after the next download.
-  const error_code_t restore_rc = sd_restore_daily_from_processed_(prefix_base);
-  if(restore_rc != ERR_NONE){
-    return restore_rc;
+  error_code_t scan_rc = sd_daily_highest_suffix_in_dir_("/",
+                                                         prefix_base,
+                                                         true,
+                                                         &highest_suffix);
+  if(scan_rc != ERR_NONE){
+    return scan_rc;
   }
 
-  uint32_t match_count = 0u;
-  uint32_t current_session = 0u;
-  char current_path[SD_STORAGE_PATH_MAX] = "";
-
-  File root = SD_MMC.open("/");
-  if(!root){
-    return sd_classify_io_fault();
+  scan_rc = sd_daily_highest_suffix_in_dir_("/processed",
+                                            prefix_base,
+                                            false,
+                                            &highest_suffix);
+  if(scan_rc != ERR_NONE){
+    return scan_rc;
   }
 
-  for(;;){
-    File entry = root.openNextFile();
-    if(!entry){
-      break;
-    }
-
-    const char *entry_name = entry.name();
-    uint32_t suffix = 0u;
-    const bool matches = sd_daily_suffix_from_name_(entry_name,
-                                                    prefix_base,
-                                                    &suffix);
-
-    if(matches){
-      if(entry.isDirectory()){
-        entry.close();
-        root.close();
-        return ERR_SD_FAULT;
-      }
-
-      ++match_count;
-      if(match_count > 1u){
-        entry.close();
-        root.close();
-        return ERR_SD_FAULT;
-      }
-
-      current_session = suffix;
-
-      // Store the root path to the only matching daily file.  This path is
-      // used for the rename before opening in append mode.
-      const char *base = sd_basename_(entry_name);
-      if(base == nullptr){
-        entry.close();
-        root.close();
-        return ERR_SD_FAULT;
-      }
-
-      const int n = snprintf(current_path, sizeof(current_path), "/%s", base);
-      if((n <= 0) || ((size_t)n >= sizeof(current_path))){
-        entry.close();
-        root.close();
-        return ERR_SD_FAULT;
-      }
-    }
-
-    entry.close();
-  }
-
-  root.close();
-
-  const uint32_t next_session = (match_count == 0u) ? 1u : (current_session + 1u);
-  if((next_session == 0u) || ((match_count != 0u) && (next_session <= current_session))){
+  static const uint32_t DAILY_SESSION_SUFFIX_MAX = 999u;
+  if(highest_suffix >= DAILY_SESSION_SUFFIX_MAX){
     return ERR_SD_FAULT;
   }
 
+  const uint32_t next_suffix = highest_suffix + 1u;
   char target_path[SD_STORAGE_PATH_MAX];
-  if(!sd_daily_path_build_(prefix, next_session, target_path, sizeof(target_path))){
+  if(!sd_daily_path_build_(prefix, next_suffix,
+                           target_path, sizeof(target_path))){
     return ERR_SD_FAULT;
   }
 
-  if(match_count == 1u){
-    if(sd_path_exists_(target_path)){
-      return ERR_SD_FAULT;
-    }
-
-    if(!SD_MMC.rename(current_path, target_path)){
-      return sd_classify_io_fault();
-    }
+  // The suffix scan covers both active and archived files. Refuse any collision
+  // instead of modifying an existing immutable file.
+  if(sd_path_exists_(target_path)){
+    return ERR_SD_FAULT;
   }
 
-  const error_code_t open_rc = sd_open_record(target_path);
-  if(open_rc != ERR_NONE){
-    return open_rc;
-  }
-
-  return ERR_NONE;
+  return sd_open_record(target_path);
 }
 
 

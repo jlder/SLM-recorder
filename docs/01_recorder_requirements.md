@@ -72,7 +72,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.25` | version text displayed on device |
+| `RECORDER_SOFTWARE_VERSION` | `1.31` | version text displayed on device |
 | `RECORDER_VERSION_TEXT` | `sw ver 1.25` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
@@ -774,27 +774,27 @@ Status:
 
 - **Implemented.**
 
-#### OP-SD-008 — Daily recording file policy
+#### OP-SD-008 — Immutable recording-session file policy
 
-For a given registration and UTC/local RTC date token, the recorder shall store all recording sessions of that day in one root-level daily recording file.
+For a given registration and RTC date token, each recording session shall be stored in a separate immutable root-level `.bin` file.
 
-The daily filename pattern shall be:
+The filename pattern shall be:
 
 ```text
 /REGISTRATION_YYYYMMDD_N.bin
 ```
 
-where `N` is the number of recording sessions that have been started in that daily file.
+where `N` is a monotonically increasing session suffix for that registration/date. The first session uses `_1.bin`; later sessions create `_2.bin`, `_3.bin`, and so on.
 
-On the first session of the day, `N` shall be `1`. For each subsequent session on the same day, the recorder shall rename the existing matching daily file from `_N.bin` to `_(N+1).bin`, then open it in append mode and write the session data to the end of the same file.
+Before opening a new recording, the recorder shall scan matching `.bin` filenames in both the SD root and `/processed`, retain only the highest valid suffix, and create the next suffix in the root. Directories, unrelated files, `.log` files, and future `.sha` metadata files shall not affect suffix allocation.
 
-Before creating a new daily file, if no matching file is present in the root and one matching `.bin` file is present in `/processed`, the recorder shall move that `.bin` file back to the root. Its matching archived `.log` shall be deleted because it describes the earlier, shorter binary and will be recreated after the expanded file is downloaded and analysed again. The restored binary shall then follow the normal suffix increment and append sequence.
+A closed recording file shall never be renamed, restored from `/processed`, reopened, or appended. Legacy appended files created by earlier firmware remain supported as read-only source files and participate in suffix allocation so that their suffixes are not reused.
 
-If the restore or subsequent daily-file operation cannot be completed safely, recording shall not start and the one-line error `SD FILE ERR` shall be displayed. Files that do not match the daily filename pattern shall not be selected for append/rename matching.
+If suffix discovery or new-file creation cannot be completed safely, recording shall not start and the one-line error `SD FILE ERR` shall be displayed.
 
 Status:
 
-- **Implemented.**
+- **Implemented in software version 1.31.**
 
 ### 4.8 Recording File Content and Format
 
@@ -1211,9 +1211,9 @@ Recording files use a daily-file policy. `record_format` builds the daily prefix
 /REGISTRATION_YYYYMMDD_1.bin
 ```
 
-For each subsequent recording session on the same day, the existing root-level file is renamed to the next suffix, for example `_2.bin`, and opened in append mode. The suffix is the daily session count. If the same-day binary has already been archived to `/processed`, it is first restored to the root; its stale archived `.log` is deleted, then the normal rename and append sequence is applied.
+For each subsequent recording session on the same day, `sd_storage` scans the root and `/processed` for matching immutable `.bin` files and creates the next unused suffix. Existing files are not renamed or modified.
 
-Each session appended to the daily file has the normal session block sequence:
+Each immutable session file has the normal block sequence:
 
 ```text
 0x72 calibration block
@@ -1233,7 +1233,7 @@ Items to continue monitoring:
 |---|---|
 | Final acceptance tolerance for 20 Hz timing/jitter | validation method exists; acceptance tolerance can still be formalized |
 | Recorded-file validation for binary format revisions | required for each block-format revision |
-| Daily recording file behavior | validate first session creates `_1.bin`; second same-day session renames/appends to `_2.bin`; a same-day `.bin` archived under `/processed` is restored, its stale `.log` deleted, and the next session appended with an incremented suffix |
+| Immutable session-file behavior | validate first session creates `_1.bin`; later same-day sessions create separate `_2.bin`, `_3.bin`, etc.; suffix allocation includes matching files in both root and `/processed`; existing files remain byte-for-byte unchanged |
 
 
 

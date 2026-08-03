@@ -556,30 +556,31 @@ Expected result:
 - Implemented block types match the recording format specification.
 - `0x72` validation is performed by confirming the first block is a valid calibration block before acceleration blocks. This has been validated on recorded file `FCFAG_20260517_222418.bin`.
 
-### VAL-SD-004 — Daily recording file behavior
+### VAL-SD-004 — Immutable recording-session file behavior
 
 Purpose:
 
-Confirm that multiple recording sessions on the same day are stored in one daily recording file.
+Confirm that every recording session creates a separate immutable file and that suffix allocation includes archived files.
 
 Procedure:
 
 1. Set a valid registration and RTC date.
-2. Start and stop a recording.
-3. Inspect the SD root and confirm that `/REGISTRATION_YYYYMMDD_1.bin` exists.
-4. Start and stop a second recording on the same day.
-5. Inspect the SD root again.
-6. Decode the resulting file and confirm that both sessions are present, each with its own calibration block and close/status block sequence.
-7. Move or copy a same-day file to `/processed/REGISTRATION_YYYYMMDD_1.bin`, remove any matching root-level daily file, then start a new same-day recording.
-8. Confirm the archived `/processed` file is ignored and a new root-level `/REGISTRATION_YYYYMMDD_1.bin` is created.
+2. Start and stop a recording; preserve a byte hash of `/REGISTRATION_YYYYMMDD_1.bin`.
+3. Start and stop a second recording on the same day.
+4. Confirm that `_1.bin` still exists unchanged and `_2.bin` was created separately.
+5. Archive `_1.bin` and `_2.bin` to `/processed`.
+6. Start and stop another same-day recording.
+7. Confirm that the new root file is `_3.bin`; no archived file is restored or changed.
+8. Place a legacy appended same-day file in root or `/processed` and confirm that it remains readable, unchanged, and its suffix participates in next-suffix selection.
 
 Expected result:
 
 - The first same-day session creates `_1.bin`.
-- The second same-day session renames/appends the daily file to `_2.bin`.
-- No additional separate time-stamped recording file is created for the second session.
-- The appended file remains decodable as a sequence of recording-session blocks.
-- A same-day file under `/processed` is not selected for append/rename matching.
+- Later same-day sessions create separate `_2.bin`, `_3.bin`, and so on.
+- Closed files remain byte-for-byte unchanged.
+- Matching `.bin` suffixes in root and `/processed` are considered.
+- `.log`, unrelated, malformed, and future `.sha` files are ignored during suffix selection.
+- A name collision or suffix exhaustion produces `SD FILE ERR`; no existing file is overwritten.
 
 ### VAL-SD-005 — Web delete archives to processed folder
 

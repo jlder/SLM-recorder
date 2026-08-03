@@ -401,9 +401,9 @@ The Web Archive action for root-level recording files is implemented as a move t
 
 Recording files are grouped by registration and date. `record_format` builds the date-only prefix `/REGISTRATION_YYYYMMDD`. `sd_storage` owns the filesystem policy that turns this prefix into `/REGISTRATION_YYYYMMDD_N.bin`.
 
-The first session of a day creates `_1.bin`. If another session starts on the same day, the existing daily file is renamed to the next suffix and then opened in append mode. The suffix therefore records how many sessions have been started in that daily file.
+The first session of a day creates `_1.bin`. Each later session creates a separate immutable file with the next suffix. The suffix identifies recording-session order for the registration/date; it no longer represents the number of sessions combined in one file.
 
-Root-level files matching the daily filename pattern are selected for append/rename matching. If no root match exists but one same-day `.bin` is present under `/processed`, the binary is restored to the root and its stale archived `.log` is deleted before the normal suffix increment and append sequence. Files with any other recording-file naming pattern are left unchanged. A restore or file-operation failure blocks recording and is reported as `SD FILE ERR`.
+`sd_storage` scans matching `.bin` names in both the SD root and `/processed`, keeps only the highest suffix, and creates the next file in the root. Existing root and archived files are never renamed, restored, reopened, or appended. Files with other names or extensions are ignored. A suffix-scan or new-file creation failure blocks recording and is reported as `SD FILE ERR`. Legacy appended files remain readable and unchanged.
 
 ## 21. SD Maintenance While READY
 

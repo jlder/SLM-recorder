@@ -77,12 +77,11 @@ uint64_t sd_get_free_bytes(void);
 error_code_t sd_open_record(const char *path);
 
 /**
- * Open the daily recording file and append a new recording session.
+ * Open a new immutable recording-session file for one registration/date.
  *
- * For one registration/date prefix, an existing root file has its _N suffix
- * incremented before the new session is appended. If no root file exists but a
- * matching binary is archived under /processed, that binary is restored first
- * and its stale companion analysis log is deleted.
+ * The next suffix is selected from matching .bin files in both the SD root and
+ * /processed. Existing files are never renamed, restored, reopened, or
+ * appended. Legacy files remain readable and participate in suffix allocation.
  *
  * Inputs: `prefix`.
  * Returns: `ERR_NONE` on success; otherwise an error code that explains the failure.
