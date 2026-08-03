@@ -1377,6 +1377,35 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(200, "application/json", "{\"ok\":true}");
   });
 
+  s_server->on("/api/cal/support_verify_recordings", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!cal_require_auth_(request)) return;
+
+    String password = "";
+    if(request->hasParam("support", true)){
+      password = request->getParam("support", true)->value();
+    } else if(request->hasParam("support")){
+      password = request->getParam("support")->value();
+    }
+    if(!cal_support_password_matches_(password)){
+      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"bad_support_code\"}");
+      return;
+    }
+
+    sd_sha_verify_result_t result = {};
+    const bool ok = sd_files_verify_root_recordings(&result);
+    String out = "{";
+    out += "\"ok\":"; out += ok ? "true" : "false";
+    out += ",\"files_checked\":" + String(result.files_checked);
+    out += ",\"files_valid\":" + String(result.files_valid);
+    out += ",\"legacy_files\":" + String(result.legacy_files);
+    out += ",\"metadata_errors\":" + String(result.metadata_errors);
+    out += ",\"sha_mismatches\":" + String(result.sha_mismatches);
+    out += ",\"first_error_file\":\"";
+    out += result.first_error_file;
+    out += "\"}";
+    request->send(ok ? 200 : 500, "application/json", out);
+  });
+
   s_server->on("/api/cal/status", HTTP_GET, [](AsyncWebServerRequest *request){
     // /api/cal/status is polled periodically by the maintenance page.  When a
     // client is already authorized, let this poll keep the maintenance

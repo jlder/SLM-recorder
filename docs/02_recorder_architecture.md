@@ -573,3 +573,8 @@ BCLK GPIO 45, data out GPIO 40, word select GPIO 42, data in GPIO 16, and
 speaker-amplifier enable GPIO 46. The codec uses the existing shared I2C bus;
 the audio subsystem does not call `Wire.begin()` or reconfigure that bus.
 
+
+
+### Immutable recording SHA verification (v1.32)
+
+New immutable recording files are protected by a streaming SHA-256 calculated over exactly the bytes accepted by the SD write path. File close creates a same-basename `.sha` metadata file. Legacy files without `.sha` remain usable and are reported as legacy by the manual About > Verify Recordings function. Verification runs only while SD file operations are authorized and the SD task is idle; it rereads root `.bin` files, compares size and SHA-256, and reports persistent results to the operator.

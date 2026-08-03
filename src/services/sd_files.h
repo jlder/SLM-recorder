@@ -15,6 +15,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "src/drivers/sd_storage.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,6 +65,9 @@ bool sd_files_download_end(void);
  * Returns false if not authorized, busy, timed out, or on SD/filesystem error.
  */
 bool sd_files_write_text_file(const char *path, const char *text, uint32_t len);
+
+/** Verify pending root recordings against recorder-created SHA metadata. */
+bool sd_files_verify_root_recordings(sd_sha_verify_result_t *out_result);
 
 /**
  * Return whether a download session is active or being opened/closed.

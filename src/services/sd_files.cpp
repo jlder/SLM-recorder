@@ -13,6 +13,7 @@
 
 #include "src/drivers/sd_storage.h"
 #include "config.h"
+#include "src/services/watchdog_service.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -36,6 +37,7 @@ static volatile bool s_download_end_requested = false;
 static volatile bool s_write_text_requested = false;
 static volatile bool s_delete_requested = false;
 static volatile bool s_delete_processed_requested = false;
+static volatile bool s_verify_sha_requested = false;
 
 static volatile bool s_download_active = false;
 
@@ -52,6 +54,7 @@ static uint32_t *s_out_len = nullptr;
 static uint32_t *s_out_size = nullptr;
 static uint64_t *s_out_total_bytes = nullptr;
 static uint64_t *s_out_free_bytes = nullptr;
+static sd_sha_verify_result_t *s_out_sha_verify = nullptr;
 
 /** Enable or disable web access to SD file-management operations. */
 void sd_files_set_authorized(bool enabled){
@@ -73,6 +76,7 @@ static void request_clear_(void){
   s_write_text_requested = false;
   s_delete_requested = false;
   s_delete_processed_requested = false;
+  s_verify_sha_requested = false;
 
   s_path[0] = '\0';
   s_out_json = nullptr;
@@ -84,6 +88,7 @@ static void request_clear_(void){
   s_out_size = nullptr;
   s_out_total_bytes = nullptr;
   s_out_free_bytes = nullptr;
+  s_out_sha_verify = nullptr;
 }
 
 /** Copy a path into a fixed request buffer, rejecting null/empty/truncated input. */
@@ -302,6 +307,16 @@ static bool request_write_text_file_(const char *path, const char *text, uint32_
   return true;
 }
 
+static bool request_verify_sha_(sd_sha_verify_result_t *out_result){
+  if(out_result == nullptr) return false;
+  if(!request_begin_()) return false;
+  memset(out_result, 0, sizeof(*out_result));
+  s_out_sha_verify = out_result;
+  s_verify_sha_requested = true;
+  s_request_pending = true;
+  return true;
+}
+
 /** List root recording files as compact JSON. */
 bool sd_files_list_json(const char *dir_path,
                         char *out_json,
@@ -387,6 +402,12 @@ bool sd_files_write_text_file(const char *path, const char *text, uint32_t len){
   return request_wait_(SD_FILE_WAIT_TICKS);
 }
 
+bool sd_files_verify_root_recordings(sd_sha_verify_result_t *out_result){
+  if(!sd_files_is_authorized()) return false;
+  if(!request_verify_sha_(out_result)) return false;
+  return request_wait_(pdMS_TO_TICKS(SD_SHA_VERIFY_TIMEOUT_MS));
+}
+
 /** Return true while a web download session is open or being serviced. */
 bool sd_files_download_active(void){
   return s_download_active;
@@ -424,6 +445,10 @@ bool sd_files_delete_processed(const char *path){
  * sd_task calls this only while idle, so these direct sd_storage_* calls remain
  * serialized with recorder open/write/close operations.
  */
+static void verify_sha_progress_(void){
+  watchdog_kick(WD_SD);
+}
+
 void sd_file_ops_service(void){
   if(!s_request_pending){
     return;
@@ -432,7 +457,12 @@ void sd_file_ops_service(void){
   s_request_pending = false;
   s_request_ok = false;
 
-  if(s_delete_requested){
+  if(s_verify_sha_requested){
+    s_verify_sha_requested = false;
+    s_request_ok = (s_out_sha_verify != nullptr) &&
+                   sd_storage_verify_root_recordings(s_out_sha_verify, verify_sha_progress_);
+
+  } else if(s_delete_requested){
     s_delete_requested = false;
     s_request_ok = sd_storage_archive_to_processed(s_path);
 

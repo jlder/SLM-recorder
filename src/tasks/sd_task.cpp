@@ -376,9 +376,8 @@ static void sd_task_loop(void *arg){
           break;
         }
 
-        // Daily file policy: each recording session of the same day is appended
-        // to one file.  The SD layer increments the _N suffix before appending
-        // so the filename indicates how many sessions have been started.
+        // Immutable session policy: every recording start creates the next unused
+        // same-day suffix. Existing root and /processed files are never reopened.
         const error_code_t open_rc = sd_open_record_daily(daily_prefix);
         if(open_rc != ERR_NONE){
           sd_error_set(open_rc);

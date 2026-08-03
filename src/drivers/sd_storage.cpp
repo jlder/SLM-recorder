@@ -14,12 +14,35 @@
 #include <Arduino.h>
 #include <FS.h>
 #include <SD_MMC.h>
+#include "mbedtls/sha256.h"
+
+// The ESP32 Arduino core used by this recorder exposes the mbedTLS 2.x
+// SHA-256 API without the newer `_ret` suffix.  These wrappers intentionally
+// ignore the legacy functions' return type (void in this toolchain) and keep
+// the recorder code independent of that API naming difference.
+static bool sd_sha256_starts_(mbedtls_sha256_context *ctx) {
+  mbedtls_sha256_starts(ctx, 0);
+  return true;
+}
+
+static bool sd_sha256_update_(mbedtls_sha256_context *ctx,
+                              const uint8_t *data,
+                              size_t length) {
+  mbedtls_sha256_update(ctx, data, length);
+  return true;
+}
+
+static bool sd_sha256_finish_(mbedtls_sha256_context *ctx, uint8_t digest[32]) {
+  mbedtls_sha256_finish(ctx, digest);
+  return true;
+}
 
 #include "sdmmc_cmd.h"
 #include "src/board/pin_config.h"
 #include "config.h"
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
 
 // Free-space threshold required before a recording can start.
 static constexpr uint64_t SD_RECORD_START_MIN_FREE_BYTES =
@@ -39,6 +62,10 @@ static sdmmc_card_t *s_card = nullptr;
 
 // Current open recording file, if any.
 static File s_file;
+static char s_record_path[SD_STORAGE_PATH_MAX] = {};
+static mbedtls_sha256_context s_record_sha_ctx;
+static bool s_record_sha_active = false;
+static uint64_t s_record_sha_size = 0u;
 
 // Current open Web/UI download file, if any.  This handle is owned by the
 // SD layer and is serviced only from sd_task through sd_files requests.
@@ -82,6 +109,9 @@ static void sd_reset_runtime_state_(void) {
   s_card = nullptr;
   s_cached_free_bytes = 0u;
   s_cached_free_valid = false;
+  s_record_path[0] = '\0';
+  s_record_sha_active = false;
+  s_record_sha_size = 0u;
 }
 
 /**
@@ -398,6 +428,128 @@ uint64_t sd_get_free_bytes(void) {
   return free_bytes;
 }
 
+
+static bool sd_sha_path_build_(const char *bin_path, char *out, size_t out_cap) {
+  if((bin_path == nullptr) || (out == nullptr) || (out_cap == 0u)) return false;
+  const size_t n = strlen(bin_path);
+  if((n < 4u) || (strcmp(bin_path + n - 4u, ".bin") != 0)) return false;
+  if(n + 1u > out_cap) return false;
+  memcpy(out, bin_path, n - 4u);
+  const int written = snprintf(out + n - 4u, out_cap - (n - 4u), ".sha");
+  return (written == 4);
+}
+
+static const char *sd_basename_local_(const char *path) {
+  const char *slash = path ? strrchr(path, '/') : nullptr;
+  return slash ? slash + 1 : path;
+}
+
+static bool sd_sha_write_metadata_(const char *bin_path,
+                                   uint64_t file_size,
+                                   const uint8_t digest[32]) {
+  char sha_path[SD_STORAGE_PATH_MAX];
+  if(!sd_sha_path_build_(bin_path, sha_path, sizeof(sha_path))) return false;
+
+  char hex[65];
+  for(size_t i = 0u; i < 32u; ++i) {
+    snprintf(hex + (i * 2u), 3u, "%02x", digest[i]);
+  }
+  hex[64] = '\0';
+
+  char text[256];
+  const int n = snprintf(text, sizeof(text),
+                         "format=1\nfilename=%s\nsize=%llu\nsha256=%s\n",
+                         sd_basename_local_(bin_path),
+                         (unsigned long long)file_size,
+                         hex);
+  if((n <= 0) || ((size_t)n >= sizeof(text))) return false;
+
+  if(SD_MMC.exists(sha_path)) {
+    (void)SD_MMC.remove(sha_path);
+  }
+  File meta = SD_MMC.open(sha_path, FILE_WRITE);
+  if(!meta) return false;
+  const size_t written = meta.write((const uint8_t *)text, (size_t)n);
+  meta.flush();
+  meta.close();
+  return written == (size_t)n;
+}
+
+static bool sd_sha256_file_(const char *path,
+                            uint8_t digest[32],
+                            uint64_t *out_size,
+                            sd_sha_progress_cb_t progress_cb) {
+  File file = SD_MMC.open(path, FILE_READ);
+  if(!file || file.isDirectory()) {
+    if(file) file.close();
+    return false;
+  }
+
+  mbedtls_sha256_context ctx;
+  mbedtls_sha256_init(&ctx);
+  if(!sd_sha256_starts_(&ctx)) {
+    mbedtls_sha256_free(&ctx);
+    file.close();
+    return false;
+  }
+
+  uint8_t buffer[1024];
+  uint64_t total = 0u;
+  bool ok = true;
+  while(file.available()) {
+    const int count = file.read(buffer, sizeof(buffer));
+    if(count <= 0) { ok = false; break; }
+    if(!sd_sha256_update_(&ctx, buffer, (size_t)count)) {
+      ok = false;
+      break;
+    }
+    total += (uint64_t)count;
+    if(progress_cb != nullptr) progress_cb();
+  }
+
+  if(ok) ok = sd_sha256_finish_(&ctx, digest);
+  mbedtls_sha256_free(&ctx);
+  file.close();
+  if(out_size != nullptr) *out_size = total;
+  return ok;
+}
+
+static bool sd_sha_parse_metadata_(const char *sha_path,
+                                   const char *expected_filename,
+                                   uint64_t *out_size,
+                                   uint8_t digest[32]) {
+  File file = SD_MMC.open(sha_path, FILE_READ);
+  if(!file || file.isDirectory()) {
+    if(file) file.close();
+    return false;
+  }
+  if(file.size() >= 256u) { file.close(); return false; }
+
+  char text[256];
+  const size_t n = file.readBytes(text, sizeof(text) - 1u);
+  file.close();
+  text[n] = '\0';
+
+  char filename[FILENAME_MAX_LENGTH] = {};
+  char sha_hex[65] = {};
+  unsigned long long size_value = 0u;
+  int format = 0;
+  const int matched = sscanf(text,
+                             "format=%d\nfilename=%63[^\n]\nsize=%llu\nsha256=%64[0-9a-fA-F]",
+                             &format, filename, &size_value, sha_hex);
+  if((matched != 4) || (format != 1) ||
+     (strcmp(filename, expected_filename) != 0) ||
+     (strlen(sha_hex) != 64u)) return false;
+
+  for(size_t i = 0u; i < 32u; ++i) {
+    unsigned int value = 0u;
+    if(sscanf(sha_hex + (i * 2u), "%2x", &value) != 1) return false;
+    digest[i] = (uint8_t)value;
+  }
+  if(out_size != nullptr) *out_size = (uint64_t)size_value;
+  return true;
+}
+
 /**
  * Performs sd open record for SD storage, recording files, or SD-backed web
  * file management while preserving SD ownership rules.
@@ -421,6 +573,18 @@ error_code_t sd_open_record(const char *path) {
   }
 
   s_file = file;
+  strncpy(s_record_path, path, sizeof(s_record_path) - 1u);
+  s_record_path[sizeof(s_record_path) - 1u] = '\0';
+  mbedtls_sha256_init(&s_record_sha_ctx);
+  s_record_sha_active = sd_sha256_starts_(&s_record_sha_ctx);
+  s_record_sha_size = 0u;
+  if(!s_record_sha_active) {
+    s_file.close();
+    s_file = File();
+    s_record_path[0] = '\0';
+    mbedtls_sha256_free(&s_record_sha_ctx);
+    return ERR_SD_FAULT;
+  }
 
   // Capture free space once at open time. The write path updates this cached
   // value locally so it does not need to query SD during recording.
@@ -450,6 +614,13 @@ error_code_t sd_write_record_block(const uint8_t *data, size_t len, size_t *out_
   }
 
   const size_t written = s_file.write(data, len);
+  if((written > 0u) && s_record_sha_active) {
+    if(!sd_sha256_update_(&s_record_sha_ctx, data, written)) {
+      s_record_sha_active = false;
+    } else {
+      s_record_sha_size += (uint64_t)written;
+    }
+  }
   if (out_written) {
     *out_written = written;
   }
@@ -507,11 +678,91 @@ error_code_t sd_close_record(void) {
     return ERR_SD_FAULT;
   }
 
+  s_file.flush();
   s_file.close();
   s_file = File();
+
+  uint8_t digest[32] = {};
+  bool sha_ok = s_record_sha_active &&
+                sd_sha256_finish_(&s_record_sha_ctx, digest);
+  mbedtls_sha256_free(&s_record_sha_ctx);
+  s_record_sha_active = false;
+
+  if(sha_ok) {
+    sha_ok = sd_sha_write_metadata_(s_record_path, s_record_sha_size, digest);
+  }
+
+  s_record_path[0] = '\0';
+  s_record_sha_size = 0u;
   s_cached_free_bytes = 0u;
   s_cached_free_valid = false;
-  return ERR_NONE;
+  return sha_ok ? ERR_NONE : ERR_SD_FAULT;
+}
+
+
+bool sd_storage_verify_root_recordings(sd_sha_verify_result_t *out_result,
+                                       sd_sha_progress_cb_t progress_cb) {
+  if(out_result == nullptr) return false;
+  memset(out_result, 0, sizeof(*out_result));
+  if(sd_check_present() != ERR_NONE) return false;
+
+  File dir = SD_MMC.open("/");
+  if(!dir || !dir.isDirectory()) {
+    if(dir) dir.close();
+    return false;
+  }
+
+  File entry;
+  while((entry = dir.openNextFile())) {
+    if(entry.isDirectory()) { entry.close(); continue; }
+    const char *raw_name = entry.name();
+    const char *name = sd_basename_local_(raw_name);
+    const size_t name_len = strlen(name);
+    if((name_len < 5u) || (strcmp(name + name_len - 4u, ".bin") != 0)) {
+      entry.close();
+      continue;
+    }
+    entry.close();
+
+    char bin_path[SD_STORAGE_PATH_MAX];
+    char sha_path[SD_STORAGE_PATH_MAX];
+    const int path_len = snprintf(bin_path, sizeof(bin_path), "/%s", name);
+    if((path_len <= 0) || ((size_t)path_len >= sizeof(bin_path)) ||
+       (!sd_sha_path_build_(bin_path, sha_path, sizeof(sha_path)))) continue;
+
+    if(!SD_MMC.exists(sha_path)) {
+      ++out_result->legacy_files;
+      continue;
+    }
+
+    ++out_result->files_checked;
+    uint64_t expected_size = 0u;
+    uint8_t expected_digest[32] = {};
+    uint8_t actual_digest[32] = {};
+    uint64_t actual_size = 0u;
+
+    bool valid = sd_sha_parse_metadata_(sha_path, name,
+                                        &expected_size, expected_digest);
+    if(!valid) {
+      ++out_result->metadata_errors;
+    } else {
+      valid = sd_sha256_file_(bin_path, actual_digest, &actual_size, progress_cb);
+      if(!valid || (actual_size != expected_size) ||
+         (memcmp(actual_digest, expected_digest, sizeof(actual_digest)) != 0)) {
+        ++out_result->sha_mismatches;
+        valid = false;
+      }
+    }
+
+    if(valid) {
+      ++out_result->files_valid;
+    } else if(out_result->first_error_file[0] == '\0') {
+      strncpy(out_result->first_error_file, name,
+              sizeof(out_result->first_error_file) - 1u);
+    }
+  }
+  dir.close();
+  return true;
 }
 
 /**
@@ -784,6 +1035,29 @@ static bool sd_build_unique_processed_path_(const char *base,
   }
 
   return false;
+}
+
+static bool sd_archive_companion_sha_(const char *src_bin, const char *dst_bin){
+  if((src_bin == nullptr) || (dst_bin == nullptr) ||
+     (!sd_name_has_extension_(src_bin, ".bin"))){
+    return false;
+  }
+
+  char src_sha[SD_STORAGE_PATH_MAX];
+  char dst_sha[SD_STORAGE_PATH_MAX];
+  if((!sd_sha_path_build_(src_bin, src_sha, sizeof(src_sha))) ||
+     (!sd_sha_path_build_(dst_bin, dst_sha, sizeof(dst_sha)))){
+    return false;
+  }
+
+  // Legacy files have no creation SHA and remain fully supported.
+  if(!sd_path_exists_(src_sha)){
+    return true;
+  }
+  if(sd_path_exists_(dst_sha)){
+    return false;
+  }
+  return SD_MMC.rename(src_sha, dst_sha);
 }
 
 static void sd_archive_companion_log_(const char *src_bin, const char *dst_bin){
@@ -1099,11 +1373,22 @@ bool sd_storage_archive_to_processed(const char *path) {
   }
 
   const bool moved = SD_MMC.rename(src, dst);
-  if(moved && sd_path_is_root_file_(src)){
+  if(!moved){
+    return false;
+  }
+
+  if(sd_path_is_root_file_(src)){
+    // A new immutable recording and its creation SHA form one archive unit.
+    // Roll the binary move back if companion SHA archival fails. Legacy files
+    // without SHA metadata continue normally.
+    if(!sd_archive_companion_sha_(src, dst)){
+      (void)SD_MMC.rename(dst, src);
+      return false;
+    }
     sd_archive_companion_log_(src, dst);
   }
 
-  return moved;
+  return true;
 }
 
 /**

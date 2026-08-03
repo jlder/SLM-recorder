@@ -15,6 +15,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include "src/services/error_manager.h"
+#include "config.h"
 
 typedef enum {
   SD_STATUS_PRESENCE_SPACE = 0,
@@ -108,6 +109,22 @@ error_code_t sd_flush_record(void);
  * Returns: `ERR_NONE` on success; otherwise an error code that explains the failure.
  */
 error_code_t sd_close_record(void);
+
+/** Result of a manual root-recording SHA verification pass. */
+typedef struct {
+  uint32_t files_checked;
+  uint32_t files_valid;
+  uint32_t legacy_files;
+  uint32_t metadata_errors;
+  uint32_t sha_mismatches;
+  char first_error_file[FILENAME_MAX_LENGTH];
+} sd_sha_verify_result_t;
+
+typedef void (*sd_sha_progress_cb_t)(void);
+
+/** Verify all root .bin files that have companion .sha metadata. */
+bool sd_storage_verify_root_recordings(sd_sha_verify_result_t *out_result,
+                                       sd_sha_progress_cb_t progress_cb);
 
 /**
  * @brief SD storage list JSON.

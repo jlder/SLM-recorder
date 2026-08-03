@@ -776,3 +776,8 @@ Verify that the support-only About page action generates recorder and installati
 ### VAL-OTA-002 — Firmware from server through SLM Bridge
 
 Validation shall verify that the recorder Firmware page can request firmware from the bridge without changing the recorder OTA endpoint behavior. Test with a recorder-specific `<registration>/FIRMWARE` folder containing at least one application `.bin`, then with that folder absent or empty to confirm fallback to `SLM-STC-DATA/FIRMWARE`. Confirm that USB power is still required and that the recorder rejects the upload if USB power is absent.
+
+
+### Immutable recording SHA verification (v1.32)
+
+New immutable recording files are protected by a streaming SHA-256 calculated over exactly the bytes accepted by the SD write path. File close creates a same-basename `.sha` metadata file. Legacy files without `.sha` remain usable and are reported as legacy by the manual About > Verify Recordings function. Verification runs only while SD file operations are authorized and the SD task is idle; it rereads root `.bin` files, compares size and SHA-256, and reports persistent results to the operator.

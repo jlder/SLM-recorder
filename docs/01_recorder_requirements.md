@@ -1278,3 +1278,8 @@ Only one root recording file may be in the local Downloading or Analyzing phase 
 - Audio sample generation and playback shall execute in a dedicated task with a
   priority below State, SD, UI, and Web tasks.
 
+
+
+### Immutable recording SHA verification (v1.32)
+
+New immutable recording files are protected by a streaming SHA-256 calculated over exactly the bytes accepted by the SD write path. File close creates a same-basename `.sha` metadata file. Legacy files without `.sha` remain usable and are reported as legacy by the manual About > Verify Recordings function. Verification runs only while SD file operations are authorized and the SD task is idle; it rereads root `.bin` files, compares size and SHA-256, and reports persistent results to the operator.

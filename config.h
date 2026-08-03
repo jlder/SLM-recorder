@@ -164,7 +164,7 @@
 // Hardware version identifies the recorder hardware configuration.
 // Software version identifies the firmware build.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.31"
+#define RECORDER_SOFTWARE_VERSION      "1.32"
 #define RECORDER_VERSION_TEXT          "sw ver " RECORDER_SOFTWARE_VERSION "\nhw ver " RECORDER_HARDWARE_VERSION
 
 // Storage / SD
@@ -179,6 +179,7 @@
 #define SD_FILE_LIST_JSON_ENTRY_MAX  (FILENAME_MAX_LENGTH + 64u)
 #define SD_FILE_LIST_JSON_MAX        (2u + (SD_MAX_RECORD_FILES * (SD_FILE_LIST_JSON_ENTRY_MAX + 1u)) + 1u)
 #define SD_FILE_OP_TIMEOUT_MS        2000u
+#define SD_SHA_VERIFY_TIMEOUT_MS      60000u
 #define FLIGHT_LOG_TEXT_MAX_BYTES    4096u
 
 #define SD_IO_FAIL_LIMIT             3u

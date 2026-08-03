@@ -398,6 +398,36 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
 
 
 
+        function supportVerifyRecordings() {
+            if (!requireAboutAuthorization()) return;
+            const button = document.getElementById('btnVerifyRecordings');
+            if (button) button.disabled = true;
+            aboutStatus('Verifying pending recording files...');
+            postJson('/api/cal/support_verify_recordings?support=' +
+                encodeURIComponent(aboutSupportCode))
+                .then(res => {
+                    if (handleAboutAuthorizationError(res)) return;
+                    if (!res.ok || !res.json || !res.json.ok) {
+                        alert('Recording verification failed.');
+                        aboutStatus('Recording verification failed: ' + prettyJson(res.json));
+                        return;
+                    }
+                    const j = res.json;
+                    let text = 'Files checked: ' + j.files_checked + '\n' +
+                               'Files valid: ' + j.files_valid + '\n' +
+                               'Legacy files: ' + j.legacy_files + '\n' +
+                               'Errors: ' + (j.metadata_errors + j.sha_mismatches);
+                    if (j.first_error_file) text += '\n\nFirst error: ' + j.first_error_file;
+                    alert(text);
+                    aboutStatus(text.replace(/\n/g, ' '));
+                })
+                .catch(err => {
+                    alert('Recording verification error.');
+                    aboutStatus('Recording verification error: ' + err);
+                })
+                .finally(() => { if (button) button.disabled = false; });
+        }
+
         function supportGenerateCalibrationReports() {
             if (!requireAboutAuthorization()) return;
             aboutStatus('Generating calibration reports from stored calibration data...');

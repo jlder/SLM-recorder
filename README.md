@@ -263,3 +263,8 @@ recording, SD handling, or state-machine timing.
 
 - Added a 300 ms silent audio pre-roll after enabling the ES8311 playback path and speaker amplifier.
 - The pre-roll primes the codec and I2S DMA before the first audible tone so all three error beeps have the same duration and sound.
+
+
+## v1.32 immutable-file SHA
+
+Each new immutable recording is hashed while its bytes are written. On close, the recorder writes a companion `.sha` metadata file containing format version, filename, byte length, and SHA-256. Legacy `.bin` files without metadata remain supported. The authenticated About page provides **Verify Recordings**, which rereads pending root files with `.sha` metadata and reports valid, legacy, metadata-error, and mismatch counts.
