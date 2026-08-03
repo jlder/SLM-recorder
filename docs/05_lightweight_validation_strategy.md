@@ -781,3 +781,14 @@ Validation shall verify that the recorder Firmware page can request firmware fro
 ### Immutable recording SHA verification (v1.32)
 
 New immutable recording files are protected by a streaming SHA-256 calculated over exactly the bytes accepted by the SD write path. File close creates a same-basename `.sha` metadata file. Legacy files without `.sha` remain usable and are reported as legacy by the manual About > Verify Recordings function. Verification runs only while SD file operations are authorized and the SD task is idle; it rereads root `.bin` files, compares size and SHA-256, and reports persistent results to the operator.
+
+### Daily File Management grouping validation (v1.33)
+
+1. Place `_1`, `_2`, and `_3` files for one date in root and confirm only one unsuffixed row is displayed.
+2. Confirm the displayed size equals the sum of the three `.bin` sizes and `.sha` files are not listed.
+3. Press Process and confirm files are processed in suffix order.
+4. Confirm the progress percentage advances according to aggregate bytes and pauses during analysis.
+5. Confirm other daily Process buttons remain grey until all members are queued.
+6. Force one member to fail and confirm successful members are not repeated and the remaining root member is retryable.
+7. Confirm each physical `.bin`/`.sha` pair is uploaded and archived independently.
+8. Confirm a legacy single appended file remains visible and processable as one daily row.

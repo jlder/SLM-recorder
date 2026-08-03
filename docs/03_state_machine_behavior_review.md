@@ -522,3 +522,7 @@ amplifier.
 ### Immutable recording SHA verification (v1.32)
 
 New immutable recording files are protected by a streaming SHA-256 calculated over exactly the bytes accepted by the SD write path. File close creates a same-basename `.sha` metadata file. Legacy files without `.sha` remain usable and are reported as legacy by the manual About > Verify Recordings function. Verification runs only while SD file operations are authorized and the SD task is idle; it rereads root `.bin` files, compares size and SHA-256, and reports persistent results to the operator.
+
+### File Management daily processing sequence (v1.33)
+
+The visible daily row is a presentation state, not a recorder state-machine state. Physical files retain the existing `ready`, `downloading`, `analyzing`, `queued`, `uploading`, and `finalizing` states. A daily row reports the highest-priority active member state; it becomes processable whenever at least one matching root member is ready and no local download/analysis is active.

@@ -268,3 +268,7 @@ recording, SD handling, or state-machine timing.
 ## v1.32 immutable-file SHA
 
 Each new immutable recording is hashed while its bytes are written. On close, the recorder writes a companion `.sha` metadata file containing format version, filename, byte length, and SHA-256. Legacy `.bin` files without metadata remain supported. The authenticated About page provides **Verify Recordings**, which rereads pending root files with `.sha` metadata and reports valid, legacy, metadata-error, and mismatch counts.
+
+## v1.33 daily File Management view
+
+File Management presents one logical entry per registration/date while immutable recording files remain separate on SD and on the server. Pressing **Process** sequentially downloads, verifies, analyses, queues, uploads, verifies, and archives every pending suffixed `.bin` file for that day. The visible progress is calculated from aggregate pending `.bin` bytes; physical suffixes and file counts are not exposed to the user.

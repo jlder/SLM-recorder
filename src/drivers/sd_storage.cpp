@@ -716,13 +716,20 @@ bool sd_storage_verify_root_recordings(sd_sha_verify_result_t *out_result,
   while((entry = dir.openNextFile())) {
     if(entry.isDirectory()) { entry.close(); continue; }
     const char *raw_name = entry.name();
-    const char *name = sd_basename_local_(raw_name);
+    const char *entry_basename = sd_basename_local_(raw_name);
+    char name[FILENAME_MAX_LENGTH] = {};
+    const size_t copied = strlcpy(name, entry_basename, sizeof(name));
     const size_t name_len = strlen(name);
-    if((name_len < 5u) || (strcmp(name + name_len - 4u, ".bin") != 0)) {
-      entry.close();
+    entry.close();
+
+    // File::name() storage belongs to the File object.  Keep a local copy
+    // before closing the directory entry so SHA lookup and metadata filename
+    // comparison use a stable name on every filesystem implementation.
+    if((copied >= sizeof(name)) ||
+       (name_len < 5u) ||
+       (strcmp(name + name_len - 4u, ".bin") != 0)) {
       continue;
     }
-    entry.close();
 
     char bin_path[SD_STORAGE_PATH_MAX];
     char sha_path[SD_STORAGE_PATH_MAX];

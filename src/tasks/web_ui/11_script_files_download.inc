@@ -63,14 +63,43 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
         }
 
         const recorderProcessStates = {};
+        const recorderDailySequences = {};
+
+        function recorderDailyKey(filename) {
+            const name = String(filename || '');
+            const match = name.match(/^(.*_\d{8})_\d+\.bin$/i);
+            return match ? match[1] + '.bin' : name;
+        }
+
+        function recorderFileSuffix(filename) {
+            const match = String(filename || '').match(/_(\d+)\.bin$/i);
+            return match ? Number(match[1]) : 0;
+        }
+
+        function recorderFilesForDay(dailyKey, readyOnly) {
+            return (allFiles || [])
+                .filter(file => recorderDailyKey(file.name) === dailyKey)
+                .filter(file => !readyOnly || recorderProcessState(file.name) === 'ready')
+                .sort((a, b) => recorderFileSuffix(a.name) - recorderFileSuffix(b.name));
+        }
 
         function recorderProcessState(filename) {
             return recorderProcessStates[String(filename || '')] || 'ready';
         }
 
+        function recorderDailyProcessState(dailyKey) {
+            const files = recorderFilesForDay(dailyKey, false);
+            const states = files.map(file => recorderProcessState(file.name));
+            if (states.indexOf('downloading') >= 0) return 'downloading';
+            if (states.indexOf('analyzing') >= 0) return 'analyzing';
+            if (states.indexOf('ready') >= 0) return 'ready';
+            if (states.indexOf('finalizing') >= 0) return 'finalizing';
+            if (states.indexOf('uploading') >= 0) return 'uploading';
+            return states.length ? 'queued' : 'ready';
+        }
+
         function recorderProcessLabel(state) {
-            if (state === 'downloading') return 'Downloading';
-            if (state === 'analyzing') return 'Analyzing';
+            if (state === 'downloading' || state === 'analyzing') return 'Processing';
             if (state === 'queued') return 'Queued';
             if (state === 'uploading') return 'Uploading';
             if (state === 'finalizing') return 'Finalizing';
@@ -87,7 +116,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
         function refreshRecorderProcessButtons() {
             const localProcessingActive = recorderLocalProcessingActive();
             document.querySelectorAll('.process-file-btn').forEach(button => {
-                const current = recorderProcessState(button.dataset.filename);
+                const current = recorderDailyProcessState(button.dataset.dailykey);
                 button.disabled = current !== 'ready' || localProcessingActive;
                 button.textContent = recorderProcessLabel(current);
             });
@@ -117,25 +146,38 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             }
         }
 
-        // Build the visible root file list. File names are preserved for API calls and shortened only for display.
+        function recorderDailyGroups(files) {
+            const groups = {};
+            (files || []).forEach(file => {
+                const key = recorderDailyKey(file.name);
+                if (!groups[key]) groups[key] = { key: key, files: [], size: 0 };
+                groups[key].files.push(file);
+                groups[key].size += Number(file.size || 0);
+            });
+            return Object.keys(groups)
+                .map(key => groups[key])
+                .sort((a, b) => b.key.localeCompare(a.key));
+        }
+
+        // Build one visible entry per recording day. Physical immutable files
+        // remain independent and are processed sequentially behind this view.
         function displayFiles(files) {
             const container = document.getElementById('fileListContainer');
-            document.getElementById('fileCount').textContent = files.length;
+            const groups = recorderDailyGroups(files);
+            document.getElementById('fileCount').textContent = groups.length;
 
-            if (files.length === 0) {
+            if (groups.length === 0) {
                 container.innerHTML = '<div class="loading">No files found</div>';
                 return;
             }
 
             let html = '<div class="file-list">';
-            files.forEach(file => {
-                const name = String(file.name || '');
-                const displayName = name.replace(/\.bin$/i, '');
+            groups.forEach(group => {
+                const displayName = group.key.replace(/\.bin$/i, '');
                 const safeName = escapeHtml(displayName);
-                const jsName = JSON.stringify(name);
-                const sizeKb = Math.round((file.size || 0) / 1000);
-
-                const processState = recorderProcessState(name);
+                const jsKey = JSON.stringify(group.key);
+                const sizeKb = Math.round(group.size / 1000);
+                const processState = recorderDailyProcessState(group.key);
                 const processDisabled = processState !== 'ready' || recorderLocalProcessingActive()
                     ? ' disabled' : '';
                 const processLabel = recorderProcessLabel(processState);
@@ -143,22 +185,15 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                 html += `<div class="file-item">
                     <div class="file-row">
                         <div class="file-name">${safeName}</div>
-                        <button class="btn btn-primary file-btn process-file-btn" data-filename="${escapeHtml(name)}" onclick='downloadFile(${jsName})'${processDisabled}>${processLabel}</button>
+                        <button class="btn btn-primary file-btn process-file-btn" data-dailykey="${escapeHtml(group.key)}" onclick='processDailyFiles(${jsKey})'${processDisabled}>${processLabel}</button>
                     </div>
                     <div class="file-row">
                         <div class="file-size">Size: ${sizeKb} kB</div>
-                    </div>
-                    <div class="file-row manual-archive-row">
-                        <div class="file-size">Stored analysis, if available</div>
-                        <button class="btn btn-primary file-btn" onclick='deleteFile(${jsName})'>Archive</button>
                     </div>
                 </div>`;
             });
             html += '</div>';
             container.innerHTML = html;
-            if (androidAutomaticArchiveAvailable()) {
-                document.querySelectorAll('.manual-archive-row').forEach(row => row.remove());
-            }
             refreshRecorderProcessButtons();
         }
 
@@ -175,8 +210,66 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             }
         }
 
-        // Download one binary recording, save it locally, then analyze the same buffer in the browser.
-        function downloadFile(filename) {
+        function processDailyFiles(dailyKey) {
+            if (recorderDailyProcessState(dailyKey) !== 'ready') return;
+            const files = recorderFilesForDay(dailyKey, true);
+            if (!files.length) return;
+
+            recorderDailySequences[dailyKey] = {
+                files: files,
+                nextIndex: 0,
+                totalBytes: files.reduce((sum, file) => sum + Number(file.size || 0), 0),
+                completedBytes: 0,
+                currentBytes: 0
+            };
+            startNextDailyFile(dailyKey);
+        }
+
+        function startNextDailyFile(dailyKey) {
+            const sequence = recorderDailySequences[dailyKey];
+            if (!sequence) return;
+            if (sequence.nextIndex >= sequence.files.length) {
+                document.getElementById('flightAnalysisStatus').textContent =
+                    dailyKey + ' \u2014 Queued for upload';
+                setProgress('downloadProgressBar', 'downloadProgressText', 100, 'Processing: complete');
+                delete recorderDailySequences[dailyKey];
+                refreshRecorderProcessButtons();
+                return;
+            }
+
+            const file = sequence.files[sequence.nextIndex++];
+            sequence.currentBytes = Number(file.size || 0);
+            startPhysicalRecorderFile(dailyKey, file.name);
+        }
+
+        function updateDailyProgress(dailyKey, currentPercent) {
+            const sequence = recorderDailySequences[dailyKey];
+            if (!sequence || sequence.totalBytes <= 0) return;
+            const currentDone = sequence.currentBytes * Math.max(0, Math.min(100, currentPercent)) / 100;
+            const percent = Math.round(100 * (sequence.completedBytes + currentDone) / sequence.totalBytes);
+            setProgress('downloadProgressBar', 'downloadProgressText', percent,
+                'Processing: ' + percent + '%');
+        }
+
+        function markDailyFileQueued(filename) {
+            const dailyKey = recorderDailyKey(filename);
+            const sequence = recorderDailySequences[dailyKey];
+            if (!sequence) return;
+            sequence.completedBytes += sequence.currentBytes;
+            sequence.currentBytes = 0;
+            updateDailyProgress(dailyKey, 0);
+            startNextDailyFile(dailyKey);
+        }
+
+        function abortDailySequence(filename) {
+            const dailyKey = recorderDailyKey(filename);
+            delete recorderDailySequences[dailyKey];
+            refreshRecorderProcessButtons();
+        }
+
+        // Start one physical immutable file. The daily UI calls this repeatedly
+        // and the existing Bridge continues to transfer each file independently.
+        function startPhysicalRecorderFile(dailyKey, filename) {
             const status = document.getElementById('flightAnalysisStatus');
             const panel = document.getElementById('flightAnalysisWindow');
             const table = document.getElementById('flightAnalysisTable');
@@ -185,45 +278,33 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             table.innerHTML = '';
             if (recorderProcessState(filename) !== 'ready') return;
             setRecorderProcessState(filename, 'downloading');
-            status.textContent = filename + ' \u2014 Downloading';
-            setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Download: starting...');
+            status.textContent = dailyKey + ' \u2014 Processing';
+            updateDailyProgress(dailyKey, 0);
 
-            // In the Android shell, download once into app-private storage. The
-            // same private bytes are analyzed here and queued for Drive without
-            // displaying Android's Save As dialog to the pilot.
-            if (startAndroidRecorderTransfer(filename)) {
-                return;
-            }
+            if (startAndroidRecorderTransfer(filename)) return;
 
-            downloadFileBuffer(filename, function(percent, text) {
-                setProgress('downloadProgressBar', 'downloadProgressText', percent, text);
+            downloadFileBuffer(filename, function(percent) {
+                updateDailyProgress(dailyKey, percent);
             })
                 .then(buffer => {
-                    setProgress(
-                        'downloadProgressBar',
-                        'downloadProgressText',
-                        100,
-                        'Download: complete'
-                    );
-
-                    // Save the file as soon as the binary download is complete.
-                    // Analysis is then performed from the same buffer.
+                    updateDailyProgress(dailyKey, 100);
                     saveDownloadedBuffer(filename, buffer);
-
-                    status.textContent = filename + ' \u2014 Analyzing';
-
+                    setRecorderProcessState(filename, 'analyzing');
                     return analyzeRecorderFileAsync(buffer)
                         .then(analysis => {
                             showFlightAnalysis(filename, analysis);
-                            writeFlightAnalysisLog(filename, analysis);
+                            return writeFlightAnalysisLog(filename, analysis);
                         })
-                        .finally(() => setRecorderProcessState(filename, 'ready'));
+                        .then(() => {
+                            setRecorderProcessState(filename, 'queued');
+                            markDailyFileQueued(filename);
+                        });
                 })
                 .catch(err => {
-                    status.textContent = filename + ' \u2014 Download/analysis failed';
+                    status.textContent = dailyKey + ' \u2014 Download/analysis failed';
                     setRecorderProcessState(filename, 'ready');
+                    abortDailySequence(filename);
                     console.error(err);
-                    window.location.href = '/api/download?file=' + encodeURIComponent(filename);
                 });
         }
 
@@ -236,9 +317,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
 
             try {
                 const capabilities = JSON.parse(window.SLMAndroid.getCapabilities());
-                if (!capabilities || Number(capabilities.bridgeVersion) < 2) {
-                    return false;
-                }
+                if (!capabilities || Number(capabilities.bridgeVersion) < 2) return false;
                 window.SLMAndroid.downloadRecorderFile(JSON.stringify({
                     filename: filename,
                     analyze: true,
@@ -255,22 +334,22 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             const detail = event && event.detail ? event.detail : {};
             const state = String(detail.state || '');
             const filename = String(detail.filename || 'recording');
+            const dailyKey = recorderDailyKey(filename);
             const percent = Math.max(0, Math.min(100, Number(detail.percent) || 0));
             const status = document.getElementById('flightAnalysisStatus');
 
             if (state === 'download-started') {
                 setRecorderProcessState(filename, 'downloading');
-                status.textContent = filename + ' \u2014 Downloading';
-                setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Download: starting...');
+                status.textContent = dailyKey + ' \u2014 Processing';
+                updateDailyProgress(dailyKey, 0);
             } else if (state === 'downloading') {
                 setRecorderProcessState(filename, 'downloading');
-                status.textContent = filename + ' \u2014 Downloading ' + Math.round(percent) + '%';
-                setProgress('downloadProgressBar', 'downloadProgressText', percent,
-                    'Download: ' + Math.round(percent) + '%');
+                status.textContent = dailyKey + ' \u2014 Processing ' + Math.round(percent) + '%';
+                updateDailyProgress(dailyKey, percent);
             } else if (state === 'download-complete') {
-                setProgress('downloadProgressBar', 'downloadProgressText', 100, 'Download: complete');
+                updateDailyProgress(dailyKey, 100);
                 setRecorderProcessState(filename, 'analyzing');
-                status.textContent = filename + ' \u2014 Analyzing';
+                status.textContent = dailyKey + ' \u2014 Processing';
                 fetch(detail.localUrl, { cache: 'no-store' })
                     .then(function(response) {
                         if (!response.ok) throw new Error('private file unavailable');
@@ -284,30 +363,29 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                     .then(function() {
                         setRecorderProcessState(filename, 'queued');
                         notifyAndroidAnalysisComplete(detail.transferId);
+                        markDailyFileQueued(filename);
                     })
                     .catch(function(err) {
                         console.error(err);
-                        status.textContent = filename + ' \u2014 Analysis failed';
+                        status.textContent = dailyKey + ' \u2014 Analysis failed';
                         notifyAndroidAnalysisFailed(detail.transferId);
                         setRecorderProcessState(filename, 'ready');
+                        abortDailySequence(filename);
                     });
             } else if (state === 'upload-pending') {
                 setRecorderProcessState(filename, 'queued');
-                status.textContent = filename + ' \u2014 Queued for upload';
             } else if (state === 'upload-started' || state === 'uploading') {
                 setRecorderProcessState(filename, 'uploading');
-                status.textContent = filename + ' \u2014 Uploading' +
-                    (state === 'uploading' ? ' ' + Math.round(percent) + '%' : '');
             } else if (state === 'upload-complete' || state === 'archive-pending') {
                 setRecorderProcessState(filename, 'finalizing');
-                status.textContent = filename + ' \u2014 Finalizing';
             } else if (state === 'archive-complete') {
                 delete recorderProcessStates[filename];
                 refreshFiles();
             } else if (state === 'failed') {
-                status.textContent = filename + ' \u2014 Transfer failed: ' +
+                status.textContent = dailyKey + ' \u2014 Transfer failed: ' +
                     (detail.error || 'unknown error');
                 setRecorderProcessState(filename, 'ready');
+                abortDailySequence(filename);
             }
         });
 

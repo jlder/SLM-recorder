@@ -578,3 +578,7 @@ the audio subsystem does not call `Wire.begin()` or reconfigure that bus.
 ### Immutable recording SHA verification (v1.32)
 
 New immutable recording files are protected by a streaming SHA-256 calculated over exactly the bytes accepted by the SD write path. File close creates a same-basename `.sha` metadata file. Legacy files without `.sha` remain usable and are reported as legacy by the manual About > Verify Recordings function. Verification runs only while SD file operations are authorized and the SD task is idle; it rereads root `.bin` files, compares size and SHA-256, and reports persistent results to the operator.
+
+### Daily File Management presentation (v1.33)
+
+Daily grouping is implemented only in browser JavaScript. The recorder storage API continues to return physical immutable files, and the Android Bridge continues to receive one physical filename per transfer. The page groups root names matching `<registration>_<YYYYMMDD>_<suffix>.bin`, sorts members by numeric suffix, and starts the next transfer after analysis of the preceding member has been accepted into the queue. No daily manifest, aggregate binary, or persistent group object is created.

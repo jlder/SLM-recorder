@@ -72,7 +72,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.31` | version text displayed on device |
+| `RECORDER_SOFTWARE_VERSION` | `1.33` | version text displayed on device |
 | `RECORDER_VERSION_TEXT` | `sw ver 1.25` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
@@ -1283,3 +1283,14 @@ Only one root recording file may be in the local Downloading or Analyzing phase 
 ### Immutable recording SHA verification (v1.32)
 
 New immutable recording files are protected by a streaming SHA-256 calculated over exactly the bytes accepted by the SD write path. File close creates a same-basename `.sha` metadata file. Legacy files without `.sha` remain usable and are reported as legacy by the manual About > Verify Recordings function. Verification runs only while SD file operations are authorized and the SD task is idle; it rereads root `.bin` files, compares size and SHA-256, and reports persistent results to the operator.
+
+### Daily File Management aggregation (v1.33)
+
+- File Management shall display one unsuffixed entry for all root recording files sharing the same registration and date.
+- The displayed size shall be the sum of the matching root `.bin` file sizes.
+- Pressing **Process** shall process all currently pending matching files in ascending numeric suffix order.
+- Immutable physical files and their individual SHA, upload, and archive states shall remain unchanged.
+- While any physical member is downloading or being analysed, all other visible Process buttons shall remain disabled.
+- The lock shall be released after every physical member of the selected day has reached the upload queue.
+- Progress shall be based on aggregate downloaded bytes and may pause while a downloaded member is analysed.
+- Wi-Fi mode prevents recording, so no additional protection against a new member appearing during processing is required.
