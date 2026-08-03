@@ -70,7 +70,7 @@ void record_format_build_block(record_block_t *out, int32_t ts_ms, const accel_s
  *
  * The SD storage layer later appends _N.bin where N is the number of recording
  * sessions started in the daily file.  Only the YYYYMMDD part of the token is
- * used so all recordings of one day are appended to one file.
+ * used to identify the recording day; each recording session is stored in a separate immutable suffixed file.
  *
  * Inputs: `out`, `out_sz`, `registration`, `datetime_token`.
  * Returns: `true` when the prefix was built; otherwise `false`.
