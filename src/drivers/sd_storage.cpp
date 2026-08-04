@@ -1399,36 +1399,6 @@ bool sd_storage_archive_to_processed(const char *path) {
 }
 
 /**
- * Permanently delete one archived file from /processed.
- *
- * Inputs: `path`.
- * Returns: `true` when the selected archived file was deleted.
- */
-bool sd_storage_delete_processed_file(const char *path) {
-  if(sd_check_present() != ERR_NONE) return false;
-  if(path == nullptr) return false;
-
-  char tmp[SD_STORAGE_PATH_MAX];
-  const char *p = sd_norm_sdmmc_path_(path, tmp, sizeof(tmp));
-  if((p == nullptr) || (!sd_path_is_processed_file_(p))){
-    return false;
-  }
-
-  File f = SD_MMC.open(p, FILE_READ);
-  if(!f){
-    return false;
-  }
-
-  if(f.isDirectory()){
-    f.close();
-    return false;
-  }
-  f.close();
-
-  return SD_MMC.remove(p);
-}
-
-/**
  * Performs sd storage list json for SD storage, recording files, or SD-backed
  * web file management while preserving SD ownership rules.
  *
@@ -1456,68 +1426,103 @@ bool sd_storage_list_json(const char *dir_path, char *out_json, uint32_t out_cap
     return false;
   }
 
-  // Web file management lists the root recording area, /processed, or the
-  // calibration report folder. Other directories are intentionally not exposed
-  // through the Web API.
+  // Only actionable root recordings, calibration reports, and the virtual
+  // logbook view are exposed. /processed is an immutable archive and is not
+  // listed through the Web interface.
   const bool list_root = (strcmp(dir, "/") == 0);
-  const bool list_processed = (strcmp(dir, "/processed") == 0);
   const bool list_reports = (strcmp(dir, "/calibration_reports") == 0);
-  // /logbook is a virtual Web-only view over .log files in /processed. These
-  // are the companion logs of recordings already downloaded and archived.
   const bool list_logbook = (strcmp(dir, "/logbook") == 0);
-  if((!list_root) && (!list_processed) && (!list_reports) && (!list_logbook)){
-    return false;
-  }
-
-  File root = SD_MMC.open(list_logbook ? "/processed" : dir);
-  if(!root){
-    // /processed and /calibration_reports are created on first use. Before
-    // that, the corresponding maintenance and logbook pages are simply empty.
-    return list_processed || list_reports || list_logbook;
-  }
-
-  if(!root.isDirectory()){
-    root.close();
+  if((!list_root) && (!list_reports) && (!list_logbook)){
     return false;
   }
 
   uint32_t count = 0u;
   sd_storage_list_item_t list_items[SD_MAX_RECORD_FILES];
 
-  for(;;){
-    File file = root.openNextFile();
-    if(!file) break;
-    if(count >= (uint32_t)SD_MAX_RECORD_FILES){ file.close(); break; }
-    if(file.isDirectory()){ file.close(); continue; }
+  auto add_item = [&](const char *name, uint32_t size, bool retain_newest_only) {
+    if((name == nullptr) || (name[0] == '\0')) return;
 
-    const char *raw_name = file.name();
-    const char *name = sd_basename_(raw_name);
-    const uint32_t size = (uint32_t)file.size();
-    file.close();
-
-    if((name == nullptr) || (name[0] == '\0')){
-      continue;
-    }
-
-    if(list_root && (!sd_name_has_extension_(name, ".bin"))){
-      continue;
-    }
-    if(list_logbook && (!sd_name_has_extension_(name, ".log"))){
-      continue;
-    }
-
-    {
-      size_t n = 0u;
-      while((n < (sizeof(list_items[count].name) - 1u)) && (name[n] != '\0')){
-        list_items[count].name[n] = name[n];
-        n++;
+    // A log can temporarily exist in root and later in /processed. Keep only
+    // one entry for an identical file name.
+    for(uint32_t i = 0u; i < count; i++){
+      if(strcmp(list_items[i].name, name) == 0){
+        list_items[i].size = size;
+        return;
       }
-      list_items[count].name[n] = '\0';
     }
-    list_items[count].size = size;
-    count++;
+
+    uint32_t slot = count;
+    if(count >= (uint32_t)SD_MAX_RECORD_FILES){
+      if(!retain_newest_only) return;
+
+      // The archive may contain thousands of logs. Retain only the newest
+      // SD_MAX_RECORD_FILES names while scanning, using constant memory.
+      uint32_t oldest = 0u;
+      for(uint32_t i = 1u; i < count; i++){
+        if(strcmp(list_items[i].name, list_items[oldest].name) < 0){
+          oldest = i;
+        }
+      }
+      if(strcmp(name, list_items[oldest].name) <= 0) return;
+      slot = oldest;
+    } else {
+      count++;
+    }
+
+    strlcpy(list_items[slot].name, name, sizeof(list_items[slot].name));
+    list_items[slot].size = size;
+  };
+
+  auto scan_dir = [&](const char *scan_path, bool logs_only, bool optional_dir) -> bool {
+    File root = SD_MMC.open(scan_path);
+    if(!root){
+      return optional_dir;
+    }
+    if(!root.isDirectory()){
+      root.close();
+      return false;
+    }
+
+    for(;;){
+      File file = root.openNextFile();
+      if(!file) break;
+      if(file.isDirectory()){
+        file.close();
+        continue;
+      }
+
+      const char *raw_name = file.name();
+      const char *base_name = sd_basename_(raw_name);
+      char name[FILENAME_MAX_LENGTH] = {};
+      if(base_name != nullptr){
+        strlcpy(name, base_name, sizeof(name));
+      }
+      const uint32_t size = (uint32_t)file.size();
+      file.close();
+
+      if(name[0] == '\0') continue;
+      if(logs_only){
+        if(!sd_name_has_extension_(name, ".log")) continue;
+        add_item(name, size, true);
+      } else if(list_root){
+        if(!sd_name_has_extension_(name, ".bin")) continue;
+        add_item(name, size, false);
+      } else {
+        add_item(name, size, false);
+      }
+    }
+    root.close();
+    return true;
+  };
+
+  if(list_logbook){
+    // A newly analysed log can still be in root, while older logs are already
+    // archived. Scan both locations and deduplicate by file name.
+    if(!scan_dir("/", true, false)) return false;
+    if(!scan_dir("/processed", true, true)) return false;
+  } else {
+    if(!scan_dir(dir, false, list_reports)) return false;
   }
-  root.close();
 
   if(count > 1u){
     auto cmp = [](const void* a, const void* b) -> int {

@@ -72,7 +72,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.39` | version text displayed on device |
+| `RECORDER_SOFTWARE_VERSION` | `1.41` | version text displayed on device |
 | `RECORDER_VERSION_TEXT` | `sw ver 1.25` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
