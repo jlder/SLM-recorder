@@ -72,7 +72,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.33` | version text displayed on device |
+| `RECORDER_SOFTWARE_VERSION` | `1.39` | version text displayed on device |
 | `RECORDER_VERSION_TEXT` | `sw ver 1.25` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
@@ -723,7 +723,7 @@ The page shall allow the operator to:
 - write a root-level companion `.log` text file containing the compact detected-flight table;
 - display the stored companion `.log` later without re-downloading or reprocessing the `.bin`;
 - archive root recording files and their matching `.log` companion files to `/processed` when Archive is requested;
-- permanently delete selected files already in `/processed` from the Maintenance / Delete page.
+- retain `/processed` as an immutable archive that is not listed or removed through the Web interface.
 
 Web file management shall be accessible when recording is not active, including when recording is blocked by SD max-file-count maintenance while SD free space is still available.
 
@@ -758,17 +758,17 @@ The file shall be removed from the active root-file list only after the move suc
 
 After a root-level `.bin` recording file is downloaded and analyzed by the Web page, the recorder shall accept a browser-generated companion text log through the Web file-management path. The recorder shall derive the log name from the `.bin` basename by replacing `.bin` with `.log`; the Web request shall not be allowed to select an arbitrary SD path.
 
-The `.log` content shall be plain text and limited to the configured maximum size. The stored table shall contain only:
+The `.log` content shall be plain text and limited to the configured maximum size. It shall contain no header. Each detected flight shall be stored on one CSV-style line containing exactly two fields:
 
 ```text
-flt #  Takeoff  Landing  Flight Time
+takeoff,landing
 ```
 
-with one aligned row per detected flight. Takeoff and landing times shall use the same minute-rounded values displayed by the Web analysis table, and `Flight Time` shall be computed from those rounded values.
+Takeoff and landing shall use the same minute-rounded `HH:MM` values displayed by the Web analysis table. Flight duration is a presentation value derived by Logbook and is not stored in the `.log`.
 
 The normal active file list shall remain focused on root-level `.bin` recording files. The operator shall be able to view an existing companion `.log` from the matching `.bin` row without re-downloading or reprocessing the binary file. When a `.bin` is archived to `/processed`, the matching `.log` shall be archived with it if present. `.log` files shall not count against `SD_MAX_RECORD_FILES`.
 
-The Web logbook shall list the five newest archived `.log` files. With the current daily-file scheme, one archived `.log` file corresponds to one flying day, so the Web page shall present this as the last five flying days rather than the last five calendar days. The File Management page shall clear any previous analysis display when the page is opened; automatic archiving shall not clear the analysis panel because multiple transfers may complete out of order.
+The Web logbook shall scan root first and then `/processed`, group per-recording `.log` files by registration/date, retain the five newest flying days without constructing a complete archive listing, sort each day's logs by numeric session suffix, concatenate their flight rows, and derive flight duration for display. The File Management page shall clear any previous analysis display when the page is opened; automatic archiving shall not clear the analysis panel because multiple transfers may complete out of order.
 
 Status:
 
@@ -1041,7 +1041,7 @@ The table below lists messages rendered in the normal bottom message area of the
 | `INST CAL REQ` | Amber | installation calibration required | yes, perform password-protected Web installation calibration menu (`START WIFI`) |
 | `NO SD` | Amber | SD/storage warning | yes, insert SD card |
 | `SD LOW` | Amber | SD/storage warning | yes, insert an SD card with enough free space; archive alone does not free SD space |
-| `SD FULL (FILES)` | Amber | SD file-count maintenance | yes, archive root files and/or delete files from `/processed` using recorder Web interface (`START WIFI`) |
+| `SD FULL (FILES)` | Amber | SD file-count maintenance | yes, archive root files; free-space recovery requires SD-card maintenance on a computer |
 | `LOW BATT` | Amber | power warning | yes, connect USB power |
 | `REC CAL FAULT` | Red | recorder calibration fault | no normal reset recovery; check calibration setup, retry recorder calibration, contact support if repeated |
 | `ACCEL ERR` | Red | hardware/runtime error | possible, press the power/clear button up to 8 seconds to stop recorder, then restart * |
@@ -1294,3 +1294,21 @@ New immutable recording files are protected by a streaming SHA-256 calculated ov
 - The lock shall be released after every physical member of the selected day has reached the upload queue.
 - Progress shall be based on aggregate downloaded bytes and may pause while a downloaded member is analysed.
 - Wi-Fi mode prevents recording, so no additional protection against a new member appearing during processing is required.
+
+
+### v1.34 — simplified daily File Management UI
+
+- Immutable session files remain independent on SD and during transfer.
+- File Management displays one row per day as `<registration> DD/MM/YYYY`.
+- The daily button displays `Process` or `Processing`; transfer details are not shown in the Flight Analysis panel.
+- The Flight Analysis panel aggregates only the detected flight times from the immutable files processed for the selected day.
+- The Bridge status line separately reports upload percentage and queue state.
+
+
+### v1.35 — archive listing and root file-count cleanup
+
+- `/processed` shall remain an immutable archive and shall not be exposed through a full Web list or file-removal endpoint.
+- Calibration reports shall remain listed and downloadable because the Bridge uploads them through the report-transfer workflow.
+- The recording file-count limit shall count only valid root-level `.bin` files; `.sha`, `.log`, and unrelated files shall not consume the 50-file allowance.
+- Logbook discovery shall scan root first and `/processed` second, group per-recording logs by registration/date, and retain only the newest bounded set of flying days while scanning.
+- Suffix discovery and matching-file searches shall continue to scan directory entries one at a time without a complete archive array.

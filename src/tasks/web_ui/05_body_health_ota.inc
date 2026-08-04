@@ -33,7 +33,6 @@ R"rawliteral(        <!-- About/support page. One support unlock grants access t
                     <button class="btn btn-primary" onclick="supportGenerateCalibrationReports()">Generate Calibration Reports</button>
                     <button class="btn btn-primary" onclick="supportClearRecorderCalibration()">Clear Recorder Calibration</button>
                     <button class="btn btn-primary" onclick="supportClearInstallationCalibration()">Clear Installation Calibration</button>
-                    <button class="btn btn-primary" onclick="openDeletePage()">Delete Files/Reports</button>
                 </div>
                 <div id="aboutSupportStatus" class="small">About functions unlocked.</div>
 

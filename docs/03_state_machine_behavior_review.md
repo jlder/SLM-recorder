@@ -412,7 +412,7 @@ When SD max-file-count is detected while not recording and free space is still a
 `MSG_SD_FULL_FILES` is included in the UI non-forcing menu-access lock set, the same way settings/calibration setup-lock messages are. This prevents the UI sync layer from forcing the MENU page back to main while file-count maintenance is needed.
 
 
-Before a recording session opens its file, storage scans the SD root and `/processed` for the highest matching same-day suffix. The next immutable file is created in the root. Archived files remain in `/processed`; no stale log is deleted and no previous binary is moved or appended. A failed scan or new-file operation blocks recording and reports `SD FILE ERR`.
+Before a recording session opens its file, storage scans the SD root and `/processed` for the highest matching same-day suffix. The next immutable file is created in the root. Archived files remain in `/processed`; no stale log is removed and no previous binary is moved or appended. A failed scan or new-file operation blocks recording and reports `SD FILE ERR`.
 
 `SD FULL (FILES)` is orange/amber because the operator can resolve it through MENU -> START WIFI -> Web archive. `SD LOW` remains a blocking condition because archive moves files to `/processed` and does not free SD memory.
 
@@ -440,7 +440,7 @@ Saving the installation calibration stores the matrix in NVS as the installation
 
 `web_task` uses a server-once lifecycle. The `AsyncWebServer` object and route table are created once, and `s_server->begin()` is called only for the first Web ON cycle. Later Web ON cycles only restart the AP.
 
-On Web OFF, `web_task` performs Web-side cleanup, ends any SD download session, clears Web locks, aborts any active OTA state, and stops the AP. It intentionally does not call `AsyncWebServer::end()` and does not delete/recreate the server. The port-80 AsyncWebServer listener is treated as a process-lifetime object because the selected AsyncWebServer/AsyncTCP stack does not provide a reliable stop/restart lifecycle for that listener after HTTP traffic.
+On Web OFF, `web_task` performs Web-side cleanup, ends any SD download session, clears Web locks, aborts any active OTA state, and stops the AP. It intentionally does not call `AsyncWebServer::end()` and does not destroy/recreate the server. The port-80 AsyncWebServer listener is treated as a process-lifetime object because the selected AsyncWebServer/AsyncTCP stack does not provide a reliable stop/restart lifecycle for that listener after HTTP traffic.
 
 The permanent `/diag` route is used as a lightweight health check during validation and troubleshooting.
 

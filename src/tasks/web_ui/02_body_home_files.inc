@@ -51,15 +51,15 @@ R"rawliteral(<body>
             <div id="fileListContainer">
                 <div class="loading">Loading files...</div>
             </div>
-            <!-- Analysis window is hidden until a binary file is downloaded for browser-side decoding. -->
+            <!-- Analysis window reports only the flight times for the currently processed day. -->
             <div id="flightAnalysisWindow" class="analysis-window hidden">
                 <h2>SLM Flight Analysis</h2>
-                <div id="flightAnalysisStatus" class="small">No analysis available.</div>
-                <div class="progress-block">
-                    <div id="downloadProgressText" class="progress-label small">Download: idle</div>
-                    <div class="progress-track"><div id="downloadProgressBar" class="progress-fill"></div></div>
-                </div>
+                <div id="flightAnalysisStatus" class="small">No flight analysis available.</div>
                 <div id="flightAnalysisTable"></div>
+                <div class="hidden">
+                    <div id="downloadProgressText"></div>
+                    <div id="downloadProgressBar"></div>
+                </div>
             </div>
         </div>
 

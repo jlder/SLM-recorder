@@ -395,7 +395,7 @@ Standby is allowed from MENU, SETTINGS, and setting-edit pages. Waking restores 
 
 ## 20. SD Archive Behavior
 
-The Web Archive action for root-level recording files is implemented as a move to `/processed`; the folder is created if needed, and destination name collisions are resolved with a numeric suffix. If a root-level `.bin` recording has a matching companion `.log` file, the companion log is moved to `/processed` with the recording. The normal Web file list remains root-file oriented and shows `.bin` recordings, so processed files and root-level companion `.log` files are hidden from the active recording list. A separate Maintenance / Delete page lists files already in `/processed` and permanently deletes selected archived files when the operator confirms deletion.
+The Web Archive action for root-level recording files is implemented as a move to `/processed`; the folder is created if needed, and destination name collisions are resolved with a numeric suffix. If a root-level `.bin` recording has a matching companion `.log` file, the companion log is moved to `/processed` with the recording. The normal Web file list remains root-file oriented and shows `.bin` recordings, so processed files and root-level companion `.log` files are hidden from the active recording list. The `/processed` directory is an immutable archive and is not listed or removed through the recorder Web interface; bulk archive maintenance is performed directly on the removable SD card.
 
 ### 11.5 Daily recording file policy
 
@@ -498,7 +498,7 @@ The Web listener uses a server-once lifecycle:
 1. `web_task_init()` allocates the `AsyncWebServer` object and registers routes.
 2. The first Web ON starts the AP and calls `s_server->begin()`.
 3. Later Web ON cycles start only the AP because the listener remains alive.
-4. Web OFF performs application cleanup, aborts/ends support operations, clears locks/authorization, and stops the AP. It does not call `s_server->end()` and does not delete/recreate the server.
+4. Web OFF performs application cleanup, aborts/ends support operations, clears locks/authorization, and stops the AP. It does not call `s_server->end()` and does not destroy/recreate the server.
 
 This is an implementation constraint of the selected AsyncWebServer/AsyncTCP stack. The port-80 AsyncWebServer listener is treated as a process-lifetime object, while externally visible access is controlled through the AP lifecycle.
 
@@ -518,7 +518,7 @@ Takeoff and landing times shown to the operator are rounded to the nearest minut
 
 After a download analysis completes, the browser sends a compact companion `.log` text file back to the recorder. The recorder derives the `.log` path from the `.bin` basename and accepts only root-level `.bin` basenames for this endpoint. The File Management page provides `View Log` to display the stored analysis later without downloading or reprocessing the binary file. The analysis panel is reset when the File Management page is opened, not when an archive completion event is received, so a delayed archive event from an earlier download cannot erase the analysis for a later file.
 
-The Logbook page reads archived `.log` files from `/processed`, sorts them newest first by the daily recorder filename, and displays the five newest files. Because the recorder maintains one active file per flying day, this is presented to the operator as the last five flying days.
+The Logbook page scans per-recording `.log` files in root and `/processed`, groups them by registration/date, retains the five newest flying days, sorts each day's logs by numeric session suffix, and combines their `takeoff,landing` rows for display. Flight duration is derived in the browser.
 
 ## 29. Web OTA Firmware Update
 
@@ -582,3 +582,7 @@ New immutable recording files are protected by a streaming SHA-256 calculated ov
 ### Daily File Management presentation (v1.33)
 
 Daily grouping is implemented only in browser JavaScript. The recorder storage API continues to return physical immutable files, and the Android Bridge continues to receive one physical filename per transfer. The page groups root names matching `<registration>_<YYYYMMDD>_<suffix>.bin`, sorts members by numeric suffix, and starts the next transfer after analysis of the preceding member has been accepted into the queue. No daily manifest, aggregate binary, or persistent group object is created.
+
+### Archive and bounded-list architecture (v1.35)
+
+`/processed` is an immutable SD archive and is not exposed as a complete Web list. Highest-suffix discovery and exact matching-file searches iterate directory entries one at a time and retain only the required suffix or match. Root File Management remains bounded by `SD_MAX_RECORD_FILES` and includes only root-level `.bin` recordings. Calibration reports retain their separate bounded list because they remain downloadable and uploadable through the Bridge report workflow. The virtual Logbook scans root first and `/processed` second, groups matching per-recording `.log` names by registration/date, and retains only the newest bounded set of days while scanning, so archive size does not determine RAM use.

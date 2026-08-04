@@ -1,6 +1,6 @@
 /*******************************************************************************
  * SCRIPT: REPORTS, STATUS, AND DIAGNOSTICS
- * JavaScript for calibration reports, SD/status updates, and watchdog diagnostic display.
+ * JavaScript for root archive, calibration reports, SD/status updates, and watchdog diagnostic display.
  *
  * Byte-stability rule: this file contains one raw string literal fragment.
  * Do not add comments or whitespace inside the raw string literal
@@ -55,9 +55,7 @@ R"rawliteral(        function delayMs(ms) {
                         <div class="file-name">${safeName}</div>
                         <button class="btn btn-primary file-btn" onclick='downloadReport(${jsName})'>Download</button>
                     </div>
-                    <div class="file-row">
-                        <div class="file-size">Size: ${sizeKb} kB</div>
-                    </div>
+                    <div class="file-size">Size: ${sizeKb} kB</div>
                 </div>`;
             });
             html += '</div>';

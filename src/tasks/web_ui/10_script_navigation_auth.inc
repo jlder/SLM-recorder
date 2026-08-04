@@ -11,7 +11,6 @@ R"rawliteral(    <script>
         // Shared client-side state for the single-page interface.
         // Page sections are static HTML; navigation only hides/shows sections and starts/stops polling.
         let allFiles = [];
-        let processedFiles = [];
         let reportFiles = [];
         let calPoll = null;
         let calAuth = false;
@@ -39,7 +38,6 @@ R"rawliteral(    <script>
             document.getElementById('healthSection').classList.add('hidden');
             document.getElementById('otaSection').classList.add('hidden');
             document.getElementById('reportSection').classList.add('hidden');
-            document.getElementById('deleteSection').classList.add('hidden');
         }
 
         function showHome() {
@@ -202,15 +200,6 @@ R"rawliteral(    <script>
             otaUpdateBridgeControls();
         }
 
-        function openDeletePage() {
-            setPageTitle('SLM Delete Files/Reports');
-            if (!calAuth) { showMaintenanceLocked(); return; }
-            if (!aboutAuth) { openHealthPage(); return; }
-            stopCalPolling();
-            hideAllPages();
-            document.getElementById('deleteSection').classList.remove('hidden');
-            refreshProcessedFiles();
-        }
 
         // -----------------------------------------------------------------
         // Maintenance authentication and common API helpers

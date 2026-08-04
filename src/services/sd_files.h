@@ -75,10 +75,7 @@ bool sd_files_verify_root_recordings(sd_sha_verify_result_t *out_result);
 bool sd_files_download_active(void);
 
 /** Archive a root file or calibration report to /processed. */
-bool sd_files_delete(const char *path);
-
-/** Permanently delete one selected file from /processed. */
-bool sd_files_delete_processed(const char *path);
+bool sd_files_archive(const char *path);
 
 /**
  * SD-task service hook.

@@ -68,17 +68,9 @@ R"rawliteral(    <style>
         .btn-primary { background: #3498db; color: white; }
         .btn-warning { background: #f39c12; color: white; }
         .btn:disabled { background: #bdc3c7; color: #666; cursor: not-allowed; }
-        .delete-warning-window {
-            border: 1px solid #f1c40f;
-            background: #fff8e1;
-            color: #5d4600;
-            border-radius: 8px;
-            padding: 10px 12px;
-            margin: 8px 0;
-        }
         .btn-return { background: #27ae60; color: white; }
 
-        /* File, report, and processed-delete lists use the same compact rows. */
+        /* File and calibration-report lists use the same compact rows. */
         input[type="password"], input[type="file"], select {
             max-width: 100%;
             min-height: 40px;
@@ -174,17 +166,6 @@ R"rawliteral(    <style>
             padding: 6px 8px;
             margin: 1px 0;
             font-size: 13px;
-        }
-        .delete-file-row {
-            display: grid;
-            grid-template-columns: auto minmax(0, 1fr) auto;
-            gap: 8px;
-            align-items: center;
-            min-height: 36px;
-        }
-        .delete-file-row input[type="checkbox"] {
-            width: 22px;
-            height: 22px;
         }
 
         /* Calibration tables and face chips display live recorder/installation status. */

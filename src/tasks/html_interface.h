@@ -36,7 +36,7 @@ const char HTML_PAGE[] PROGMEM =
 #include "web_ui/12_script_flight_decode.inc"
 #include "web_ui/13_script_signal_processing.inc"
 #include "web_ui/14_script_format_helpers.inc"
-#include "web_ui/15_script_delete_status_diag.inc"
+#include "web_ui/15_script_archive_status_diag.inc"
 #include "web_ui/16_script_calibration.inc"
 #include "web_ui/17_script_ota_startup_end.inc"
 ;

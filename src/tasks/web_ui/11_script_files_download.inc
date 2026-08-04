@@ -71,6 +71,13 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             return match ? match[1] + '.bin' : name;
         }
 
+        function recorderDailyDisplayName(dailyKey) {
+            const name = String(dailyKey || '').replace(/\.bin$/i, '');
+            const match = name.match(/^(.*)_(\d{4})(\d{2})(\d{2})$/);
+            if (!match) return name;
+            return match[1] + '   ' + match[4] + '/' + match[3] + '/' + match[2];
+        }
+
         function recorderFileSuffix(filename) {
             const match = String(filename || '').match(/_(\d+)\.bin$/i);
             return match ? Number(match[1]) : 0;
@@ -173,7 +180,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
 
             let html = '<div class="file-list">';
             groups.forEach(group => {
-                const displayName = group.key.replace(/\.bin$/i, '');
+                const displayName = recorderDailyDisplayName(group.key);
                 const safeName = escapeHtml(displayName);
                 const jsKey = JSON.stringify(group.key);
                 const sizeKb = Math.round(group.size / 1000);
@@ -220,7 +227,8 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                 nextIndex: 0,
                 totalBytes: files.reduce((sum, file) => sum + Number(file.size || 0), 0),
                 completedBytes: 0,
-                currentBytes: 0
+                currentBytes: 0,
+                dailyFlights: []
             };
             startNextDailyFile(dailyKey);
         }
@@ -229,8 +237,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             const sequence = recorderDailySequences[dailyKey];
             if (!sequence) return;
             if (sequence.nextIndex >= sequence.files.length) {
-                document.getElementById('flightAnalysisStatus').textContent =
-                    dailyKey + ' \u2014 Queued for upload';
+                renderDailyFlightAnalysis(dailyKey);
                 setProgress('downloadProgressBar', 'downloadProgressText', 100, 'Processing: complete');
                 delete recorderDailySequences[dailyKey];
                 refreshRecorderProcessButtons();
@@ -267,6 +274,44 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             refreshRecorderProcessButtons();
         }
 
+        function addDailyFlightAnalysis(dailyKey, analysis) {
+            const sequence = recorderDailySequences[dailyKey];
+            if (!sequence || !analysis || !analysis.ok || !Array.isArray(analysis.flights)) return;
+            analysis.flights.forEach(function(flight) {
+                sequence.dailyFlights.push(flight);
+            });
+            renderDailyFlightAnalysis(dailyKey);
+        }
+
+        function renderDailyFlightAnalysis(dailyKey) {
+            const sequence = recorderDailySequences[dailyKey];
+            const status = document.getElementById('flightAnalysisStatus');
+            const table = document.getElementById('flightAnalysisTable');
+            const flights = sequence && Array.isArray(sequence.dailyFlights) ? sequence.dailyFlights : [];
+            const displayName = recorderDailyDisplayName(dailyKey);
+
+            if (!flights.length) {
+                status.textContent = displayName + ' \u2014 No flight detected';
+                table.innerHTML = '';
+                return;
+            }
+
+            status.textContent = displayName + ' \u2014 ' + flights.length + ' flight(s)';
+            let html = '<table class="analysis-table"><thead><tr>' +
+                '<th>FLT<br>#</th><th>T/O</th><th>LDG</th><th>FLT<br>TIME</th>' +
+                '</tr></thead><tbody>';
+            flights.forEach(function(f, index) {
+                html += '<tr>' +
+                    '<td>' + (index + 1) + '</td>' +
+                    '<td class="mono">' + escapeHtml(f.takeoffRollStartShort || f.takeoffRollStart) + '</td>' +
+                    '<td class="mono">' + escapeHtml(f.landingRollEndShort || f.landingRollEnd) + '</td>' +
+                    '<td class="mono">' + escapeHtml(f.flightDurationShort || f.flightDuration) + '</td>' +
+                    '</tr>';
+            });
+            html += '</tbody></table>';
+            table.innerHTML = html;
+        }
+
         // Start one physical immutable file. The daily UI calls this repeatedly
         // and the existing Bridge continues to transfer each file independently.
         function startPhysicalRecorderFile(dailyKey, filename) {
@@ -275,10 +320,13 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             const table = document.getElementById('flightAnalysisTable');
 
             panel.classList.remove('hidden');
-            table.innerHTML = '';
+            const sequence = recorderDailySequences[dailyKey];
+            if (sequence && sequence.nextIndex === 1) {
+                table.innerHTML = '';
+                status.textContent = recorderDailyDisplayName(dailyKey) + ' \u2014 No flight detected';
+            }
             if (recorderProcessState(filename) !== 'ready') return;
             setRecorderProcessState(filename, 'downloading');
-            status.textContent = dailyKey + ' \u2014 Processing';
             updateDailyProgress(dailyKey, 0);
 
             if (startAndroidRecorderTransfer(filename)) return;
@@ -292,7 +340,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                     setRecorderProcessState(filename, 'analyzing');
                     return analyzeRecorderFileAsync(buffer)
                         .then(analysis => {
-                            showFlightAnalysis(filename, analysis);
+                            addDailyFlightAnalysis(dailyKey, analysis);
                             return writeFlightAnalysisLog(filename, analysis);
                         })
                         .then(() => {
@@ -301,7 +349,6 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                         });
                 })
                 .catch(err => {
-                    status.textContent = dailyKey + ' \u2014 Download/analysis failed';
                     setRecorderProcessState(filename, 'ready');
                     abortDailySequence(filename);
                     console.error(err);
@@ -340,24 +387,21 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
 
             if (state === 'download-started') {
                 setRecorderProcessState(filename, 'downloading');
-                status.textContent = dailyKey + ' \u2014 Processing';
-                updateDailyProgress(dailyKey, 0);
+                    updateDailyProgress(dailyKey, 0);
             } else if (state === 'downloading') {
                 setRecorderProcessState(filename, 'downloading');
-                status.textContent = dailyKey + ' \u2014 Processing ' + Math.round(percent) + '%';
                 updateDailyProgress(dailyKey, percent);
             } else if (state === 'download-complete') {
                 updateDailyProgress(dailyKey, 100);
                 setRecorderProcessState(filename, 'analyzing');
-                status.textContent = dailyKey + ' \u2014 Processing';
-                fetch(detail.localUrl, { cache: 'no-store' })
+                    fetch(detail.localUrl, { cache: 'no-store' })
                     .then(function(response) {
                         if (!response.ok) throw new Error('private file unavailable');
                         return response.arrayBuffer();
                     })
                     .then(function(buffer) { return analyzeRecorderFileAsync(buffer); })
                     .then(function(analysis) {
-                        showFlightAnalysis(filename, analysis);
+                        addDailyFlightAnalysis(dailyKey, analysis);
                         return writeFlightAnalysisLog(filename, analysis);
                     })
                     .then(function() {
@@ -367,7 +411,6 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                     })
                     .catch(function(err) {
                         console.error(err);
-                        status.textContent = dailyKey + ' \u2014 Analysis failed';
                         notifyAndroidAnalysisFailed(detail.transferId);
                         setRecorderProcessState(filename, 'ready');
                         abortDailySequence(filename);
@@ -382,8 +425,6 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                 delete recorderProcessStates[filename];
                 refreshFiles();
             } else if (state === 'failed') {
-                status.textContent = dailyKey + ' \u2014 Transfer failed: ' +
-                    (detail.error || 'unknown error');
                 setRecorderProcessState(filename, 'ready');
                 abortDailySequence(filename);
             }
@@ -473,31 +514,43 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
         }
 
         function logbookFileParts(filename) {
-            const match = String(filename || '').match(/_(\d{4})(\d{2})(\d{2})_(\d+)\.log$/i);
+            const match = String(filename || '').match(/^(.+?)_(\d{4})(\d{2})(\d{2})_(\d+)\.log$/i);
             if (!match) return null;
             return {
-                dateKey: match[1] + match[2] + match[3],
-                date: match[1] + '-' + match[2] + '-' + match[3],
-                session: Number(match[4]) || 0
+                registration: match[1],
+                dateKey: match[2] + match[3] + match[4],
+                date: match[2] + '-' + match[3] + '-' + match[4],
+                session: Number(match[5]) || 0
             };
         }
 
-        function compareLogbookFilesNewestFirst(left, right) {
-            const a = logbookFileParts(left.name);
-            const b = logbookFileParts(right.name);
-            if (a && b) {
-                if (a.dateKey !== b.dateKey) return b.dateKey.localeCompare(a.dateKey);
-                return b.session - a.session;
-            }
-            return String(right.name || '').localeCompare(String(left.name || ''));
-        }
+        function latestLogbookDays(files, dayCount) {
+            const groups = new Map();
+            (files || []).forEach(file => {
+                const parts = logbookFileParts(file.name);
+                if (!parts) return;
+                const key = parts.registration + '|' + parts.dateKey;
+                if (!groups.has(key)) {
+                    groups.set(key, {
+                        registration: parts.registration,
+                        dateKey: parts.dateKey,
+                        date: parts.date,
+                        files: []
+                    });
+                }
+                groups.get(key).files.push({ name: file.name, session: parts.session });
+            });
 
-        function latestLogbookFiles(files, fileCount) {
-            return (files || [])
-                .filter(file => logbookFileParts(file.name))
-                .slice()
-                .sort(compareLogbookFilesNewestFirst)
-                .slice(0, fileCount);
+            return Array.from(groups.values())
+                .sort((a, b) => {
+                    if (a.dateKey !== b.dateKey) return b.dateKey.localeCompare(a.dateKey);
+                    return a.registration.localeCompare(b.registration);
+                })
+                .slice(0, dayCount)
+                .map(day => {
+                    day.files.sort((a, b) => a.session - b.session);
+                    return day;
+                });
         }
 
         function recorderTextWithRetry(url, attempt) {
@@ -512,18 +565,36 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             });
         }
 
+        function flightDurationFromTimes(takeoff, landing) {
+            const parseMinutes = value => {
+                const match = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
+                if (!match) return null;
+                return Number(match[1]) * 60 + Number(match[2]);
+            };
+            const start = parseMinutes(takeoff);
+            const end = parseMinutes(landing);
+            if (start === null || end === null) return '-';
+            let duration = end - start;
+            if (duration < 0) duration += 24 * 60;
+            return String(Math.floor(duration / 60)).padStart(2, '0') + ':' +
+                String(duration % 60).padStart(2, '0');
+        }
+
         function parseLogbookRows(filename, text) {
             const parts = logbookFileParts(filename);
             const date = parts ? parts.date : '-';
             const rows = [];
             String(text || '').split(/\r?\n/).forEach(line => {
-                const fields = line.trim().split(/\s+/);
-                if (fields.length < 4 || !/^\d+$/.test(fields[0])) return;
+                const fields = line.trim().split(',');
+                if (fields.length !== 2) return;
+                const takeoff = fields[0].trim();
+                const landing = fields[1].trim();
+                if (!/^\d{1,2}:\d{2}$/.test(takeoff) || !/^\d{1,2}:\d{2}$/.test(landing)) return;
                 rows.push({
                     date: date,
-                    takeoff: fields[1],
-                    landing: fields[2],
-                    flightTime: fields.slice(3).join(' ')
+                    takeoff: takeoff,
+                    landing: landing,
+                    flightTime: flightDurationFromTimes(takeoff, landing)
                 });
             });
             return rows;
@@ -537,23 +608,27 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                     if (!result.ok || !result.json || !result.json.ok) {
                         throw new Error('Recorder logbook list unavailable');
                     }
-                    const latest = latestLogbookFiles(result.json.files || [], 5);
-                    if (latest.length === 0) {
+                    const days = latestLogbookDays(result.json.files || [], 5);
+                    if (days.length === 0) {
                         displayLogbookRows([]);
                         return;
                     }
 
                     const rows = [];
                     let chain = Promise.resolve();
-                    latest.forEach(file => {
-                        chain = chain.then(() =>
-                            recorderTextWithRetry('/api/download?file=' +
-                                encodeURIComponent('/processed/' + String(file.name || '')), 1)
-                                .then(text => {
-                                    rows.push.apply(rows, parseLogbookRows(file.name, text));
-                                })
-                                .catch(err => console.warn(err))
-                        );
+                    days.forEach(day => {
+                        day.files.forEach(file => {
+                            chain = chain.then(() =>
+                                recorderTextWithRetry('/api/download?file=' +
+                                    encodeURIComponent('/' + String(file.name || '')), 1)
+                                    .catch(() => recorderTextWithRetry('/api/download?file=' +
+                                        encodeURIComponent('/processed/' + String(file.name || '')), 1))
+                                    .then(text => {
+                                        rows.push.apply(rows, parseLogbookRows(file.name, text));
+                                    })
+                                    .catch(err => console.warn(err))
+                            );
+                        });
                     });
                     return chain.then(() => displayLogbookRows(rows));
                 })
@@ -642,32 +717,20 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             table.innerHTML = html;
         }
 
-        // Build the recorder-side text log associated with the downloaded binary.
+        // Build one compact per-recording log. Each valid line contains only
+        // the minute-rounded takeoff and landing times separated by a comma.
         function buildFlightAnalysisLogText(filename, analysis) {
-            const widths = [5, 7, 7, 11];
-            const row = function(a, b, c, d) {
-                return String(a).padEnd(widths[0], ' ') + '  ' +
-                       String(b).padEnd(widths[1], ' ') + '  ' +
-                       String(c).padEnd(widths[2], ' ') + '  ' +
-                       String(d).padEnd(widths[3], ' ');
-            };
-
             const lines = [];
-            lines.push(row('flt #', 'Takeoff', 'Landing', 'Flight Time'));
-
             if (analysis && analysis.ok && Array.isArray(analysis.flights)) {
                 analysis.flights.forEach(f => {
-                    lines.push(row(
-                        f.number || '-',
-                        f.takeoffRollStartShort || f.takeoffRollStart || '-',
-                        f.landingRollEndShort || f.landingRollEnd || '-',
-                        f.flightDurationShort || f.flightDuration || '-'
-                    ));
+                    const takeoff = f.takeoffRollStartShort || f.takeoffRollStart || '';
+                    const landing = f.landingRollEndShort || f.landingRollEnd || '';
+                    if (takeoff && landing) lines.push(takeoff + ',' + landing);
                 });
             }
-
-            return lines.join('\n') + '\n';
+            return lines.length > 0 ? (lines.join('\n') + '\n') : '';
         }
+
 
         // Store the same flight-analysis summary on the recorder SD card.
         // The recorder derives the .log file name from the original .bin name.

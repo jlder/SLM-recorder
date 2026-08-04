@@ -35,8 +35,7 @@ static volatile bool s_download_begin_requested = false;
 static volatile bool s_download_read_requested = false;
 static volatile bool s_download_end_requested = false;
 static volatile bool s_write_text_requested = false;
-static volatile bool s_delete_requested = false;
-static volatile bool s_delete_processed_requested = false;
+static volatile bool s_archive_requested = false;
 static volatile bool s_verify_sha_requested = false;
 
 static volatile bool s_download_active = false;
@@ -74,8 +73,7 @@ static void request_clear_(void){
   s_download_read_requested = false;
   s_download_end_requested = false;
   s_write_text_requested = false;
-  s_delete_requested = false;
-  s_delete_processed_requested = false;
+  s_archive_requested = false;
   s_verify_sha_requested = false;
 
   s_path[0] = '\0';
@@ -204,7 +202,7 @@ static bool request_space_(uint64_t *out_total_bytes, uint64_t *out_free_bytes){
 }
 
 /** Queue a file archive request. */
-static bool request_delete_(const char *path){
+static bool request_archive_(const char *path){
   if(!request_begin_()){
     return false;
   }
@@ -214,23 +212,7 @@ static bool request_delete_(const char *path){
     return false;
   }
 
-  s_delete_requested = true;
-  s_request_pending = true;
-  return true;
-}
-
-/** Queue a permanent /processed file delete request. */
-static bool request_delete_processed_(const char *path){
-  if(!request_begin_()){
-    return false;
-  }
-
-  if(!copy_path_(s_path, sizeof(s_path), path)){
-    request_cancel_();
-    return false;
-  }
-
-  s_delete_processed_requested = true;
+  s_archive_requested = true;
   s_request_pending = true;
   return true;
 }
@@ -414,25 +396,12 @@ bool sd_files_download_active(void){
 }
 
 /** Archive a root-level file to /processed. */
-bool sd_files_delete(const char *path){
+bool sd_files_archive(const char *path){
   if(!sd_files_is_authorized()){
     return false;
   }
 
-  if(!request_delete_(path)){
-    return false;
-  }
-
-  return request_wait_(SD_FILE_WAIT_TICKS);
-}
-
-/** Permanently delete one selected file from /processed. */
-bool sd_files_delete_processed(const char *path){
-  if(!sd_files_is_authorized()){
-    return false;
-  }
-
-  if(!request_delete_processed_(path)){
+  if(!request_archive_(path)){
     return false;
   }
 
@@ -462,13 +431,9 @@ void sd_file_ops_service(void){
     s_request_ok = (s_out_sha_verify != nullptr) &&
                    sd_storage_verify_root_recordings(s_out_sha_verify, verify_sha_progress_);
 
-  } else if(s_delete_requested){
-    s_delete_requested = false;
+  } else if(s_archive_requested){
+    s_archive_requested = false;
     s_request_ok = sd_storage_archive_to_processed(s_path);
-
-  } else if(s_delete_processed_requested){
-    s_delete_processed_requested = false;
-    s_request_ok = sd_storage_delete_processed_file(s_path);
 
   } else if(s_space_requested){
     s_space_requested = false;

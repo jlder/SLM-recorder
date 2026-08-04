@@ -582,17 +582,17 @@ Expected result:
 - `.log`, unrelated, malformed, and future `.sha` files are ignored during suffix selection.
 - A name collision or suffix exhaustion produces `SD FILE ERR`; no existing file is overwritten.
 
-### VAL-SD-005 — Web delete archives to processed folder
+### VAL-SD-005 — Web archive moves to processed folder
 
 Purpose:
 
-Confirm that Web delete preserves the file by moving it to `/processed`.
+Confirm that Web archive preserves the file by moving it to `/processed`.
 
 Procedure:
 
 1. Create or identify a recording file in the SD root.
 2. Enable WiFi and open the Web file-management page.
-3. Request delete for the file.
+3. Request archive for the file.
 4. Inspect SD card contents.
 
 Expected result:
@@ -647,11 +647,11 @@ Procedure:
 
 Expected result:
 
-- The `.log` file contains only the aligned table header `flt #  Takeoff  Landing  Flight Time` and one row per detected flight.
+- The `.log` file has no header and contains exactly one `takeoff,landing` line per detected flight.
 - View Log displays the stored text without downloading or reprocessing the `.bin`.
 - The root file list still shows recording `.bin` files rather than separate `.log` entries.
 - Archiving the `.bin` also archives the matching `.log` when present.
-- The Logbook view displays the five newest archived `.log` files and labels the scope as the last five flying days.
+- The Logbook view aggregates all per-recording logs belonging to the five newest flying days across root and `/processed`.
 
 ### VAL-SD-006 — SD maintenance access when recording is blocked
 
@@ -792,3 +792,11 @@ New immutable recording files are protected by a streaming SHA-256 calculated ov
 6. Force one member to fail and confirm successful members are not repeated and the remaining root member is retryable.
 7. Confirm each physical `.bin`/`.sha` pair is uploaded and archived independently.
 8. Confirm a legacy single appended file remains visible and processable as one daily row.
+
+### Archive/listing cleanup validation (v1.35)
+
+- Populate `/processed` beyond 50 physical files and verify recording, suffix allocation, and File Management remain available.
+- Confirm only root-level `.bin` files consume the `SD_MAX_RECORD_FILES` recording limit.
+- Verify the virtual Logbook finds per-recording logs in root and `/processed`, groups them by registration/date, retains the newest five flying days, and sorts each day by numeric suffix.
+- Confirm calibration report listing, download, and Bridge upload remain unchanged.
+- Confirm no Web endpoint or page provides complete `/processed` listing or permanent deletion.

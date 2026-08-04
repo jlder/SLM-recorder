@@ -1188,7 +1188,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
                   ok ? "{\"ok\":true}" : "{\"ok\":false,\"reason\":\"write_failed\"}");
   });
 
-  s_server->on("/api/delete", HTTP_POST, [](AsyncWebServerRequest *request){
+  s_server->on("/api/archive", HTTP_POST, [](AsyncWebServerRequest *request){
     if (!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
     WebSdBusyScope _sdscope;
     if (!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
@@ -1209,7 +1209,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
                                             : request->getParam("file", true)->value();
     String path = file;
     if(!path.startsWith("/")) path = String("/") + path;
-    bool ok = sd_files_delete(path.c_str());
+    bool ok = sd_files_archive(path.c_str());
     request->send(ok ? 200 : 403, "application/json", ok ? "{\"ok\":true,\"archived\":true}" : "{\"ok\":false}");
   });
 
@@ -1239,108 +1239,6 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(200, "application/json", out);
   });
 
-  s_server->on("/api/reports/archive", HTTP_POST, [](AsyncWebServerRequest *request){
-    if(!cal_require_auth_(request)) return;
-    if(!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
-    WebSdBusyScope _sdscope;
-    if(!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
-
-    if(!sd_files_is_authorized()){
-      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"not_authorized\"}");
-      return;
-    }
-
-    if(!request->hasParam("file") && !request->hasParam("file", true)){
-      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"missing_file\"}");
-      return;
-    }
-
-    const String file = request->hasParam("file") ? request->getParam("file")->value()
-                                                  : request->getParam("file", true)->value();
-    String path;
-    if(file.startsWith("/calibration_reports/")){
-      path = file;
-    } else if(file.indexOf('/') < 0){
-      path = String("/calibration_reports/") + file;
-    } else {
-      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"bad_path\"}");
-      return;
-    }
-
-    if((path.indexOf("..") >= 0) ||
-       (path.length() <= String("/calibration_reports/").length())){
-      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"bad_path\"}");
-      return;
-    }
-
-    const bool ok = sd_files_delete(path.c_str());
-    request->send(ok ? 200 : 500,
-                  "application/json",
-                  ok ? "{\"ok\":true,\"archived\":true}"
-                     : "{\"ok\":false,\"reason\":\"archive_failed\"}");
-  });
-
-  s_server->on("/api/processed/files", HTTP_GET, [](AsyncWebServerRequest *request){
-    if(!cal_require_auth_(request)) return;
-    if(!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
-    WebSdBusyScope _sdscope;
-    if(!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
-
-    if(!sd_files_is_authorized()){
-      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"not_authorized\"}");
-      return;
-    }
-
-    static char json[SD_FILE_LIST_JSON_MAX];
-    uint32_t out_len = 0u;
-    const bool ok = sd_files_list_json("/processed", json, sizeof(json), &out_len);
-    if(!ok){
-      request->send(500, "application/json", "{\"ok\":false,\"reason\":\"sd_list_failed\"}");
-      return;
-    }
-
-    String out = String("{\"ok\":true,\"files\":") + String(json) + String("}");
-    request->send(200, "application/json", out);
-  });
-
-  s_server->on("/api/processed/delete", HTTP_POST, [](AsyncWebServerRequest *request){
-    if(!cal_require_auth_(request)) return;
-    if(!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
-    WebSdBusyScope _sdscope;
-    if(!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
-
-    if(!sd_files_is_authorized()){
-      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"not_authorized\"}");
-      return;
-    }
-
-    if(!request->hasParam("file") && !request->hasParam("file", true)){
-      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"missing_file\"}");
-      return;
-    }
-
-    const String file = request->hasParam("file") ? request->getParam("file")->value()
-                                                  : request->getParam("file", true)->value();
-    String path;
-    if(file.startsWith("/processed/")){
-      path = file;
-    } else if(file.indexOf('/') < 0){
-      path = String("/processed/") + file;
-    } else {
-      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"bad_path\"}");
-      return;
-    }
-
-    if((path.indexOf("..") >= 0) || (path.length() <= String("/processed/").length())){
-      request->send(400, "application/json", "{\"ok\":false,\"reason\":\"bad_path\"}");
-      return;
-    }
-
-    const bool ok = sd_files_delete_processed(path.c_str());
-    request->send(ok ? 200 : 500,
-                  "application/json",
-                  ok ? "{\"ok\":true,\"deleted\":true}" : "{\"ok\":false,\"reason\":\"delete_failed\"}");
-  });
 
   s_server->on("/api/cal/auth", HTTP_POST, [](AsyncWebServerRequest *request){
     String password = "";

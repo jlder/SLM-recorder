@@ -9,7 +9,7 @@
 
 R"rawliteral(        <!-- Protected maintenance area. JavaScript switches between this login panel and the unlocked menu. -->
         <div id="maintenanceSection" class="hidden section">
-            <!-- Registration/password gate for calibration, support, delete, report, and OTA actions. -->
+            <!-- Registration/password gate for calibration, support, report, and OTA actions. -->
             <div id="calAuthPanel" class="card">
                 <h2>Maintenance Access</h2>
                 <p><b>Maintenance is restricted.</b> Enter the password to unlock maintenance functions.</p>
