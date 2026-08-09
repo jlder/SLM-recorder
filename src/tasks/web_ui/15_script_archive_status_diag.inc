@@ -86,7 +86,20 @@ R"rawliteral(        function delayMs(ms) {
                     } else {
                         badge.innerHTML = '';
                     }
+                    updateUsbRequiredButtons(data);
                 });
+        }
+
+        // Recorder calibration is the only Web workflow intentionally allowed
+        // while the recorder is battery powered. Keep the navigation visible
+        // but grey the USB-powered functions so the requirement is obvious.
+        function updateUsbRequiredButtons(data) {
+            const usbAvailable = !!(data && data.usb_present_valid && data.usb_present);
+            ['btnHomeFiles', 'btnHomeLogbook', 'btnMenuInstallCal',
+             'btnMenuReport', 'btnMenuFirmware', 'btnMenuAbout'].forEach(id => {
+                const button = document.getElementById(id);
+                if (button) button.disabled = !usbAvailable;
+            });
         }
 
         // Apply the amber required-action cue without overriding disabled or Cancel behavior.

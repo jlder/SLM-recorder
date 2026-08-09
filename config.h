@@ -48,6 +48,11 @@
 #define AP_SUBNET                    IPAddress(255, 255, 255, 0)
 #define WEB_SINGLE_CLIENT_TIMEOUT_MS 60000
 #define WEB_SD_BUSY_STALE_MS         30000u
+// WiFi is normally a USB-powered maintenance mode. Recorder calibration is
+// the only supported battery-powered Web workflow. If WiFi remains enabled on
+// battery while recorder calibration is not active, shut the recorder down
+// after this grace period so an unattended recorder cannot discharge itself.
+#define WIFI_BATTERY_IDLE_SHUTDOWN_MS 180000u
 
 
 // Browser-side flight-time analysis parameters.
@@ -164,7 +169,7 @@
 // Hardware version identifies the recorder hardware configuration.
 // Software version identifies the firmware build.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.41"
+#define RECORDER_SOFTWARE_VERSION      "1.42"
 #define RECORDER_VERSION_TEXT          "sw ver " RECORDER_SOFTWARE_VERSION "\nhw ver " RECORDER_HARDWARE_VERSION
 
 // Storage / SD

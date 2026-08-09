@@ -19,8 +19,8 @@ R"rawliteral(<body>
         <div id="homeSection" class="section">
             <h2>Main Menu</h2>
             <div class="button-grid main-menu-grid">
-                <button class="btn btn-primary" onclick="openFilesPage()">File Management</button>
-                <button class="btn btn-primary" onclick="openLogbookPage()">Logbook</button>
+                <button class="btn btn-primary" id="btnHomeFiles" onclick="openFilesPage()">File Management</button>
+                <button class="btn btn-primary" id="btnHomeLogbook" onclick="openLogbookPage()">Logbook</button>
                 <button class="btn btn-primary" id="btnHomeMaintenance" onclick="openMaintenancePage()">Maintenance</button>
             </div>
         </div>

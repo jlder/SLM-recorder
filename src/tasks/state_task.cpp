@@ -591,6 +591,13 @@ static void state_task_main(void *arg){
   static bool s_ready_usb_prev_present = false;
   static bool s_ready_usb_prev_valid = false;
 
+  // Battery-powered WiFi is permitted only to support recorder calibration.
+  // The timer runs while WiFi is enabled, USB is known absent, and no recorder
+  // calibration session is active. An active calibration clears the timer so
+  // a fresh full grace period starts when calibration ends.
+  static bool s_wifi_battery_idle_timer_active = false;
+  static uint32_t s_wifi_battery_idle_since_ms = 0u;
+
   // One-time state-task runtime initialization.  This establishes the
   // state-task-owned status snapshot and resets services coordinated here
   // before the periodic state machine starts.
@@ -784,6 +791,8 @@ static void state_task_main(void *arg){
           update_usb_status_snapshot();
           s_ready_usb_prev_present = s_st.usb_present;
           s_ready_usb_prev_valid = s_st.usb_present_valid;
+          s_wifi_battery_idle_timer_active = false;
+          s_wifi_battery_idle_since_ms = 0u;
 
           // Initialize hold-based button detectors for READY semantics.
           // READY uses record-start hold, clear-settings gesture detection,
@@ -883,10 +892,38 @@ static void state_task_main(void *arg){
 
         const bool trig_pwr  = (test_power_button(POWER_SHUTDOWN_HOLD_MS) == true);
 
-        // USB removal powers the recorder down only from normal READY.
-        // When WiFi/Web access is active, USB can be intentionally removed
-        // while file management or maintenance actions are in progress; in
-        // that READY special case the recorder shall stay powered.
+        // WiFi on battery is a special recorder-calibration mode. All other
+        // Web maintenance functions require USB power at their HTTP/API gate.
+        // If WiFi is left on without an active recorder calibration, shut down
+        // after the configured grace period. Installation calibration does not
+        // inhibit this timer because it is a USB-powered maintenance function.
+        const bool wifi_on_battery =
+            wifi_active &&
+            s_st.usb_present_valid &&
+            (!s_st.usb_present);
+        const bool recorder_calibration_active = calibration_session_active();
+
+        if(wifi_on_battery && (!recorder_calibration_active)){
+          if(!s_wifi_battery_idle_timer_active){
+            s_wifi_battery_idle_timer_active = true;
+            s_wifi_battery_idle_since_ms = now;
+          } else if(((uint32_t)(now - s_wifi_battery_idle_since_ms)) >=
+                    (uint32_t)WIFI_BATTERY_IDLE_SHUTDOWN_MS){
+            ready_exit_cleanup();
+            state_set(ST_OFF);
+            break;
+          }
+        } else {
+          // USB power, WiFi OFF, or active recorder calibration all cancel the
+          // battery-WiFi idle timer. When calibration later ends, a new full
+          // grace period starts.
+          s_wifi_battery_idle_timer_active = false;
+          s_wifi_battery_idle_since_ms = 0u;
+        }
+
+        // USB removal powers the recorder down immediately only from normal
+        // READY. When WiFi/Web is active, the battery-WiFi rule above owns the
+        // shutdown timing so recorder calibration can continue on battery.
         const bool trig_usb_shutdown = trig_usb && (!wifi_active);
 
         if(trig_usb_shutdown || trig_pwr){

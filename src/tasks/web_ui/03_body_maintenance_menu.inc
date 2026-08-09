@@ -36,9 +36,9 @@ R"rawliteral(        <!-- Protected maintenance area. JavaScript switches betwee
                         <div class="small mono last-cal-date" id="installationCalDate">-</div>
                         <div class="small mono last-cal-date" id="installationCalTime">-</div>
                     </div>
-                    <button class="btn btn-primary" onclick="openReportPage()">Report Management</button>
-                    <button class="btn btn-primary" onclick="openOtaPage()">Firmware Update</button>
-                    <button class="btn btn-primary" onclick="openHealthPage()">About</button>
+                    <button class="btn btn-primary" id="btnMenuReport" onclick="openReportPage()">Report Management</button>
+                    <button class="btn btn-primary" id="btnMenuFirmware" onclick="openOtaPage()">Firmware Update</button>
+                    <button class="btn btn-primary" id="btnMenuAbout" onclick="openHealthPage()">About</button>
                     <button class="btn btn-return" onclick="showHome()">Return</button>
                 </div>
             </div>

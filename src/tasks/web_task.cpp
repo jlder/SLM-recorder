@@ -400,9 +400,31 @@ static void ota_set_error_(const char *reason){
  * Inputs: None.
  * Returns: `true` when USB power is present.
  */
-static bool ota_usb_allowed_(void){
+static bool web_usb_allowed_(void){
   const system_status_t st = state_task_get_status();
   return st.usb_present_valid && st.usb_present;
+}
+
+/**
+ * Reject a Web maintenance action when external USB power is unavailable.
+ *
+ * Recorder calibration endpoints deliberately do not call this helper because
+ * recorder calibration is the single supported battery-powered Web workflow.
+ * Status/diagnostic endpoints also remain readable so the Web UI and Bridge
+ * can stay connected while the recorder is in calibration mode.
+ *
+ * Inputs: `request`.
+ * Returns: `true` when the action may continue, `false` after sending the
+ *          standard USB-required response.
+ */
+static bool web_require_usb_(AsyncWebServerRequest *request){
+  if(web_usb_allowed_()){
+    return true;
+  }
+  if(request != nullptr){
+    request->send(409, "application/json", "{\"ok\":false,\"reason\":\"usb_required\"}");
+  }
+  return false;
 }
 
 /**
@@ -833,7 +855,7 @@ static void register_routes(){
           return;
         }
 
-        if(!ota_usb_allowed_()){
+        if(!web_usb_allowed_()){
           ota_set_error_("usb_required");
           return;
         }
@@ -890,11 +912,13 @@ static void register_routes(){
   s_server->on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
     const system_status_t st = state_task_get_status();
     const bool recording = (st.state == ST_RECORDING) || (st.state == ST_STARTING) || (st.state == ST_STOPPING);
-    char buf[128];
+    char buf[192];
     const int n = snprintf(buf, sizeof(buf),
-                           "{\"battery\":%u,\"recording\":%s}",
+                           "{\"battery\":%u,\"recording\":%s,\"usb_present_valid\":%s,\"usb_present\":%s}",
                            (unsigned)(st.battery_percent_valid ? st.battery_percent : 0u),
-                           recording ? "true" : "false");
+                           recording ? "true" : "false",
+                           st.usb_present_valid ? "true" : "false",
+                           (st.usb_present_valid && st.usb_present) ? "true" : "false");
     if(!web_snprintf_ok_(n, sizeof(buf))){
       request->send(500, "application/json", "{\"error\":\"format_failed\"}");
       return;
@@ -965,6 +989,7 @@ static void register_routes(){
   });
 
   s_server->on("/api/files", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if (!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
     WebSdBusyScope _sdscope;
     if (!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
@@ -987,6 +1012,7 @@ static void register_routes(){
 });
 
   s_server->on("/api/logbook/files", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if (!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
     WebSdBusyScope _sdscope;
     if (!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
@@ -1030,6 +1056,7 @@ struct WebDownloadCtx {
 };
 
 s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if (!web_single_client_allow(request)) {
       request->send(409, "text/plain", "BUSY");
       return;
@@ -1144,6 +1171,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   // the recorder derives the .log name and accepts only root-level recording
   // basenames so this endpoint cannot write arbitrary SD paths.
   s_server->on("/api/flightlog", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if(!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
     WebSdBusyScope _sdscope;
     if(!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
@@ -1189,6 +1217,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   });
 
   s_server->on("/api/archive", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if (!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
     WebSdBusyScope _sdscope;
     if (!_sdscope.engaged) { request->send(409, "text/plain", "BUSY"); return; }
@@ -1217,6 +1246,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
 
 
   s_server->on("/api/reports/files", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if(!cal_require_auth_(request)) return;
     if(!web_single_client_allow(request)) { request->send(409, "text/plain", "BUSY"); return; }
     WebSdBusyScope _sdscope;
@@ -1276,6 +1306,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   });
 
   s_server->on("/api/cal/support_verify_recordings", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if(!cal_require_auth_(request)) return;
 
     String password = "";
@@ -1566,6 +1597,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   });
 
   s_server->on("/api/cal/export", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if(!cal_require_auth_(request)) return;
 
     String password = "";
@@ -1671,6 +1703,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   });
 
   s_server->on("/api/cal/report/installation/latest", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if(!cal_require_auth_(request)) return;
 
     if(!web_single_client_allow(request)){
@@ -1755,6 +1788,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
 
 
   s_server->on("/api/cal/support_generate_reports", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if(!cal_require_auth_(request)) return;
 
     String password = "";
@@ -1854,6 +1888,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   });
 
   s_server->on("/api/cal/support_clear", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if(!cal_require_auth_(request)) return;
     String password = "";
     if(request->hasParam("support", true)){
@@ -1875,6 +1910,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
 
 
   s_server->on("/api/install/support_clear", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if(!cal_require_auth_(request)) return;
     String password = "";
     if(request->hasParam("support", true)){
@@ -1896,6 +1932,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
 
 
   s_server->on("/api/install/start", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if(!cal_require_auth_(request)) return;
     const system_status_t st = state_task_get_status();
     const bool recording = (st.state == ST_RECORDING) || (st.state == ST_STARTING) || (st.state == ST_STOPPING);
@@ -1909,12 +1946,14 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   });
 
   s_server->on("/api/install/cancel", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if(!cal_require_auth_(request)) return;
     calibration_installation_session_cancel();
     request->send(200, "application/json", "{\"ok\":true}");
   });
 
   s_server->on("/api/install/sample", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if(!cal_require_auth_(request)) return;
     installation_calibration_status_t st = {};
     if(!calibration_installation_session_get_status(&st)){
@@ -1969,6 +2008,7 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
   });
 
   s_server->on("/api/install/save", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
     if(!cal_require_auth_(request)) return;
 
     String reason_text = "";
