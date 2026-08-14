@@ -773,6 +773,14 @@ Verify that installation calibration workflow text instructs the operator to put
 
 Verify that the support-only About page action generates recorder and installation calibration report files from valid NVS calibration data without starting a calibration session or modifying stored calibration records. Confirm the generated reports explicitly state that their source is stored NVS calibration data.
 
+## VAL-CAL-008 — Restore installation calibration after recorder replacement
+
+1. Configure date, time, and a known registration on a recorder with no installation calibration in NVS.
+2. Place valid and rejected installation-calibration reports for that registration across `/calibration_reports` and `/processed`, including a newer rejected report and an older accepted report.
+3. Use About > Restore Installation Calibration and confirm the newest valid matching report is selected while rejected and wrong-registration reports are skipped.
+4. Restart and confirm the installation calibration timestamp, mean, standard deviations, and 3 x 3 matrix match the selected report.
+5. Confirm recorder sensor calibration remains independently required on replacement hardware and recording is not authorized until it is valid.
+
 ### VAL-OTA-002 — Firmware from server through SLM Bridge
 
 Validation shall verify that the recorder Firmware page can request firmware from the bridge without changing the recorder OTA endpoint behavior. Test with a recorder-specific `<registration>/FIRMWARE` folder containing at least one application `.bin`, then with that folder absent or empty to confirm fallback to `SLM-STC-DATA/FIRMWARE`. Confirm that USB power is still required and that the recorder rejects the upload if USB power is absent.
@@ -792,6 +800,21 @@ New immutable recording files are protected by a streaming SHA-256 calculated ov
 6. Force one member to fail and confirm successful members are not repeated and the remaining root member is retryable.
 7. Confirm each physical `.bin`/`.sha` pair is uploaded and archived independently.
 8. Confirm a legacy single appended file remains visible and processable as one daily row.
+
+### Daily processing state/result validation (v1.44)
+
+1. Press Process for a day containing multiple physical files and confirm the analysis status shows only `Processing.` until the complete selected day has finished.
+2. Confirm a final flight count is shown only after all selected physical files complete, and `No flight detected` appears only when the completed day contains no detected flights.
+3. Inject Android transfer events for the same recording using basename, leading-slash, and `/processed/` filename forms and confirm they update one common Process state rather than creating independent locks.
+4. Reload/reconnect while a Bridge transfer is queued and confirm the restored durable state keeps the corresponding day inactive instead of presenting a false blue Process action.
+5. Force a Bridge transfer failure and a browser analysis failure and confirm the daily sequence is released, Process becomes retryable, and the analysis panel shows an actionable failure message rather than remaining at `Processing.`. In the Android case confirm the message tells the operator to check Recorder and Server connectivity and the Bridge file queue before retrying.
+
+### Web USB-power gating validation (v1.44)
+
+1. With USB absent, confirm File Management and Logbook are grey and Maintenance remains reachable. Confirm the Main Menu displays `USB power required.` and explains that USB power is required for all recorder functions except Recorder Calibration.
+2. Connect USB and confirm the buttons become active and the USB-power-required message disappears after the next status refresh.
+3. Confirm changing or reinserting the SD card has no effect on this power gating.
+4. With USB physically present, verify `/api/status` reports both `usb_present_valid: true` and `usb_present: true`; if either remains false, investigate PMU/USB detection rather than the SD subsystem.
 
 ### Archive/listing cleanup validation (v1.35)
 

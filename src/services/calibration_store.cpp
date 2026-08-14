@@ -299,7 +299,7 @@ static bool calibration_store_save_sensor_key_(const char *key, const sensor_cal
 }
 
 
-static bool calibration_store_save_installation_(const installation_calibration_t *installation){
+bool calibration_store_save_installation(const installation_calibration_t *installation){
   if((installation == nullptr) || !installation->valid || !s_cal_storage_ready){
     return false;
   }
@@ -428,7 +428,7 @@ bool calibration_store_save_latest(const calibration_record_t *rec){
   }
 
   if(rec->installation.valid){
-    if(!calibration_store_save_installation_(&rec->installation)){
+    if(!calibration_store_save_installation(&rec->installation)){
       return false;
     }
   }

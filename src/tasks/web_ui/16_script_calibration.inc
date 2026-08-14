@@ -468,6 +468,44 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                 .catch(err => aboutStatus('Calibration report generation error: ' + err));
         }
 
+        function supportRestoreInstallationCalibration() {
+            if (!requireAboutAuthorization()) return;
+            if (!confirm('Restore the most recent valid installation calibration for this registration from the SD card?\n\nThis overwrites only the installation calibration. The replacement recorder must still have its recorder calibration performed.')) return;
+
+            const button = document.getElementById('btnRestoreInstallationCalibration');
+            if (button) button.disabled = true;
+            aboutStatus('Searching SD card for the most recent valid installation calibration...');
+
+            postJson('/api/install/support_restore?support=' +
+                encodeURIComponent(aboutSupportCode))
+                .then(res => {
+                    if (handleAboutAuthorizationError(res)) return;
+                    if (res.ok && res.json && res.json.restored) {
+                        const source = res.json.source || 'installation calibration report';
+                        const when = res.json.calibration_time || '-';
+                        aboutStatus('Installation calibration restored from ' + source + '. Recorder restarting...');
+                        alert('Installation calibration restored.\n\nSource: ' + source +
+                              '\nCalibration date/time: ' + when +
+                              '\n\nThe recorder will restart. Perform the recorder calibration on the replacement recorder.');
+                    } else {
+                        let reason = (res.json && res.json.reason) ? res.json.reason : 'restore_failed';
+                        if (reason === 'no_installation_report') {
+                            reason = 'No installation calibration report was found for the configured registration.';
+                        } else if (reason === 'no_valid_installation_report') {
+                            reason = 'No valid installation calibration report matching the configured registration was found.';
+                        }
+                        aboutStatus('Installation calibration restore failed: ' + reason);
+                        alert('Installation calibration restore failed.\n\n' + reason);
+                        if (button) button.disabled = false;
+                    }
+                })
+                .catch(err => {
+                    aboutStatus('Installation calibration restore error: ' + err);
+                    alert('Installation calibration restore error.');
+                    if (button) button.disabled = false;
+                });
+        }
+
         function queueGeneratedCalibrationReport(path) {
             if (!path || !window.SLMAndroid ||
                 typeof window.SLMAndroid.queueCalibrationReport !== 'function') return false;

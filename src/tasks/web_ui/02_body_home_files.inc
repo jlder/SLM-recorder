@@ -23,6 +23,10 @@ R"rawliteral(<body>
                 <button class="btn btn-primary" id="btnHomeLogbook" onclick="openLogbookPage()">Logbook</button>
                 <button class="btn btn-primary" id="btnHomeMaintenance" onclick="openMaintenancePage()">Maintenance</button>
             </div>
+            <div id="usbPowerRequiredMessage" class="analysis-window hidden">
+                <b>USB power required.</b><br>
+                Connect USB power to use all recorder functions except Recorder Calibration.
+            </div>
         </div>
 
         <!-- Logbook combines the stored analysis logs for the last five flying days of downloaded recordings. -->

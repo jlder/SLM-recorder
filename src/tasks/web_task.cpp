@@ -15,6 +15,7 @@
 #include <Arduino.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 #include <WiFi.h>
 #include <new>
@@ -28,6 +29,7 @@
 #include "src/services/sd_files.h" // authorization gate for file ops
 #include "src/services/task_helpers.h"
 #include "src/services/calibration_service.h"
+#include "src/services/calibration_store.h"
 #include "src/services/calibration_report_service.h"
 #include "src/services/watchdog_service.h"
 
@@ -53,6 +55,7 @@ static bool s_started = false;
 static volatile bool s_ota_active = false;
 static volatile bool s_ota_ok = false;
 static volatile bool s_ota_reboot_pending = false;
+static volatile bool s_support_reboot_pending = false;
 static char s_ota_error[48] = "";
 
 
@@ -208,6 +211,265 @@ static void web_json_append_escaped_(String& out, const char *value){
       out += (char)c;
     }
   }
+}
+
+/** Sanitize registration exactly as calibration report filenames do. */
+static bool web_calibration_report_registration_(char *out, size_t out_len){
+  if((out == nullptr) || (out_len == 0u)){
+    return false;
+  }
+
+  settings_t st = {};
+  if((!settings_get(&st)) || (st.registration[0] == '\0')){
+    out[0] = '\0';
+    return false;
+  }
+
+  size_t j = 0u;
+  for(size_t i = 0u; (st.registration[i] != '\0') && (j + 1u < out_len); ++i){
+    const char c = st.registration[i];
+    const bool ok = ((c >= 'A') && (c <= 'Z')) ||
+                    ((c >= 'a') && (c <= 'z')) ||
+                    ((c >= '0') && (c <= '9')) ||
+                    (c == '-') || (c == '_');
+    out[j++] = ok ? c : '_';
+  }
+  out[j] = '\0';
+  return j > 0u;
+}
+
+/** Extract file names from the compact JSON returned by sd_files_list_json(). */
+static uint32_t web_sd_list_names_(const char *json,
+                                   char names[][FILENAME_MAX_LENGTH],
+                                   uint32_t max_names){
+  if((json == nullptr) || (names == nullptr) || (max_names == 0u)){
+    return 0u;
+  }
+
+  static const char token[] = "\"name\":\"";
+  const size_t token_len = sizeof(token) - 1u;
+  const char *p = json;
+  uint32_t count = 0u;
+
+  while((count < max_names) && ((p = strstr(p, token)) != nullptr)){
+    p += token_len;
+    const char *end = strchr(p, '"');
+    if(end == nullptr){
+      break;
+    }
+
+    const size_t len = (size_t)(end - p);
+    if((len > 0u) && (len < (size_t)FILENAME_MAX_LENGTH)){
+      memcpy(names[count], p, len);
+      names[count][len] = '\0';
+      ++count;
+    }
+    p = end + 1;
+  }
+
+  return count;
+}
+
+/** Read one small report text through the existing SD-task download path. */
+static bool web_read_sd_text_(const char *path, String& out){
+  static const uint32_t INSTALL_REPORT_MAX_BYTES = 8192u;
+  out = "";
+
+  uint32_t size = 0u;
+  if(!sd_files_download_begin(path, &size)){
+    return false;
+  }
+
+  bool ok = (size > 0u) && (size <= INSTALL_REPORT_MAX_BYTES);
+  if(ok){
+    (void)out.reserve(size + 1u);
+    uint32_t total = 0u;
+    char chunk[257];
+    while(total < size){
+      const uint32_t want = ((size - total) < 256u) ? (size - total) : 256u;
+      uint32_t got = 0u;
+      if(!sd_files_download_read((uint8_t *)chunk, want, &got) || (got == 0u)){
+        ok = false;
+        break;
+      }
+      chunk[got] = '\0';
+      out += chunk;
+      total += got;
+    }
+    if(total != size){
+      ok = false;
+    }
+  }
+
+  if(!sd_files_download_end()){
+    ok = false;
+  }
+  if(!ok){
+    out = "";
+  }
+  return ok;
+}
+
+/** Return the trimmed value following one marker on its report line. */
+static bool web_report_line_value_(const String& text,
+                                   const char *marker,
+                                   int from,
+                                   String& out){
+  if(marker == nullptr){
+    return false;
+  }
+  const int pos = text.indexOf(marker, from);
+  if(pos < 0){
+    return false;
+  }
+  const int start = pos + (int)strlen(marker);
+  int end = text.indexOf('\n', start);
+  if(end < 0){
+    end = (int)text.length();
+  }
+  out = text.substring(start, end);
+  out.trim();
+  return out.length() > 0u;
+}
+
+static bool web_parse_install_vec_(const String& line, calibration_vec_t *out){
+  if(out == nullptr){
+    return false;
+  }
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+  if(sscanf(line.c_str(), "X=%f mg, Y=%f mg, Z=%f mg", &x, &y, &z) != 3){
+    return false;
+  }
+  if((!isfinite(x)) || (!isfinite(y)) || (!isfinite(z))){
+    return false;
+  }
+  out->x_mg = x;
+  out->y_mg = y;
+  out->z_mg = z;
+  return true;
+}
+
+static bool web_parse_install_datetime_(const String& line, rtc_datetime_t *out){
+  if(out == nullptr){
+    return false;
+  }
+  unsigned int year = 0u, month = 0u, day = 0u;
+  unsigned int hour = 0u, minute = 0u, second = 0u;
+  if(sscanf(line.c_str(), "%u-%u-%u %u:%u:%u",
+            &year, &month, &day, &hour, &minute, &second) != 6){
+    return false;
+  }
+  if((year < 2000u) || (year > 2099u) ||
+     (month < 1u) || (month > 12u) ||
+     (day < 1u) || (day > 31u) ||
+     (hour > 23u) || (minute > 59u) || (second > 59u)){
+    return false;
+  }
+  out->year = (uint16_t)year;
+  out->month = (uint8_t)month;
+  out->day = (uint8_t)day;
+  out->hour = (uint8_t)hour;
+  out->min = (uint8_t)minute;
+  out->sec = (uint8_t)second;
+  return true;
+}
+
+/** Parse a valid SLM installation report into the existing runtime NVS structure. */
+static bool web_parse_installation_report_(const String& text,
+                                           const char *registration,
+                                           installation_calibration_t *out){
+  if((registration == nullptr) || (registration[0] == '\0') || (out == nullptr)){
+    return false;
+  }
+
+  const bool normal_report = text.startsWith(
+      "Structural Life Monitoring - Installation Calibration Report");
+  const bool stored_report = text.startsWith(
+      "Structural Life Monitoring - Stored Installation Calibration Report");
+  if((!normal_report) && (!stored_report)){
+    return false;
+  }
+
+  String value;
+  if(!web_report_line_value_(text, "Glider registration: ", 0, value) ||
+     (value != String(registration))){
+    return false;
+  }
+
+  String status;
+  if(!web_report_line_value_(text, "Status: ", 0, status)){
+    return false;
+  }
+
+  const char *section_title = nullptr;
+  if(normal_report && (status == "ACCEPTED")){
+    section_title = "Candidate installation calibration from this attempt:";
+  } else if(stored_report && (status == "STORED VALID CALIBRATION")){
+    section_title = "Stored installation calibration:";
+  } else {
+    return false;
+  }
+
+  const int section = text.indexOf(section_title);
+  if(section < 0){
+    return false;
+  }
+
+  installation_calibration_t parsed = {};
+  if(!web_report_line_value_(text, "  Date/time: ", section, value) ||
+     !web_parse_install_datetime_(value, &parsed.timestamp)){
+    return false;
+  }
+  if(!web_report_line_value_(text, "  Mean: ", section, value) ||
+     !web_parse_install_vec_(value, &parsed.mean_mg)){
+    return false;
+  }
+  if(!web_report_line_value_(text, "  Stddev: ", section, value) ||
+     !web_parse_install_vec_(value, &parsed.stddev_mg)){
+    return false;
+  }
+  if((parsed.stddev_mg.x_mg < 0.0f) ||
+     (parsed.stddev_mg.y_mg < 0.0f) ||
+     (parsed.stddev_mg.z_mg < 0.0f)){
+    return false;
+  }
+
+  const int matrix_marker = text.indexOf("  Matrix:", section);
+  if(matrix_marker < 0){
+    return false;
+  }
+  int row_start = text.indexOf('\n', matrix_marker);
+  if(row_start < 0){
+    return false;
+  }
+  ++row_start;
+
+  for(uint32_t row = 0u; row < 3u; ++row){
+    int row_end = text.indexOf('\n', row_start);
+    if(row_end < 0){
+      row_end = (int)text.length();
+    }
+    String row_text = text.substring(row_start, row_end);
+    row_text.trim();
+
+    float a = 0.0f, b = 0.0f, c = 0.0f;
+    if(sscanf(row_text.c_str(), "%f %f %f", &a, &b, &c) != 3){
+      return false;
+    }
+    if((!isfinite(a)) || (!isfinite(b)) || (!isfinite(c))){
+      return false;
+    }
+    parsed.matrix[(row * 3u) + 0u] = a;
+    parsed.matrix[(row * 3u) + 1u] = b;
+    parsed.matrix[(row * 3u) + 2u] = c;
+    row_start = row_end + 1;
+  }
+
+  parsed.valid = true;
+  *out = parsed;
+  return true;
 }
 
 /** Send a JSON response that browsers and intermediaries must not cache. */
@@ -1887,6 +2149,132 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(200, "application/json", out);
   });
 
+  s_server->on("/api/install/support_restore", HTTP_POST, [](AsyncWebServerRequest *request){
+    if(!web_require_usb_(request)) return;
+    if(!cal_require_auth_(request)) return;
+
+    String password = "";
+    if(request->hasParam("support", true)){
+      password = request->getParam("support", true)->value();
+    } else if(request->hasParam("support")){
+      password = request->getParam("support")->value();
+    }
+    if(!cal_support_password_matches_(password)){
+      request->send(403, "application/json", "{\"ok\":false,\"reason\":\"bad_support_code\"}");
+      return;
+    }
+
+    if(!web_single_client_allow(request)){
+      request->send(409, "application/json", "{\"ok\":false,\"reason\":\"busy\"}");
+      return;
+    }
+
+    WebSdBusyScope sd_scope;
+    if(!sd_scope.engaged){
+      request->send(409, "application/json", "{\"ok\":false,\"reason\":\"sd_busy\"}");
+      return;
+    }
+
+    settings_t st = {};
+    if((!settings_get(&st)) || (st.registration[0] == '\0')){
+      request->send(409, "application/json", "{\"ok\":false,\"reason\":\"registration_required\"}");
+      return;
+    }
+
+    char report_registration[32];
+    if(!web_calibration_report_registration_(report_registration, sizeof(report_registration))){
+      request->send(409, "application/json", "{\"ok\":false,\"reason\":\"registration_required\"}");
+      return;
+    }
+
+    char virtual_path[SD_STORAGE_PATH_MAX];
+    const int virtual_len = snprintf(virtual_path, sizeof(virtual_path),
+                                     "/install_restore/%s", report_registration);
+    if((virtual_len <= 0) || ((size_t)virtual_len >= sizeof(virtual_path))){
+      request->send(500, "application/json", "{\"ok\":false,\"reason\":\"registration_too_long\"}");
+      return;
+    }
+
+    static char list_json[SD_FILE_LIST_JSON_MAX];
+    uint32_t list_len = 0u;
+    if(!sd_files_list_json(virtual_path, list_json, sizeof(list_json), &list_len)){
+      request->send(500, "application/json", "{\"ok\":false,\"reason\":\"sd_list_failed\"}");
+      return;
+    }
+
+    static char report_names[SD_MAX_RECORD_FILES][FILENAME_MAX_LENGTH];
+    const uint32_t report_count = web_sd_list_names_(list_json,
+                                                     report_names,
+                                                     (uint32_t)SD_MAX_RECORD_FILES);
+    if(report_count == 0u){
+      request->send(404, "application/json", "{\"ok\":false,\"reason\":\"no_installation_report\"}");
+      return;
+    }
+
+    installation_calibration_t restored = {};
+    char selected_path[SD_STORAGE_PATH_MAX] = {};
+    bool found = false;
+
+    // sd_storage_list_json() returns names in ascending order. Search newest
+    // first, and for each report name check its pending and archived locations.
+    for(uint32_t n = report_count; (n > 0u) && (!found); --n){
+      const char *name = report_names[n - 1u];
+      static const char *dirs[] = {"/calibration_reports", "/processed"};
+
+      for(uint32_t d = 0u; d < 2u; ++d){
+        char path[SD_STORAGE_PATH_MAX];
+        const int path_len = snprintf(path, sizeof(path), "%s/%s", dirs[d], name);
+        if((path_len <= 0) || ((size_t)path_len >= sizeof(path))){
+          continue;
+        }
+
+        String report_text;
+        if(!web_read_sd_text_(path, report_text)){
+          continue;
+        }
+
+        installation_calibration_t candidate = {};
+        if(web_parse_installation_report_(report_text, st.registration, &candidate)){
+          restored = candidate;
+          strlcpy(selected_path, path, sizeof(selected_path));
+          found = true;
+          break;
+        }
+      }
+    }
+
+    if(!found){
+      request->send(404, "application/json", "{\"ok\":false,\"reason\":\"no_valid_installation_report\"}");
+      return;
+    }
+
+    if(!calibration_store_save_installation(&restored)){
+      request->send(500, "application/json", "{\"ok\":false,\"reason\":\"nvs_write_failed\"}");
+      return;
+    }
+
+    char calibration_time[32];
+    snprintf(calibration_time, sizeof(calibration_time), "%04u-%02u-%02u %02u:%02u:%02u",
+             (unsigned int)restored.timestamp.year,
+             (unsigned int)restored.timestamp.month,
+             (unsigned int)restored.timestamp.day,
+             (unsigned int)restored.timestamp.hour,
+             (unsigned int)restored.timestamp.min,
+             (unsigned int)restored.timestamp.sec);
+
+    String out = "{\"ok\":true,\"restored\":true,\"source\":\"";
+    web_json_append_escaped_(out, selected_path);
+    out += "\",\"calibration_time\":\"";
+    web_json_append_escaped_(out, calibration_time);
+    out += "\",\"restarting\":true}";
+    request->send(200, "application/json", out);
+
+    // Reload the restored independent installation NVS record through the
+    // normal initialization path before any further calibration or recording.
+    s_support_reboot_pending = true;
+  });
+
+
   s_server->on("/api/cal/support_clear", HTTP_POST, [](AsyncWebServerRequest *request){
     if(!web_require_usb_(request)) return;
     if(!cal_require_auth_(request)) return;
@@ -2243,7 +2631,7 @@ static void web_task_loop(void *arg){
       stop_ap_and_server();
       watchdog_kick(WD_WEB);
     }
-    if(s_ota_reboot_pending){
+    if(s_ota_reboot_pending || s_support_reboot_pending){
       vTaskDelay(pdMS_TO_TICKS(500));
       ESP.restart();
     }

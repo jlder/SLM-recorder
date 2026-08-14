@@ -54,6 +54,9 @@ bool calibration_store_load_candidate(calibration_record_t *out);
 bool calibration_store_save_candidate(const calibration_record_t *rec);
 bool calibration_store_load_installation(installation_calibration_t *out);
 
+/** Save one valid installation calibration to the independent installation NVS record. */
+bool calibration_store_save_installation(const installation_calibration_t *installation);
+
 /**
  * Return the stored calibration-fault latch.
  *

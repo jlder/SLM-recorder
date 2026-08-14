@@ -1427,12 +1427,22 @@ bool sd_storage_list_json(const char *dir_path, char *out_json, uint32_t out_cap
   }
 
   // Only actionable root recordings, calibration reports, and the virtual
-  // logbook view are exposed. /processed is an immutable archive and is not
-  // listed through the Web interface.
+  // logbook view are exposed. /processed remains hidden from normal Web
+  // listings. The /install_restore/<registration> virtual view is support-only
+  // and returns matching installation-calibration report names found in both
+  // /calibration_reports and /processed.
   const bool list_root = (strcmp(dir, "/") == 0);
   const bool list_reports = (strcmp(dir, "/calibration_reports") == 0);
   const bool list_logbook = (strcmp(dir, "/logbook") == 0);
-  if((!list_root) && (!list_reports) && (!list_logbook)){
+  static const char install_restore_prefix[] = "/install_restore/";
+  const size_t install_restore_prefix_len = sizeof(install_restore_prefix) - 1u;
+  const bool list_install_restore =
+      (strncmp(dir, install_restore_prefix, install_restore_prefix_len) == 0) &&
+      (dir[install_restore_prefix_len] != '\0') &&
+      (strchr(dir + install_restore_prefix_len, '/') == nullptr);
+  const char *install_restore_registration =
+      list_install_restore ? (dir + install_restore_prefix_len) : nullptr;
+  if((!list_root) && (!list_reports) && (!list_logbook) && (!list_install_restore)){
     return false;
   }
 
@@ -1504,6 +1514,13 @@ bool sd_storage_list_json(const char *dir_path, char *out_json, uint32_t out_cap
       if(logs_only){
         if(!sd_name_has_extension_(name, ".log")) continue;
         add_item(name, size, true);
+      } else if(list_install_restore){
+        const size_t reg_len = strlen(install_restore_registration);
+        if(strncmp(name, install_restore_registration, reg_len) != 0) continue;
+        if(name[reg_len] != '_') continue;
+        if(strstr(name, "_INST_CAL") == nullptr) continue;
+        if(!sd_name_has_extension_(name, ".txt")) continue;
+        add_item(name, size, true);
       } else if(list_root){
         if(!sd_name_has_extension_(name, ".bin")) continue;
         add_item(name, size, false);
@@ -1520,6 +1537,12 @@ bool sd_storage_list_json(const char *dir_path, char *out_json, uint32_t out_cap
     // archived. Scan both locations and deduplicate by file name.
     if(!scan_dir("/", true, false)) return false;
     if(!scan_dir("/processed", true, true)) return false;
+  } else if(list_install_restore){
+    // Installation calibration reports may still be pending upload or may have
+    // already been archived after upload. Search both without exposing the
+    // /processed directory through the normal file-management API.
+    if(!scan_dir("/calibration_reports", false, true)) return false;
+    if(!scan_dir("/processed", false, true)) return false;
   } else {
     if(!scan_dir(dir, false, list_reports)) return false;
   }

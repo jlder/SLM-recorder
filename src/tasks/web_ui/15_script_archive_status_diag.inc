@@ -100,6 +100,9 @@ R"rawliteral(        function delayMs(ms) {
                 const button = document.getElementById(id);
                 if (button) button.disabled = !usbAvailable;
             });
+
+            const message = document.getElementById('usbPowerRequiredMessage');
+            if (message) message.classList.toggle('hidden', usbAvailable);
         }
 
         // Apply the amber required-action cue without overriding disabled or Cancel behavior.

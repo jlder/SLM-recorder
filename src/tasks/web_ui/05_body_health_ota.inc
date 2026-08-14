@@ -31,6 +31,7 @@ R"rawliteral(        <!-- About/support page. One support unlock grants access t
                     <button class="btn btn-primary" onclick="supportDownloadData()">Download Support Data</button>
                     <button class="btn btn-primary" id="btnVerifyRecordings" onclick="supportVerifyRecordings()">Verify Recordings</button>
                     <button class="btn btn-primary" onclick="supportGenerateCalibrationReports()">Generate Calibration Reports</button>
+                    <button class="btn btn-primary" id="btnRestoreInstallationCalibration" onclick="supportRestoreInstallationCalibration()">Restore Installation Calibration</button>
                     <button class="btn btn-primary" onclick="supportClearRecorderCalibration()">Clear Recorder Calibration</button>
                     <button class="btn btn-primary" onclick="supportClearInstallationCalibration()">Clear Installation Calibration</button>
                 </div>

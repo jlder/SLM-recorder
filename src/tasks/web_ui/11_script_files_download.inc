@@ -64,9 +64,16 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
 
         const recorderProcessStates = {};
         const recorderDailySequences = {};
+        const recorderDailyFlightResults = {};
+
+        function recorderFileBasename(filename) {
+            const normalized = String(filename || '').replace(/\\/g, '/');
+            const slash = normalized.lastIndexOf('/');
+            return slash >= 0 ? normalized.substring(slash + 1) : normalized;
+        }
 
         function recorderDailyKey(filename) {
-            const name = String(filename || '');
+            const name = recorderFileBasename(filename);
             const match = name.match(/^(.*_\d{8})_\d+\.bin$/i);
             return match ? match[1] + '.bin' : name;
         }
@@ -91,7 +98,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
         }
 
         function recorderProcessState(filename) {
-            return recorderProcessStates[String(filename || '')] || 'ready';
+            return recorderProcessStates[recorderFileBasename(filename)] || 'ready';
         }
 
         function recorderDailyProcessState(dailyKey) {
@@ -130,7 +137,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
         }
 
         function setRecorderProcessState(filename, state) {
-            const name = String(filename || '');
+            const name = recorderFileBasename(filename);
             if (!name) return;
             if (!state || state === 'ready') delete recorderProcessStates[name];
             else recorderProcessStates[name] = state;
@@ -145,7 +152,8 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                 if (!states || !Array.isArray(states.files)) return;
                 states.files.forEach(item => {
                     if (item && item.filename) {
-                        recorderProcessStates[String(item.filename)] = String(item.state || 'queued');
+                        const name = recorderFileBasename(item.filename);
+                        if (name) recorderProcessStates[name] = String(item.state || 'queued');
                     }
                 });
             } catch (err) {
@@ -222,13 +230,13 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             const files = recorderFilesForDay(dailyKey, true);
             if (!files.length) return;
 
+            recorderDailyFlightResults[dailyKey] = [];
             recorderDailySequences[dailyKey] = {
                 files: files,
                 nextIndex: 0,
                 totalBytes: files.reduce((sum, file) => sum + Number(file.size || 0), 0),
                 completedBytes: 0,
-                currentBytes: 0,
-                dailyFlights: []
+                currentBytes: 0
             };
             startNextDailyFile(dailyKey);
         }
@@ -237,7 +245,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             const sequence = recorderDailySequences[dailyKey];
             if (!sequence) return;
             if (sequence.nextIndex >= sequence.files.length) {
-                renderDailyFlightAnalysis(dailyKey);
+                renderDailyFlightAnalysis(dailyKey, true);
                 setProgress('downloadProgressBar', 'downloadProgressText', 100, 'Processing: complete');
                 delete recorderDailySequences[dailyKey];
                 refreshRecorderProcessButtons();
@@ -275,28 +283,32 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
         }
 
         function addDailyFlightAnalysis(dailyKey, analysis) {
-            const sequence = recorderDailySequences[dailyKey];
-            if (!sequence || !analysis || !analysis.ok || !Array.isArray(analysis.flights)) return;
+            if (!analysis || !analysis.ok || !Array.isArray(analysis.flights)) return;
+            if (!Array.isArray(recorderDailyFlightResults[dailyKey])) {
+                recorderDailyFlightResults[dailyKey] = [];
+            }
             analysis.flights.forEach(function(flight) {
-                sequence.dailyFlights.push(flight);
+                recorderDailyFlightResults[dailyKey].push(flight);
             });
-            renderDailyFlightAnalysis(dailyKey);
+            renderDailyFlightAnalysis(dailyKey, false);
         }
 
-        function renderDailyFlightAnalysis(dailyKey) {
-            const sequence = recorderDailySequences[dailyKey];
+        function renderDailyFlightAnalysis(dailyKey, complete) {
             const status = document.getElementById('flightAnalysisStatus');
             const table = document.getElementById('flightAnalysisTable');
-            const flights = sequence && Array.isArray(sequence.dailyFlights) ? sequence.dailyFlights : [];
+            const flights = Array.isArray(recorderDailyFlightResults[dailyKey]) ?
+                recorderDailyFlightResults[dailyKey] : [];
             const displayName = recorderDailyDisplayName(dailyKey);
 
             if (!flights.length) {
-                status.textContent = displayName + ' \u2014 No flight detected';
+                status.textContent = complete ?
+                    (displayName + ' \u2014 No flight detected') : 'Processing.';
                 table.innerHTML = '';
                 return;
             }
 
-            status.textContent = displayName + ' \u2014 ' + flights.length + ' flight(s)';
+            status.textContent = complete ?
+                (displayName + ' \u2014 ' + flights.length + ' flight(s)') : 'Processing.';
             let html = '<table class="analysis-table"><thead><tr>' +
                 '<th>FLT<br>#</th><th>T/O</th><th>LDG</th><th>FLT<br>TIME</th>' +
                 '</tr></thead><tbody>';
@@ -312,6 +324,23 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             table.innerHTML = html;
         }
 
+        function showRecorderProcessingFailure(message) {
+            const status = document.getElementById('flightAnalysisStatus');
+            if (!status) return;
+
+            const detail = String(message || '').trim();
+            let text = detail ? ('Processing failed: ' + detail) : 'Processing failed.';
+            if (detail && !/[.!?]$/.test(text)) text += '.';
+
+            if (window.SLMAndroid &&
+                typeof window.SLMAndroid.downloadRecorderFile === 'function') {
+                text += ' In SLM Bridge, check that Recorder and Server are connected and that the file queue is clear, then press Process again.';
+            } else {
+                text += ' Check the connection to the recorder, then press Process again.';
+            }
+            status.textContent = text;
+        }
+
         // Start one physical immutable file. The daily UI calls this repeatedly
         // and the existing Bridge continues to transfer each file independently.
         function startPhysicalRecorderFile(dailyKey, filename) {
@@ -323,9 +352,13 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             const sequence = recorderDailySequences[dailyKey];
             if (sequence && sequence.nextIndex === 1) {
                 table.innerHTML = '';
-                status.textContent = recorderDailyDisplayName(dailyKey) + ' \u2014 No flight detected';
+                status.textContent = 'Processing.';
             }
-            if (recorderProcessState(filename) !== 'ready') return;
+            if (recorderProcessState(filename) !== 'ready') {
+                showRecorderProcessingFailure('Another recorder-file transfer is already active.');
+                abortDailySequence(filename);
+                return;
+            }
             setRecorderProcessState(filename, 'downloading');
             updateDailyProgress(dailyKey, 0);
 
@@ -351,6 +384,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                 .catch(err => {
                     setRecorderProcessState(filename, 'ready');
                     abortDailySequence(filename);
+                    showRecorderProcessingFailure(err && err.message ? err.message : 'File download or analysis did not complete.');
                     console.error(err);
                 });
         }
@@ -414,6 +448,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                         notifyAndroidAnalysisFailed(detail.transferId);
                         setRecorderProcessState(filename, 'ready');
                         abortDailySequence(filename);
+                        showRecorderProcessingFailure(err && err.message ? err.message : 'Downloaded file could not be analyzed.');
                     });
             } else if (state === 'upload-pending') {
                 setRecorderProcessState(filename, 'queued');
@@ -422,11 +457,12 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             } else if (state === 'upload-complete' || state === 'archive-pending') {
                 setRecorderProcessState(filename, 'finalizing');
             } else if (state === 'archive-complete') {
-                delete recorderProcessStates[filename];
+                setRecorderProcessState(filename, 'ready');
                 refreshFiles();
             } else if (state === 'failed') {
                 setRecorderProcessState(filename, 'ready');
                 abortDailySequence(filename);
+                showRecorderProcessingFailure(detail.message);
             }
         });
 

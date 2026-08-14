@@ -72,7 +72,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.41` | version text displayed on device |
+| `RECORDER_SOFTWARE_VERSION` | `1.44` | version text displayed on device |
 | `RECORDER_VERSION_TEXT` | `sw ver 1.25` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
@@ -579,6 +579,14 @@ Status:
 #### OP-CAL-007 — Support generation of stored calibration reports
 
 The Web About/support page shall provide a support-authorized function to generate calibration report files from valid recorder and installation calibration data already stored in NVS. This function is intended for firmware updates where valid calibrations predate SD report generation. It shall not modify calibration data and shall not perform a new calibration. Generated reports shall explicitly identify stored NVS calibration data as the report source.
+
+Status:
+
+- **Implemented.**
+
+#### OP-CAL-008 — Restore installation calibration after recorder replacement
+
+The Web About/support page shall provide a support-authorized function to restore the installation calibration after recorder hardware replacement. The function shall use the currently configured registration, search installation-calibration reports in both `/calibration_reports` and `/processed`, examine reports newest first, skip rejected or malformed reports, and restore the first valid report matching the configured registration. The restored NVS record shall contain the report timestamp, mean vector, standard-deviation vector, and complete 3 x 3 installation matrix. Restoring installation calibration shall not create or validate a recorder sensor calibration; the replacement recorder shall still require its own recorder calibration before recording is authorized.
 
 Status:
 
@@ -1252,11 +1260,19 @@ The UI shall not call this the "latest firmware" function because deliberate sel
 
 ### OP-WEB-006 — Recorder file processing lock
 
-When the Android automatic download/analysis/upload/archive workflow is available, each root recording file shall have a **Process** action. The action shall become inactive immediately after selection and remain inactive while that exact file is downloading, being analysed, queued for upload, uploading, or awaiting archive. A successful archive removes the file from the root list. A definite download or analysis failure restores the active **Process** action. Reloading or reconnecting shall restore the lock from the Android durable-transfer state. Duplicate process requests for the same recorder registration and filename shall be rejected by the Android bridge.
+When the Android automatic download/analysis/upload/archive workflow is available, each root recording file shall have a **Process** action. The action shall become inactive immediately after selection and remain inactive while that exact file is downloading, being analysed, queued for upload, uploading, or awaiting archive. A successful archive removes the file from the root list. A definite download or analysis failure restores the active **Process** action and shall replace the active `Processing.` indication with a visible failure message. When SLM Bridge is in use, the message shall instruct the operator to verify Recorder and Server connectivity and that the Bridge file queue is clear before pressing **Process** again. Reloading or reconnecting shall restore the lock from the Android durable-transfer state. Duplicate process requests for the same recorder registration and filename shall be rejected by the Android bridge.
+
+Recorder file identity for UI transfer-state tracking shall use the recording basename. Equivalent callback names such as `FCXXX_YYYYMMDD_N.bin`, `/FCXXX_YYYYMMDD_N.bin`, or `/processed/FCXXX_YYYYMMDD_N.bin` shall refer to the same processing state and daily group.
+
+For a selected recording day, the Flight Analysis status shall show only `Processing.` while any physical member of that day is still being processed. The final flight count, or `No flight detected`, shall be shown only after all selected physical files for that day have completed analysis.
 
 #### File-processing concurrency
 
 Only one root recording file may be in the local Downloading or Analyzing phase at a time. During either phase, all other Process buttons shall be grey and inactive. The UI lock shall be released when the active file reaches Queued or when download/analysis fails. Upload and finalisation of a queued file shall not prevent another root file from being downloaded and analysed.
+
+### OP-WEB-007 — USB power for Web support operations
+
+File Management, Logbook, installation calibration, calibration-report handling, firmware update, and About/support actions shall require a valid USB-present indication. When USB power is absent or its status is not valid, these actions shall be grey and inactive and the Main Menu shall display `USB power required.` followed by `Connect USB power to use all recorder functions except Recorder Calibration.` Maintenance access remains available so the recorder calibration workflow, which is the supported battery-powered Web calibration action, can still be reached. The message shall disappear when valid USB-present status is restored. SD-card replacement shall not change this USB-power gating.
 
 ### Audible error alert
 
