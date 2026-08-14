@@ -1,0 +1,18 @@
+SLM Recorder v1.42 -> v1.45 combined delta
+
+Functional changes:
+- Restore Installation Calibration from newest valid matching report in /calibration_reports or /processed into the existing installation-calibration NVS record.
+- Correct daily Flight Analysis result/state handling and callback filename normalization.
+- Actionable processing failure message instead of a stale Processing indication.
+- Main-menu USB-power-required message and Web function gating; Recorder Calibration remains available through Maintenance without USB.
+- Simplified Firmware Update page: server preferred / phone by support request, then common Update Firmware / Return controls and Wi-Fi restart warning.
+- Daily processing progress across the selected day, size weighted: 95% transfer / 5% browser analysis for each physical file.
+
+Release/documentation changes:
+- Recorder software version 1.45.
+- README current baseline updated to v1.45 and paired with SLM Bridge v0.3.44.
+- Requirements, architecture, validation strategy, and release validation synchronized with the implemented behavior.
+
+Intentionally unchanged:
+- docs/manifest.json remains at the last real published/compiled recorder binary (v1.42) until a v1.45 merged binary is built and published.
+- VALIDATION-v1.39.md is historical and unchanged.

@@ -273,6 +273,13 @@ Each new immutable recording is hashed while its bytes are written. On close, th
 
 File Management presents one logical entry per registration/date while immutable recording files remain separate on SD and on the server. Pressing **Process** sequentially downloads, verifies, analyses, queues, uploads, verifies, and archives every pending suffixed `.bin` file for that day. The visible progress is calculated from aggregate pending `.bin` bytes; physical suffixes and file counts are not exposed to the user.
 
-## Current development baseline (v1.41)
+## Current development baseline (v1.45)
 
-Changes introduced since v1.33 include immutable suffixed recording files, recorder-created SHA-256 companions, daily File Management presentation, sequential processing of same-day recordings, per-recording CSV flight logs, permanent archival in `/processed`, root `.bin`-only file-count enforcement, root-plus-processed Logbook aggregation, and the `/api/archive` post-upload endpoint. Legacy appended recordings without creation SHA remain supported.
+Recorder v1.45 is the current development baseline and is intended to be used with SLM Bridge v0.3.44. Changes introduced since v1.33 include immutable suffixed recording files, recorder-created SHA-256 companions, daily File Management presentation, sequential processing of same-day recordings, per-recording CSV flight logs, permanent archival in `/processed`, root `.bin`-only file-count enforcement, root-plus-processed Logbook aggregation, and the `/api/archive` post-upload endpoint. Legacy appended recordings without creation SHA remain supported.
+
+The v1.45 baseline also includes:
+
+- **Installation calibration restore after recorder replacement:** Maintenance > About can restore the newest valid installation-calibration report matching the configured registration from `/calibration_reports` or `/processed` into the installation-calibration NVS record. Recorder six-face calibration remains independently required on the replacement hardware.
+- **USB-power Web gating:** File Management, Logbook, firmware update, installation calibration, report handling, and support actions require USB power. The Main Menu explains the restriction when USB is absent; Recorder Calibration remains available through Maintenance on battery power.
+- **Daily processing status:** Flight Analysis shows real `Processing: N%` progress across all physical files for the selected day. Recorder transfer contributes 95% and browser analysis 5% of each file's size-weighted contribution. Final flight details are shown only after analysis results are available; failures give an actionable retry message.
+- **Simplified Firmware Update page:** firmware is selected in one card from the server (preferred) or from the phone when requested by support, followed by a common Update Firmware / Return card. The page warns that Wi-Fi is lost during the successful restart and must be restarted before reconnecting.

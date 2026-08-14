@@ -795,21 +795,29 @@ New immutable recording files are protected by a streaming SHA-256 calculated ov
 1. Place `_1`, `_2`, and `_3` files for one date in root and confirm only one unsuffixed row is displayed.
 2. Confirm the displayed size equals the sum of the three `.bin` sizes and `.sha` files are not listed.
 3. Press Process and confirm files are processed in suffix order.
-4. Confirm the progress percentage advances according to aggregate bytes and pauses during analysis.
+4. Confirm the displayed day percentage advances during both transfer and analysis, is weighted by aggregate recording bytes, and reaches 100% only after the final selected file completes analysis. Confirm recorder transfer occupies 0..95% of each physical file contribution and browser analysis occupies 95..100%. Confirm analysis progress advances through the staged analyzer callbacks rather than remaining fixed during analysis.
 5. Confirm other daily Process buttons remain grey until all members are queued.
 6. Force one member to fail and confirm successful members are not repeated and the remaining root member is retryable.
 7. Confirm each physical `.bin`/`.sha` pair is uploaded and archived independently.
 8. Confirm a legacy single appended file remains visible and processable as one daily row.
 
-### Daily processing state/result validation (v1.44)
+### Daily processing state/result validation (v1.45)
 
-1. Press Process for a day containing multiple physical files and confirm the analysis status shows only `Processing.` until the complete selected day has finished.
+1. Press Process for a day containing multiple physical files and confirm the analysis status shows `Processing: N%` until the complete selected day has finished. Confirm the percentage advances during both transfer and analysis, with recorder transfer mapped to the first 95% and browser analysis to the final 5% of each physical file contribution.
 2. Confirm a final flight count is shown only after all selected physical files complete, and `No flight detected` appears only when the completed day contains no detected flights.
 3. Inject Android transfer events for the same recording using basename, leading-slash, and `/processed/` filename forms and confirm they update one common Process state rather than creating independent locks.
 4. Reload/reconnect while a Bridge transfer is queued and confirm the restored durable state keeps the corresponding day inactive instead of presenting a false blue Process action.
 5. Force a Bridge transfer failure and a browser analysis failure and confirm the daily sequence is released, Process becomes retryable, and the analysis panel shows an actionable failure message rather than remaining at `Processing.`. In the Android case confirm the message tells the operator to check Recorder and Server connectivity and the Bridge file queue before retrying.
 
-### Web USB-power gating validation (v1.44)
+### Firmware-page selection/update validation (v1.45)
+
+1. Open Firmware Update and confirm the first information card no longer contains the old `Upload only ...version.bin` instruction.
+2. Confirm the information card states that the recorder restarts automatically after a successful update and that the Wi-Fi connection will be lost and should be restarted.
+3. Confirm the next card is **Select Firmware**, offering **From server (preferred)** and **From phone (if requested by support)**.
+4. When SLM Bridge server firmware is available, list the server files, select one, and confirm selecting it clears any phone-file selection. Select a phone `.bin` and confirm it clears the server selection.
+5. Confirm the final card contains only the common **Update Firmware** action and **Return**, and that Update Firmware installs whichever single source is currently selected.
+
+### Web USB-power gating validation (v1.45)
 
 1. With USB absent, confirm File Management and Logbook are grey and Maintenance remains reachable. Confirm the Main Menu displays `USB power required.` and explains that USB power is required for all recorder functions except Recorder Calibration.
 2. Connect USB and confirm the buttons become active and the USB-power-required message disappears after the next status refresh.

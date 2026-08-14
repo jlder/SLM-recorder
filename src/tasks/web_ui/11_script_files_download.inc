@@ -257,13 +257,29 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             startPhysicalRecorderFile(dailyKey, file.name);
         }
 
+        // One file contributes 0..100% to the complete-day progress. File transfer
+        // occupies 0..95% and browser flight analysis occupies 95..100%.
+        // The day percentage is weighted by physical file size so multi-file days
+        // progress according to the amount of recorded data rather than file count.
         function updateDailyProgress(dailyKey, currentPercent) {
             const sequence = recorderDailySequences[dailyKey];
             if (!sequence || sequence.totalBytes <= 0) return;
             const currentDone = sequence.currentBytes * Math.max(0, Math.min(100, currentPercent)) / 100;
             const percent = Math.round(100 * (sequence.completedBytes + currentDone) / sequence.totalBytes);
+            const status = document.getElementById('flightAnalysisStatus');
+            if (status) status.textContent = 'Processing: ' + percent + '%';
             setProgress('downloadProgressBar', 'downloadProgressText', percent,
                 'Processing: ' + percent + '%');
+        }
+
+        function updateDailyTransferProgress(dailyKey, transferPercent) {
+            const p = Math.max(0, Math.min(100, Number(transferPercent) || 0));
+            updateDailyProgress(dailyKey, p * 0.95);
+        }
+
+        function updateDailyAnalysisProgress(dailyKey, analysisPercent) {
+            const p = Math.max(0, Math.min(100, Number(analysisPercent) || 0));
+            updateDailyProgress(dailyKey, 95 + p * 0.05);
         }
 
         function markDailyFileQueued(filename) {
@@ -301,14 +317,14 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             const displayName = recorderDailyDisplayName(dailyKey);
 
             if (!flights.length) {
-                status.textContent = complete ?
-                    (displayName + ' \u2014 No flight detected') : 'Processing.';
+                if (complete) status.textContent = displayName + ' \u2014 No flight detected';
                 table.innerHTML = '';
                 return;
             }
 
-            status.textContent = complete ?
-                (displayName + ' \u2014 ' + flights.length + ' flight(s)') : 'Processing.';
+            if (complete) {
+                status.textContent = displayName + ' \u2014 ' + flights.length + ' flight(s)';
+            }
             let html = '<table class="analysis-table"><thead><tr>' +
                 '<th>FLT<br>#</th><th>T/O</th><th>LDG</th><th>FLT<br>TIME</th>' +
                 '</tr></thead><tbody>';
@@ -360,19 +376,22 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                 return;
             }
             setRecorderProcessState(filename, 'downloading');
-            updateDailyProgress(dailyKey, 0);
+            updateDailyTransferProgress(dailyKey, 0);
 
             if (startAndroidRecorderTransfer(filename)) return;
 
             downloadFileBuffer(filename, function(percent) {
-                updateDailyProgress(dailyKey, percent);
+                updateDailyTransferProgress(dailyKey, percent);
             })
                 .then(buffer => {
-                    updateDailyProgress(dailyKey, 100);
+                    updateDailyTransferProgress(dailyKey, 100);
                     saveDownloadedBuffer(filename, buffer);
                     setRecorderProcessState(filename, 'analyzing');
-                    return analyzeRecorderFileAsync(buffer)
+                    return analyzeRecorderFileAsync(buffer, function(percent) {
+                        updateDailyAnalysisProgress(dailyKey, percent);
+                    })
                         .then(analysis => {
+                            updateDailyAnalysisProgress(dailyKey, 100);
                             addDailyFlightAnalysis(dailyKey, analysis);
                             return writeFlightAnalysisLog(filename, analysis);
                         })
@@ -421,20 +440,25 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
 
             if (state === 'download-started') {
                 setRecorderProcessState(filename, 'downloading');
-                    updateDailyProgress(dailyKey, 0);
+                updateDailyTransferProgress(dailyKey, 0);
             } else if (state === 'downloading') {
                 setRecorderProcessState(filename, 'downloading');
-                updateDailyProgress(dailyKey, percent);
+                updateDailyTransferProgress(dailyKey, percent);
             } else if (state === 'download-complete') {
-                updateDailyProgress(dailyKey, 100);
+                updateDailyTransferProgress(dailyKey, 100);
                 setRecorderProcessState(filename, 'analyzing');
-                    fetch(detail.localUrl, { cache: 'no-store' })
+                fetch(detail.localUrl, { cache: 'no-store' })
                     .then(function(response) {
                         if (!response.ok) throw new Error('private file unavailable');
                         return response.arrayBuffer();
                     })
-                    .then(function(buffer) { return analyzeRecorderFileAsync(buffer); })
+                    .then(function(buffer) {
+                        return analyzeRecorderFileAsync(buffer, function(percent) {
+                            updateDailyAnalysisProgress(dailyKey, percent);
+                        });
+                    })
                     .then(function(analysis) {
+                        updateDailyAnalysisProgress(dailyKey, 100);
                         addDailyFlightAnalysis(dailyKey, analysis);
                         return writeFlightAnalysisLog(filename, analysis);
                     })

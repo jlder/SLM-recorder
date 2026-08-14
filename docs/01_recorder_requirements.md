@@ -72,7 +72,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.44` | version text displayed on device |
+| `RECORDER_SOFTWARE_VERSION` | `1.45` | version text displayed on device |
 | `RECORDER_VERSION_TEXT` | `sw ver 1.25` / `hw ver 1.00` | main display version text |
 
 ### 3.3 Web/WiFi
@@ -433,9 +433,9 @@ The Web interface shall provide a Firmware Update function that allows the opera
 
 Firmware update shall require USB power to be present. If USB power is not detected, the update request shall be rejected.
 
-The Firmware Update page shall instruct the operator to upload the recorder application `.bin` named like `SLM_recorder_date_version.bin`.
+The Firmware Update page shall present firmware selection separately from the update action. The selection card shall offer firmware from the server as the preferred source when SLM Bridge provides that capability, and shall also allow a firmware file to be selected from the phone when requested by support. A second card shall contain **Update Firmware** and **Return**.
 
-After a successful firmware update, the recorder shall restart automatically.
+After a successful firmware update, the recorder shall restart automatically. The page shall warn that the recorder Wi-Fi connection will be lost during restart and must be restarted before reconnecting.
 
 Status:
 
@@ -1264,7 +1264,7 @@ When the Android automatic download/analysis/upload/archive workflow is availabl
 
 Recorder file identity for UI transfer-state tracking shall use the recording basename. Equivalent callback names such as `FCXXX_YYYYMMDD_N.bin`, `/FCXXX_YYYYMMDD_N.bin`, or `/processed/FCXXX_YYYYMMDD_N.bin` shall refer to the same processing state and daily group.
 
-For a selected recording day, the Flight Analysis status shall show only `Processing.` while any physical member of that day is still being processed. The final flight count, or `No flight detected`, shall be shown only after all selected physical files for that day have completed analysis.
+For a selected recording day, the Flight Analysis status shall show `Processing: N%` while any physical member of that day is still being transferred or analysed. The percentage shall cover the complete selected day, weighting physical files by recorded-file size. For each physical file, recorder-to-browser/Bridge transfer shall represent the first 95% of that file's processing contribution and browser flight analysis shall represent the final 5%. Analysis progress shall use the actual staged analysis callbacks rather than elapsed-time estimation. The final flight count, or `No flight detected`, shall be shown only after all selected physical files for that day have completed analysis. Later asynchronous server upload/archive activity is not part of this flight-analysis percentage.
 
 #### File-processing concurrency
 
