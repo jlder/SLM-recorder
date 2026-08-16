@@ -23,7 +23,7 @@ Preferences prefs;
 // handling here. Do not make incompatible persistent settings changes silently.
 
 // Keep one local copy of the settings so getters and setters use the same data shape.
-static settings_t s_cache = {"", "", false, false};
+static settings_t s_cache = {"", "", false, false, LANGUAGE_FRENCH};
 
 // Latch whether the Preferences namespace is available.
 static bool s_storage_ready = false;
@@ -157,7 +157,17 @@ static bool registration_valid_(const char *reg){
  */
 bool settings_init(void){
   s_storage_ready = prefs.begin(PREFS_NAMESPACE, false);
+  if(s_storage_ready){
+    const uint8_t stored_language = prefs.getUChar("language", (uint8_t)LANGUAGE_FRENCH);
+    s_cache.language = language_valid((language_t)stored_language)
+                         ? (language_t)stored_language
+                         : LANGUAGE_FRENCH;
+  }
   return s_storage_ready;
+}
+
+language_t settings_get_language(void){
+  return language_valid(s_cache.language) ? s_cache.language : LANGUAGE_FRENCH;
 }
 
 /**
@@ -189,6 +199,12 @@ bool settings_get(settings_t *out){
   // Read whether the user has already set the date and time at least once.
   s_cache.date_set = prefs.getBool("date_set", false);
   s_cache.time_set = prefs.getBool("time_set", false);
+
+  // Language is optional and defaults to French for new and upgraded recorders.
+  const uint8_t stored_language = prefs.getUChar("language", (uint8_t)LANGUAGE_FRENCH);
+  s_cache.language = language_valid((language_t)stored_language)
+                       ? (language_t)stored_language
+                       : LANGUAGE_FRENCH;
 
   // Return the loaded cache to the caller.
   *out = s_cache;
@@ -343,6 +359,21 @@ bool settings_set_time_set(bool done){
   // Update the cached flag and persist the same value to flash.
   s_cache.time_set = done;
   return (prefs.putBool("time_set", done) > 0u);
+}
+
+/**
+ * Save the recorder user-interface language.
+ *
+ * Language selection is optional configuration and does not affect the
+ * settings-complete gate used for recorder operation.
+ */
+bool settings_set_language(language_t language){
+  if(!s_storage_ready || !language_valid(language)){
+    return false;
+  }
+
+  s_cache.language = language;
+  return (prefs.putUChar("language", (uint8_t)language) > 0u);
 }
 
 /**

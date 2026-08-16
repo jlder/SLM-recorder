@@ -26,6 +26,7 @@
 #include "src/tasks/state_task.h"
 #include "src/global.h"
 #include "src/services/settings_store.h"
+#include "src/services/language.h"
 #include "src/services/sd_files.h" // authorization gate for file ops
 #include "src/services/task_helpers.h"
 #include "src/services/calibration_service.h"
@@ -57,11 +58,14 @@ static volatile bool s_ota_ok = false;
 static volatile bool s_ota_reboot_pending = false;
 static volatile bool s_support_reboot_pending = false;
 static char s_ota_error[48] = "";
+static constexpr uint32_t OTA_REBOOT_ACK_DELAY_MS = 2000u;
+static constexpr uint32_t SUPPORT_REBOOT_DELAY_MS = 500u;
 
 
 static IPAddress s_ap_ip = AP_IP_ADDRESS;
 static IPAddress s_gateway = AP_GATEWAY;
 static IPAddress s_subnet = AP_SUBNET;
+
 
 
 // --- Web single-client policy ---
@@ -1090,7 +1094,7 @@ static void register_routes(){
   s_server->on("/api/ota", HTTP_POST,
     [](AsyncWebServerRequest *request){
       if(s_ota_ok){
-        request->send(200, "text/plain", "Firmware update OK. Rebooting...");
+        request->send(200, "text/plain", "ok");
         s_ota_reboot_pending = true;
       } else {
         const char *reason = (s_ota_error[0] != '\0') ? s_ota_error : "ota_failed";
@@ -1174,13 +1178,15 @@ static void register_routes(){
   s_server->on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
     const system_status_t st = state_task_get_status();
     const bool recording = (st.state == ST_RECORDING) || (st.state == ST_STARTING) || (st.state == ST_STOPPING);
-    char buf[192];
+    char buf[224];
+    const language_t language = settings_get_language();
     const int n = snprintf(buf, sizeof(buf),
-                           "{\"battery\":%u,\"recording\":%s,\"usb_present_valid\":%s,\"usb_present\":%s}",
+                           "{\"battery\":%u,\"recording\":%s,\"usb_present_valid\":%s,\"usb_present\":%s,\"language\":\"%s\"}",
                            (unsigned)(st.battery_percent_valid ? st.battery_percent : 0u),
                            recording ? "true" : "false",
                            st.usb_present_valid ? "true" : "false",
-                           (st.usb_present_valid && st.usb_present) ? "true" : "false");
+                           (st.usb_present_valid && st.usb_present) ? "true" : "false",
+                           (language == LANGUAGE_ENGLISH) ? "en" : "fr");
     if(!web_snprintf_ok_(n, sizeof(buf))){
       request->send(500, "application/json", "{\"error\":\"format_failed\"}");
       return;
@@ -2631,8 +2637,14 @@ static void web_task_loop(void *arg){
       stop_ap_and_server();
       watchdog_kick(WD_WEB);
     }
-    if(s_ota_reboot_pending || s_support_reboot_pending){
-      vTaskDelay(pdMS_TO_TICKS(500));
+    if(s_ota_reboot_pending){
+      // Give the asynchronous HTTP/TCP stack enough time to deliver the final
+      // 200/ok acknowledgement before the recorder drops Wi-Fi to reboot.
+      vTaskDelay(pdMS_TO_TICKS(OTA_REBOOT_ACK_DELAY_MS));
+      ESP.restart();
+    }
+    if(s_support_reboot_pending){
+      vTaskDelay(pdMS_TO_TICKS(SUPPORT_REBOOT_DELAY_MS));
       ESP.restart();
     }
     vTaskDelay(pdMS_TO_TICKS(200));

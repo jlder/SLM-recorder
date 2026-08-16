@@ -7,7 +7,17 @@
  * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
-R"rawliteral(        // Global calibration status refresh. This drives menu dates, amber action cues,
+R"rawliteral(        function calibrationStatusText(code) {
+            const map = { valid:'VALID', expired:'EXPIRED', fault:'FAULT', missing:'MISSING' };
+            return map[code] ? tr(map[code]) : tr('UNKNOWN');
+        }
+
+        function calibrationFaultText(code) {
+            const map = { plausibility:'PLAUSIBILITY', delta:'DIFFERENCE', none:'NONE' };
+            return map[code] ? tr(map[code]) : tr('UNKNOWN');
+        }
+
+        // Global calibration status refresh. This drives menu dates, amber action cues,
         // top status text, and stored-calibration status fields.
         function calStatus() {
             fetch('/api/cal/status')
@@ -22,14 +32,14 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                     document.getElementById('installationCalDate').textContent = installParts.date;
                     document.getElementById('installationCalTime').textContent = installParts.time;
                     updateMaintenanceButtonState(data);
-                    const faultText = (data.fault_reason && data.fault_reason !== 'none') ? (' fault: ' + data.fault_reason) : '';
-                    let accelStatus = data.sensor_valid ? ('valid since ' + sensorDateText) : (data.status + faultText);
+                    const faultText = (data.fault_reason && data.fault_reason !== 'none') ? (' ' + tr('FAULT_PREFIX') + ' ' + calibrationFaultText(data.fault_reason)) : '';
+                    let accelStatus = data.sensor_valid ? (tr('VALID_SINCE') + ' ' + sensorDateText) : (calibrationStatusText(data.status) + faultText);
                     if (!data.sensor_valid && data.reference_available && !data.active_available) {
-                        accelStatus = 'repeat recorder calibration required';
+                        accelStatus = tr('REPEAT_REC_CAL_REQUIRED');
                     } else if (!data.sensor_valid && !data.reference_available) {
-                        accelStatus = 'first recorder calibration required';
+                        accelStatus = tr('FIRST_REC_CAL_REQUIRED');
                     }
-                    const installStatus = data.installation_valid ? ('valid since ' + installDateText) : 'missing';
+                    const installStatus = data.installation_valid ? (tr('VALID_SINCE') + ' ' + installDateText) : tr('MISSING');
                     if (!(calView === 'accel' && calRecorderSaveMessageSticky)) {
                         document.getElementById('calStatus').textContent = accelStatus;
                     }
@@ -62,7 +72,7 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
             calRecorderSaveMessageSticky = false;
             setRecorderStartButton(false, false);
             document.getElementById('btnSave').disabled = true;
-            logCal('Ready.');
+            logCal(tr('READY_DOT'));
         }
 
         function resetInstallCalUi() {
@@ -74,7 +84,7 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
             document.getElementById('installRollCandidate').textContent = '-';
             document.getElementById('installPitchStored').textContent = '-';
             document.getElementById('installRollStored').textContent = '-';
-            logInstall('Ready.');
+            logInstall(tr('READY_DOT'));
             setInstallStartButton(false, false);
             document.getElementById('btnInstallSave').disabled = true;
         }
@@ -135,7 +145,7 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
         function updateCalibrationTemperature(data) {
             const el = document.getElementById('calSensorTemp');
             if (!!data.temperature_fault) {
-                el.innerHTML = '<span class="bad">Temperature too high, Start again</span>';
+                el.innerHTML = '<span class="bad">' + tr('TEMP_TOO_HIGH_RESTART') + '</span>';
                 return;
             }
 
@@ -144,20 +154,20 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
             const minAllowed = data.temperature_allowed_min_c;
             const maxAllowed = data.temperature_allowed_max_c;
             const spanAllowed = data.temperature_allowed_span_c;
-            let status = 'OK';
+            let status = tr('OK');
             if (!available) {
-                status = 'UNAVAILABLE';
+                status = tr('UNAVAILABLE');
             } else if (minAllowed !== undefined && Number(data.temperature_c) < Number(minAllowed)) {
-                status = 'TOO LOW';
+                status = tr('TOO_LOW');
             } else if (maxAllowed !== undefined && Number(data.temperature_c) > Number(maxAllowed)) {
-                status = 'TOO HIGH';
+                status = tr('TOO_HIGH');
             } else if (!stable) {
-                status = 'WAIT STABLE';
+                status = tr('WAIT_STABLE');
             }
 
             let text = available ? (fmtTemperature(data.temperature_c) + ' ' + status) : status;
             if (available && !stable && spanAllowed !== undefined) {
-                text += ' (span max ' + Number(spanAllowed).toFixed(1) + ' °C)';
+                text += ' (' + tr('SPAN_MAX') + ' ' + Number(spanAllowed).toFixed(1) + ' °C)';
             }
             el.textContent = text;
         }
@@ -169,7 +179,7 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
             for (let i = 0; i < names.length; i++) {
                 const ok = !!(active && faceValid && faceValid[i]);
                 const isActive = !!active && (i === activeIdx);
-                const result = ok ? 'OK' : '—';
+                const result = ok ? tr('OK') : '—';
                 let cls = 'face-chip';
                 if (ok) {
                     cls += ' face-chip-ok';
@@ -218,7 +228,7 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                     handleCalibrationAuthError(res);
                     const data = res.json;
                     if (!data.ok) {
-                        logCal('Recorder calibration status unavailable.');
+                        logCal(tr('REC_CAL_STATUS_UNAVAILABLE'));
                         return;
                     }
 
@@ -253,10 +263,10 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
 
                     const temperatureOk = !!data.temperature_available && !!data.temperature_in_range && !!data.temperature_stable;
                     if (data.active && data.result_available && temperatureOk && !calRecorderSaveMessageSticky) {
-                        logCal('Valid calibration solution, continue to optimize or Save.');
+                        logCal(tr('VALID_CAL_CONTINUE'));
                     }
                 })
-                .catch(err => logCal('Recorder calibration communication error: ' + err));
+                .catch(err => logCal(localizedError('REC_CAL_COMM_ERROR', err)));
         }
 
         // Start or cancel recorder calibration depending on the current Start/Cancel button state.
@@ -273,19 +283,19 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                 .then(res => {
                     if (!res.ok || !res.json || !res.json.ok) {
                         setRecorderStartButton(false, false);
-                        logCal('Recorder calibration could not start.');
+                        logCal(tr('REC_CAL_COULD_NOT_START'));
                         calStatus();
                         calSample();
                         return;
                     }
                     setRecorderStartButton(true, false);
-                    logCal('Recorder calibration started. Place the recorder on each face until all six faces show OK.');
+                    logCal(tr('REC_CAL_STARTED'));
                     calStatus();
                     startCalPolling();
                 })
                 .catch(err => {
                     setRecorderStartButton(false, false);
-                    logCal('Recorder calibration start error: ' + err);
+                    logCal(localizedError('REC_CAL_START_ERROR', err));
                 });
         }
 
@@ -296,7 +306,7 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                 .then(res => {
                     setCalSavedUi(false);
                     setRecorderStartButton(false, false);
-                    logCal('Recorder calibration cancelled.');
+                    logCal(tr('REC_CAL_CANCELLED'));
                     calStatus();
                     calSample();
                 });
@@ -312,7 +322,7 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
             postJson('/api/cal/save')
                 .then(res => {
                     if (res.ok && res.json && res.json.saved) {
-                        logCal('Recorder calibration saved. Calibration report downloading.');
+                        logCal(tr('REC_CAL_SAVED'));
                         setCalSavedUi(true);
                         clearAccelCalMeasurementUi();
                         calStatus();
@@ -322,7 +332,7 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
 
                     if (res.ok && res.json && res.json.reason === 'repeat_required') {
                         save.disabled = true;
-                        logCal('First recorder calibration stored. Repeat recorder calibration once to confirm repeatability. Calibration report downloading.');
+                        logCal(tr('FIRST_REC_CAL_SAVED'));
                         setCalSavedUi(true);
                         clearAccelCalMeasurementUi();
                         calStatus();
@@ -331,9 +341,9 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                     }
 
                     if (res.json && res.json.reason === 'delta_fault') {
-                        logCal('SIGNIFICANT CALIBRATION DRIFT - CALIBRATION REJECTED. Candidate saved for support diagnostics but not used as current calibration. Flight records since the last valid recorder calibration should be considered suspect and potentially discarded unless another recorder calibration is successful. Check recorder seating in the calibration support, support condition, horizontal stable test surface, and temperature range. Retry calibration. If it repeats, contact support.');
+                        logCal(tr('CAL_DRIFT_MESSAGE'));
                         const status = document.getElementById('calStatus');
-                        if (status) status.textContent = 'SIGNIFICANT CALIBRATION DRIFT - CALIBRATION REJECTED';
+                        if (status) status.textContent = tr('CAL_DRIFT_TITLE');
                         setCalSavedUi(true);
                         clearAccelCalMeasurementUi();
                         calStatus();
@@ -344,9 +354,9 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                     save.disabled = false;
                     calRecorderSaveMessageSticky = false;
                     if (res.json && (res.json.reason === 'temperature_out_of_range' || res.json.reason === 'temperature_unavailable' || res.json.reason === 'temperature_unstable')) {
-                        logCal('Temperature not acceptable for recorder calibration. Place recorder at room temperature and wait before retrying.');
+                        logCal(tr('REC_CAL_TEMP_NOT_ACCEPTABLE'));
                     } else {
-                        logCal('Recorder calibration save failed. Check that all six faces are OK and retry.');
+                        logCal(tr('REC_CAL_SAVE_FAILED'));
                     }
                     calStatus();
                     if (res.json && res.json.report_written) setTimeout(calDownloadLastReport, 1000);
@@ -355,7 +365,7 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                 .catch(err => {
                     save.disabled = false;
                     calRecorderSaveMessageSticky = false;
-                    logCal('Recorder calibration save error: ' + err);
+                    logCal(localizedError('REC_CAL_SAVE_ERROR', err));
                 });
         }
 
@@ -380,7 +390,7 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                 aboutSupportCode = '';
                 openHealthPage();
                 const status = document.getElementById('aboutAuthStatus');
-                if (status) status.textContent = 'Support authorization expired or was rejected.';
+                if (status) status.textContent = tr('SUPPORT_AUTH_EXPIRED');
                 return true;
             }
             return false;
@@ -402,35 +412,35 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
             if (!requireAboutAuthorization()) return;
             const button = document.getElementById('btnVerifyRecordings');
             if (button) button.disabled = true;
-            aboutStatus('Verifying pending recording files...');
+            aboutStatus(tr('VERIFYING_RECORDINGS'));
             postJson('/api/cal/support_verify_recordings?support=' +
                 encodeURIComponent(aboutSupportCode))
                 .then(res => {
                     if (handleAboutAuthorizationError(res)) return;
                     if (!res.ok || !res.json || !res.json.ok) {
-                        alert('Recording verification failed.');
-                        aboutStatus('Recording verification failed: ' + prettyJson(res.json));
+                        alert(tr('RECORDING_VERIFY_FAILED'));
+                        aboutStatus(tr('RECORDING_VERIFY_FAILED_PREFIX') + ': ' + apiReasonText(res.json && res.json.reason));
                         return;
                     }
                     const j = res.json;
-                    let text = 'Files checked: ' + j.files_checked + '\n' +
-                               'Files valid: ' + j.files_valid + '\n' +
-                               'Legacy files: ' + j.legacy_files + '\n' +
-                               'Errors: ' + (j.metadata_errors + j.sha_mismatches);
-                    if (j.first_error_file) text += '\n\nFirst error: ' + j.first_error_file;
+                    let text = tr('FILES_CHECKED') + ': ' + j.files_checked + '\n' +
+                               tr('FILES_VALID') + ': ' + j.files_valid + '\n' +
+                               tr('LEGACY_FILES') + ': ' + j.legacy_files + '\n' +
+                               tr('ERRORS') + ': ' + (j.metadata_errors + j.sha_mismatches);
+                    if (j.first_error_file) text += '\n\n' + tr('FIRST_ERROR') + ': ' + j.first_error_file;
                     alert(text);
                     aboutStatus(text.replace(/\n/g, ' '));
                 })
                 .catch(err => {
-                    alert('Recording verification error.');
-                    aboutStatus('Recording verification error: ' + err);
+                    alert(tr('RECORDING_VERIFY_ERROR') + '.');
+                    aboutStatus(localizedError('RECORDING_VERIFY_ERROR', err));
                 })
                 .finally(() => { if (button) button.disabled = false; });
         }
 
         function supportGenerateCalibrationReports() {
             if (!requireAboutAuthorization()) return;
-            aboutStatus('Generating calibration reports from stored calibration data...');
+            aboutStatus(tr('GENERATING_CAL_REPORTS'));
             postJson('/api/cal/support_generate_reports?support=' +
                 encodeURIComponent(aboutSupportCode))
                 .then(res => {
@@ -449,59 +459,57 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                             queued.push('installation');
                         }
                         if (parts.length > 0) {
-                            let text = 'Generated ' + parts.join(' and ') + ' calibration report(s) on SD.';
+                            let text = (parts.length === 2) ? tr('GENERATED_CAL_REPORTS') :
+                                       (parts[0] === 'recorder' ? tr('GENERATED_REC_REPORT') : tr('GENERATED_INSTALL_REPORT'));
                             if (queued.length > 0) {
-                                text += ' Queued ' + queued.join(' and ') + ' report(s) for the SLM server.';
+                                text += ' ' + ((queued.length === 2) ? tr('QUEUED_CAL_REPORTS') :
+                                    (queued[0] === 'recorder' ? tr('QUEUED_REC_REPORT') : tr('QUEUED_INSTALL_REPORT')));
                             } else {
-                                text += ' Connect with the SLM Android app to upload them.';
+                                text += ' ' + tr('CONNECT_ANDROID_UPLOAD');
                             }
-                            if (res.json.write_failed) text += ' One requested report could not be written.';
+                            if (res.json.write_failed) text += ' ' + tr('REPORT_WRITE_ONE_FAILED');
                             aboutStatus(text);
                             calStatus();
                         } else {
-                            aboutStatus('No calibration report generated: ' + prettyJson(res.json));
+                            aboutStatus(tr('NO_CAL_REPORT_GENERATED') + ': ' + apiReasonText(res.json && res.json.reason));
                         }
                     } else {
-                        aboutStatus('Calibration report generation failed: ' + prettyJson(res.json));
+                        aboutStatus(tr('CAL_REPORT_GENERATION_FAILED') + ': ' + apiReasonText(res.json && res.json.reason));
                     }
                 })
-                .catch(err => aboutStatus('Calibration report generation error: ' + err));
+                .catch(err => aboutStatus(localizedError('CAL_REPORT_GENERATION_ERROR', err)));
         }
 
         function supportRestoreInstallationCalibration() {
             if (!requireAboutAuthorization()) return;
-            if (!confirm('Restore the most recent valid installation calibration for this registration from the SD card?\n\nThis overwrites only the installation calibration. The replacement recorder must still have its recorder calibration performed.')) return;
+            if (!confirm(tr('RESTORE_INSTALL_CONFIRM'))) return;
 
             const button = document.getElementById('btnRestoreInstallationCalibration');
             if (button) button.disabled = true;
-            aboutStatus('Searching SD card for the most recent valid installation calibration...');
+            aboutStatus(tr('SEARCHING_INSTALL_CAL'));
 
             postJson('/api/install/support_restore?support=' +
                 encodeURIComponent(aboutSupportCode))
                 .then(res => {
                     if (handleAboutAuthorizationError(res)) return;
                     if (res.ok && res.json && res.json.restored) {
-                        const source = res.json.source || 'installation calibration report';
+                        const source = res.json.source || tr('INSTALL_REPORT_NAME');
                         const when = res.json.calibration_time || '-';
-                        aboutStatus('Installation calibration restored from ' + source + '. Recorder restarting...');
-                        alert('Installation calibration restored.\n\nSource: ' + source +
-                              '\nCalibration date/time: ' + when +
-                              '\n\nThe recorder will restart. Perform the recorder calibration on the replacement recorder.');
+                        aboutStatus(tr('INSTALL_RESTORED_FROM') + ' ' + source + '. ' + tr('RECORDER_RESTARTING'));
+                        alert(tr('INSTALL_RESTORED') + '\n\n' + tr('SOURCE_LABEL') + ': ' + source +
+                              '\n' + tr('CAL_DATE_TIME_LABEL') + ': ' + when +
+                              '\n\n' + tr('REPLACEMENT_REC_CAL_REQUIRED'));
                     } else {
-                        let reason = (res.json && res.json.reason) ? res.json.reason : 'restore_failed';
-                        if (reason === 'no_installation_report') {
-                            reason = 'No installation calibration report was found for the configured registration.';
-                        } else if (reason === 'no_valid_installation_report') {
-                            reason = 'No valid installation calibration report matching the configured registration was found.';
-                        }
-                        aboutStatus('Installation calibration restore failed: ' + reason);
-                        alert('Installation calibration restore failed.\n\n' + reason);
+                        const reason = (res.json && res.json.reason) ? res.json.reason : 'restore_failed';
+                        const reasonText = apiReasonText(reason, 'INSTALL_RESTORE_FAILED');
+                        aboutStatus(tr('INSTALL_RESTORE_FAILED') + ' ' + reasonText);
+                        alert(tr('INSTALL_RESTORE_FAILED') + '\n\n' + reasonText);
                         if (button) button.disabled = false;
                     }
                 })
                 .catch(err => {
-                    aboutStatus('Installation calibration restore error: ' + err);
-                    alert('Installation calibration restore error.');
+                    aboutStatus(localizedError('INSTALL_RESTORE_ERROR', err));
+                    alert(tr('INSTALL_RESTORE_ERROR'));
                     if (button) button.disabled = false;
                 });
         }
@@ -520,38 +528,38 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
 
         function supportClearRecorderCalibration() {
             if (!requireAboutAuthorization()) return;
-            if (!confirm('Clear the recorder calibration history? Recorder calibration will be required again.')) return;
-            aboutStatus('Clearing recorder calibration...');
+            if (!confirm(tr('CLEAR_REC_CONFIRM'))) return;
+            aboutStatus(tr('CLEARING_REC_CAL'));
             postJson('/api/cal/support_clear?support=' +
                 encodeURIComponent(aboutSupportCode))
                 .then(res => {
                     if (handleAboutAuthorizationError(res)) return;
                     if (res.ok && res.json && res.json.cleared) {
-                        aboutStatus('Recorder calibration history cleared. Recorder calibration is required.');
+                        aboutStatus(tr('REC_CAL_CLEARED'));
                         calStatus();
                     } else {
-                        aboutStatus('Recorder calibration clear failed: ' + prettyJson(res.json));
+                        aboutStatus(tr('REC_CAL_CLEAR_FAILED') + ': ' + apiReasonText(res.json && res.json.reason));
                     }
                 })
-                .catch(err => aboutStatus('Recorder calibration clear error: ' + err));
+                .catch(err => aboutStatus(localizedError('REC_CAL_CLEAR_ERROR', err)));
         }
 
         function supportClearInstallationCalibration() {
             if (!requireAboutAuthorization()) return;
-            if (!confirm('Clear the installation calibration? Installation calibration will be required again.')) return;
-            aboutStatus('Clearing installation calibration...');
+            if (!confirm(tr('CLEAR_INSTALL_CONFIRM'))) return;
+            aboutStatus(tr('CLEARING_INSTALL_CAL'));
             postJson('/api/install/support_clear?support=' +
                 encodeURIComponent(aboutSupportCode))
                 .then(res => {
                     if (handleAboutAuthorizationError(res)) return;
                     if (res.ok && res.json && res.json.cleared) {
-                        aboutStatus('Installation calibration cleared. Installation calibration is required.');
+                        aboutStatus(tr('INSTALL_CAL_CLEARED'));
                         calStatus();
                     } else {
-                        aboutStatus('Installation calibration clear failed: ' + prettyJson(res.json));
+                        aboutStatus(tr('INSTALL_CAL_CLEAR_FAILED') + ': ' + apiReasonText(res.json && res.json.reason));
                     }
                 })
-                .catch(err => aboutStatus('Installation calibration clear error: ' + err));
+                .catch(err => aboutStatus(localizedError('INSTALL_CAL_CLEAR_ERROR', err)));
         }
 
 
@@ -605,12 +613,11 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
 
         function fmtAge(ms) {
             if (ms === undefined || ms === null) return '-';
-            if (ms <= 0) return 'now';
-            const sec = Math.round(ms / 1000);
-            if (sec < 60) return sec + ' s ago';
+            const sec = Math.max(0, Math.round(ms / 1000));
+            if (sec < 60) return sec + ' s';
             const min = Math.floor(sec / 60);
             const rem = sec % 60;
-            return min + 'm ' + rem + 's ago';
+            return min + ' min ' + rem + ' s';
         }
 
 
@@ -628,15 +635,15 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                     if (!data.ok) return;
                     document.getElementById('installTotalSamples').textContent = data.total_samples || 0;
                     document.getElementById('installBestNoise').textContent = data.candidate_valid ? fmtNoise(data.quality_mg) : '-';
-                    document.getElementById('installStability').textContent = data.candidate_valid ? 'stable' : 'not stable';
-                    document.getElementById('installStatus').textContent = data.stored_valid ? ('valid since ' + fmtDate(data.stored_date)) : 'missing';
+                    document.getElementById('installStability').textContent = data.candidate_valid ? tr('STABLE') : tr('NOT_STABLE');
+                    document.getElementById('installStatus').textContent = data.stored_valid ? (tr('VALID_SINCE') + ' ' + fmtDate(data.stored_date)) : tr('MISSING');
                     updateInstallAngles(data);
                     setInstallStartButton(!!data.active, false);
                     const reasonEl = document.getElementById('installReason');
                     const reasonOk = !!(reasonEl && reasonEl.value);
                     document.getElementById('btnInstallSave').disabled = (!data.candidate_valid) || (!reasonOk);
                 })
-                .catch(err => logInstall('Installation calibration communication error: ' + err))
+                .catch(err => logInstall(localizedError('INSTALL_COMM_ERROR', err)))
                 .then(() => { installSampleRequestActive = false; });
         }
 
@@ -655,27 +662,27 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
                         setInstallStartButton(false, false);
                         const reason = res.json ? res.json.reason : '';
                         if (reason === 'sensor_cal_required') {
-                            logInstall('Recorder calibration is required before installation calibration.');
+                            logInstall(tr('INSTALL_SENSOR_CAL_REQUIRED'));
                         } else if (reason === 'recording') {
-                            logInstall('Installation calibration cannot start while recording is active.');
+                            logInstall(tr('INSTALL_RECORDING_BLOCK'));
                         } else if (reason) {
-                            logInstall('Installation calibration could not start: ' + reason + '.');
+                            logInstall(tr('INSTALL_COULD_NOT_START') + ' ' + apiReasonText(reason));
                         } else {
-                            logInstall('Installation calibration could not start.');
+                            logInstall(tr('INSTALL_COULD_NOT_START'));
                         }
                         calStatus();
                         installSample();
                         return;
                     }
                     setInstallStartButton(true, false);
-                    logInstall('Installation calibration started. Put the glider in flight-level attitude with wings level and keep it still.');
+                    logInstall(tr('INSTALL_STARTED'));
                     calStatus();
                     installSample();
                     startCalPolling();
                 })
                 .catch(err => {
                     setInstallStartButton(false, false);
-                    logInstall('Installation calibration start error: ' + err);
+                    logInstall(localizedError('INSTALL_START_ERROR', err));
                 });
         }
 
@@ -683,7 +690,7 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
             postJson('/api/install/cancel')
                 .then(res => {
                     setInstallStartButton(false, false);
-                    logInstall('Installation calibration cancelled.');
+                    logInstall(tr('INSTALL_CANCELLED'));
                     calStatus();
                     installSample();
                 });
@@ -699,24 +706,24 @@ R"rawliteral(        // Global calibration status refresh. This drives menu date
             const reasonEl = document.getElementById('installReason');
             const reason = reasonEl ? reasonEl.value : '';
             if (!reason) {
-                logInstall('Select an installation calibration reason before saving.');
+                logInstall(tr('INSTALL_REASON_REQUIRED'));
                 return;
             }
             save.disabled = true;
             postJson('/api/install/save?reason=' + encodeURIComponent(reason))
                 .then(res => {
                     if (res.ok && res.json && res.json.matrix) {
-                        logInstall('Installation calibration saved. Calibration report downloading.');
+                        logInstall(tr('INSTALL_SAVED'));
                         if (res.json && res.json.report_written) setTimeout(installDownloadLastReport, 250);
                     } else {
-                        logInstall('Installation calibration save failed. Check that the glider is stable, wings are level, the selected reason is correct, and retry.');
+                        logInstall(tr('INSTALL_SAVE_FAILED'));
                     }
                     calStatus();
                     installSample();
                     if (!res.ok) save.disabled = false;
                 })
                 .catch(err => {
-                    logInstall('Installation calibration save error: ' + err);
+                    logInstall(localizedError('INSTALL_SAVE_ERROR', err));
                     save.disabled = false;
                 });
         }

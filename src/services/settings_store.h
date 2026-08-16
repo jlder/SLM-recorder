@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <Preferences.h>
+#include "src/services/language.h"
 
 extern Preferences prefs;
 
@@ -24,6 +25,7 @@ typedef struct {
   char wifi_password[SETTINGS_WIFI_PASSWORD_LEN]; // generated from registration, not user-editable
   bool date_set;
   bool time_set;
+  language_t language;
 } settings_t;
 
 /**
@@ -49,6 +51,7 @@ bool settings_init(void);
  *   false if storage is not ready or out is null.
  */
 bool settings_get(settings_t *out);
+language_t settings_get_language(void);
 
 /**
  * Check whether the loaded settings are complete enough for normal operation.
@@ -130,6 +133,21 @@ bool settings_set_date_set(bool done);
  *   false otherwise.
  */
 bool settings_set_time_set(bool done);
+
+/**
+ * Save the recorder user-interface language.
+ *
+ * French is the default when no language key exists. Language selection is
+ * optional configuration and does not participate in settings completeness.
+ *
+ * Parameters:
+ *   language - LANGUAGE_FRENCH or LANGUAGE_ENGLISH.
+ *
+ * Return:
+ *   true if the value was written successfully, false otherwise.
+ */
+bool settings_set_language(language_t language);
+
 /**
  * Clear all recorder settings stored in the Preferences namespace.
  *

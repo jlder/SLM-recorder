@@ -15,13 +15,13 @@ R"rawliteral(        function delayMs(ms) {
         function refreshReports() {
             const container = document.getElementById('reportListContainer');
             if (!container) return;
-            container.innerHTML = '<div class="loading">Loading reports...</div>';
+            container.innerHTML = '<div class="loading">' + escapeHtml(tr('LOADING_REPORTS')) + '</div>';
 
             recorderJsonWithRetry('/api/reports/files')
                 .then(res => {
                     if (!res.ok || !res.json || !res.json.ok) {
                         reportFiles = [];
-                        container.innerHTML = '<div class="loading">Report list unavailable</div>';
+                        container.innerHTML = '<div class="loading">' + escapeHtml(tr('REPORT_LIST_UNAVAILABLE')) + '</div>';
                         return;
                     }
 
@@ -30,7 +30,7 @@ R"rawliteral(        function delayMs(ms) {
                 })
                 .catch(err => {
                     reportFiles = [];
-                    container.innerHTML = '<div class="loading">Report list unavailable</div>';
+                    container.innerHTML = '<div class="loading">' + escapeHtml(tr('REPORT_LIST_UNAVAILABLE')) + '</div>';
                     console.error(err);
                 });
         }
@@ -39,7 +39,7 @@ R"rawliteral(        function delayMs(ms) {
             const container = document.getElementById('reportListContainer');
             if (!container) return;
             if (!files || files.length === 0) {
-                container.innerHTML = '<div class="loading">No calibration reports found</div>';
+                container.innerHTML = '<div class="loading">' + escapeHtml(tr('NO_CAL_REPORTS')) + '</div>';
                 return;
             }
 
@@ -53,9 +53,9 @@ R"rawliteral(        function delayMs(ms) {
                 html += `<div class="file-item">
                     <div class="file-row">
                         <div class="file-name">${safeName}</div>
-                        <button class="btn btn-primary file-btn" onclick='downloadReport(${jsName})'>Download</button>
+                        <button class="btn btn-primary file-btn" onclick='downloadReport(${jsName})'>${escapeHtml(tr('DOWNLOAD'))}</button>
                     </div>
-                    <div class="file-size">Size: ${sizeKb} kB</div>
+                    <div class="file-size">${escapeHtml(tr('SIZE_LABEL'))} ${sizeKb} kB</div>
                 </div>`;
             });
             html += '</div>';
@@ -71,7 +71,7 @@ R"rawliteral(        function delayMs(ms) {
             fetch('/api/info')
                 .then(r => r.json())
                 .then(data => {
-                    document.getElementById('sdSize').textContent = data.present ? (data.size_mb + ' MB') : 'Not present';
+                    document.getElementById('sdSize').textContent = data.present ? (data.size_mb + ' MB') : tr('NOT_PRESENT');
                     document.getElementById('sdFree').textContent = data.present ? (data.free_mb + ' MB') : '-';
                 });
         }
@@ -80,9 +80,12 @@ R"rawliteral(        function delayMs(ms) {
             fetch('/api/status')
                 .then(r => r.json())
                 .then(data => {
+                    if (data && (data.language === 'en' || data.language === 'fr')) {
+                        setSlmLanguage(data.language);
+                    }
                     const badge = document.getElementById('statusBadge');
                     if (data.recording) {
-                        badge.innerHTML = '<span class="status-recording">● Recording</span>';
+                        badge.innerHTML = '<span class="status-recording">● ' + escapeHtml(tr('RECORDING_BADGE')) + '</span>';
                     } else {
                         badge.innerHTML = '';
                     }
@@ -113,8 +116,7 @@ R"rawliteral(        function delayMs(ms) {
             // Start buttons become Cancel while a calibration is running.
             // Cancel is not the corrective action for a missing calibration,
             // so the active/Cancel state must override the amber warning cue.
-            const isCancel = (btn.dataset && btn.dataset.active === '1') ||
-                             (btn.textContent && btn.textContent.trim() === 'Cancel');
+            const isCancel = (btn.dataset && btn.dataset.active === '1');
             const showWarning = !!warning && !isCancel;
 
             btn.classList.toggle('btn-warning', showWarning);
@@ -142,7 +144,7 @@ R"rawliteral(        function delayMs(ms) {
         }
 
         function fmtBool(v) {
-            return v ? 'yes' : 'no';
+            return v ? tr('YES') : tr('NO');
         }
 
         // Render the last watchdog supervision fault, if one has been captured.
@@ -155,27 +157,27 @@ R"rawliteral(        function delayMs(ms) {
                     if (!panel || !text) return;
                     panel.classList.remove('hidden');
                     if (!data || !data.available) {
-                        text.innerHTML = 'Last watchdog fault: none';
+                        text.innerHTML = escapeHtml(tr('LAST_WDG_NONE'));
                         return;
                     }
 
-                    const status = data.active ? 'active / not acknowledged' : 'acknowledged';
+                    const status = data.active ? tr('WDG_ACTIVE') : tr('WDG_ACK');
                     text.innerHTML =
-                        'Status: ' + escapeHtml(status) + '<br>' +
-                        'Source: ' + escapeHtml(data.source || 'unknown') + '<br>' +
-                        'Failed age: ' + escapeHtml(fmtAge(data.age_ms)) + '<br>' +
-                        'Ages [state, sd, record, web]: ' +
+                        tr('STATUS_LABEL') + ' ' + escapeHtml(status) + '<br>' +
+                        tr('SOURCE_PREFIX') + ' ' + escapeHtml(data.source || tr('UNKNOWN')) + '<br>' +
+                        tr('FAILED_AGE') + ' ' + escapeHtml(fmtAge(data.age_ms)) + '<br>' +
+                        tr('AGES_WDG') + ' ' +
                         escapeHtml(fmtAge(data.age_state_ms)) + ', ' +
                         escapeHtml(fmtAge(data.age_sd_ms)) + ', ' +
                         escapeHtml(fmtAge(data.age_record_ms)) + ', ' +
                         escapeHtml(fmtAge(data.age_web_ms)) + '<br>' +
-                        'Recorder state: ' + escapeHtml(data.recorder_state) +
-                        ', last error: ' + escapeHtml(data.last_error) + '<br>' +
-                        'Web: ' + escapeHtml(fmtBool(data.web_active)) +
-                        ', USB: ' + escapeHtml(fmtBool(data.usb_present)) +
-                        ', SD: ' + escapeHtml(fmtBool(data.sd_present)) + '<br>' +
-                        'Heap: ' + escapeHtml(data.heap) +
-                        ', min heap: ' + escapeHtml(data.min_heap);
+                        tr('RECORDER_STATE_LABEL') + ' ' + escapeHtml(data.recorder_state) +
+                        ', ' + tr('LAST_ERROR_LABEL') + ' ' + escapeHtml(data.last_error) + '<br>' +
+                        tr('WEB_LABEL') + ' ' + escapeHtml(fmtBool(data.web_active)) +
+                        ', ' + tr('USB_LABEL') + ' ' + escapeHtml(fmtBool(data.usb_present)) +
+                        ', ' + tr('SD_LABEL') + ' ' + escapeHtml(fmtBool(data.sd_present)) + '<br>' +
+                        tr('HEAP_LABEL') + ' ' + escapeHtml(data.heap) +
+                        ', ' + tr('MIN_HEAP_LABEL') + ' ' + escapeHtml(data.min_heap);
                 })
                 .catch(err => console.error(err));
         }

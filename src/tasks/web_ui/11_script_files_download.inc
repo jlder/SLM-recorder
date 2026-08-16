@@ -47,7 +47,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                     calStatus();
                 })
                 .catch(err => {
-                    document.getElementById('fileListContainer').innerHTML = '<div class="loading">File list unavailable</div>';
+                    document.getElementById('fileListContainer').innerHTML = '<div class="loading">' + escapeHtml(tr('FILE_LIST_UNAVAILABLE')) + '</div>';
                     console.error(err);
                 });
         }
@@ -113,11 +113,11 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
         }
 
         function recorderProcessLabel(state) {
-            if (state === 'downloading' || state === 'analyzing') return 'Processing';
-            if (state === 'queued') return 'Queued';
-            if (state === 'uploading') return 'Uploading';
-            if (state === 'finalizing') return 'Finalizing';
-            return 'Process';
+            if (state === 'downloading' || state === 'analyzing') return tr('PROCESSING');
+            if (state === 'queued') return tr('QUEUED');
+            if (state === 'uploading') return tr('UPLOADING');
+            if (state === 'finalizing') return tr('FINALIZING');
+            return tr('PROCESS');
         }
 
         function recorderLocalProcessingActive() {
@@ -182,7 +182,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             document.getElementById('fileCount').textContent = groups.length;
 
             if (groups.length === 0) {
-                container.innerHTML = '<div class="loading">No files found</div>';
+                container.innerHTML = '<div class="loading">' + escapeHtml(tr('NO_FILES_FOUND')) + '</div>';
                 return;
             }
 
@@ -203,7 +203,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                         <button class="btn btn-primary file-btn process-file-btn" data-dailykey="${escapeHtml(group.key)}" onclick='processDailyFiles(${jsKey})'${processDisabled}>${processLabel}</button>
                     </div>
                     <div class="file-row">
-                        <div class="file-size">Size: ${sizeKb} kB</div>
+                        <div class="file-size">${escapeHtml(tr('SIZE_LABEL'))} ${sizeKb} kB</div>
                     </div>
                 </div>`;
             });
@@ -246,7 +246,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             if (!sequence) return;
             if (sequence.nextIndex >= sequence.files.length) {
                 renderDailyFlightAnalysis(dailyKey, true);
-                setProgress('downloadProgressBar', 'downloadProgressText', 100, 'Processing: complete');
+                setProgress('downloadProgressBar', 'downloadProgressText', 100, tr('PROCESSING_PREFIX') + ': ' + tr('COMPLETE'));
                 delete recorderDailySequences[dailyKey];
                 refreshRecorderProcessButtons();
                 return;
@@ -267,9 +267,9 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             const currentDone = sequence.currentBytes * Math.max(0, Math.min(100, currentPercent)) / 100;
             const percent = Math.round(100 * (sequence.completedBytes + currentDone) / sequence.totalBytes);
             const status = document.getElementById('flightAnalysisStatus');
-            if (status) status.textContent = 'Processing: ' + percent + '%';
+            if (status) status.textContent = tr('PROCESSING_PREFIX') + ': ' + percent + '%';
             setProgress('downloadProgressBar', 'downloadProgressText', percent,
-                'Processing: ' + percent + '%');
+                tr('PROCESSING_PREFIX') + ': ' + percent + '%');
         }
 
         function updateDailyTransferProgress(dailyKey, transferPercent) {
@@ -317,16 +317,16 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             const displayName = recorderDailyDisplayName(dailyKey);
 
             if (!flights.length) {
-                if (complete) status.textContent = displayName + ' \u2014 No flight detected';
+                if (complete) status.textContent = displayName + ' \u2014 ' + tr('NO_FLIGHT_DETECTED');
                 table.innerHTML = '';
                 return;
             }
 
             if (complete) {
-                status.textContent = displayName + ' \u2014 ' + flights.length + ' flight(s)';
+                status.textContent = displayName + ' \u2014 ' + flights.length + ' ' + tr('FLIGHT_PLURAL');
             }
             let html = '<table class="analysis-table"><thead><tr>' +
-                '<th>FLT<br>#</th><th>T/O</th><th>LDG</th><th>FLT<br>TIME</th>' +
+                '<th>' + escapeHtml(tr('TABLE_FLT')).replace(' ', '<br>') + '</th><th>' + escapeHtml(tr('TABLE_TAKEOFF')) + '</th><th>' + escapeHtml(tr('TABLE_LANDING')) + '</th><th>' + escapeHtml(tr('TABLE_FLIGHT_TIME')).replace(' ', '<br>') + '</th>' +
                 '</tr></thead><tbody>';
             flights.forEach(function(f, index) {
                 html += '<tr>' +
@@ -345,14 +345,14 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             if (!status) return;
 
             const detail = String(message || '').trim();
-            let text = detail ? ('Processing failed: ' + detail) : 'Processing failed.';
+            let text = tr('PROCESSING_FAILED') + (detail ? (': ' + detail) : '.');
             if (detail && !/[.!?]$/.test(text)) text += '.';
 
             if (window.SLMAndroid &&
                 typeof window.SLMAndroid.downloadRecorderFile === 'function') {
-                text += ' In SLM Bridge, check that Recorder and Server are connected and that the file queue is clear, then press Process again.';
+                text += ' ' + tr('CHECK_BRIDGE_CONNECTION');
             } else {
-                text += ' Check the connection to the recorder, then press Process again.';
+                text += ' ' + tr('CHECK_RECORDER_CONNECTION');
             }
             status.textContent = text;
         }
@@ -368,10 +368,10 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             const sequence = recorderDailySequences[dailyKey];
             if (sequence && sequence.nextIndex === 1) {
                 table.innerHTML = '';
-                status.textContent = 'Processing.';
+                status.textContent = tr('PROCESSING_DOT');
             }
             if (recorderProcessState(filename) !== 'ready') {
-                showRecorderProcessingFailure('Another recorder-file transfer is already active.');
+                showRecorderProcessingFailure(tr('TRANSFER_ALREADY_ACTIVE'));
                 abortDailySequence(filename);
                 return;
             }
@@ -403,7 +403,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                 .catch(err => {
                     setRecorderProcessState(filename, 'ready');
                     abortDailySequence(filename);
-                    showRecorderProcessingFailure(err && err.message ? err.message : 'File download or analysis did not complete.');
+                    showRecorderProcessingFailure(err && err.message ? err.message : tr('DOWNLOAD_ANALYSIS_INCOMPLETE'));
                     console.error(err);
                 });
         }
@@ -449,7 +449,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                 setRecorderProcessState(filename, 'analyzing');
                 fetch(detail.localUrl, { cache: 'no-store' })
                     .then(function(response) {
-                        if (!response.ok) throw new Error('private file unavailable');
+                        if (!response.ok) throw new Error(tr('PRIVATE_FILE_UNAVAILABLE'));
                         return response.arrayBuffer();
                     })
                     .then(function(buffer) {
@@ -472,7 +472,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                         notifyAndroidAnalysisFailed(detail.transferId);
                         setRecorderProcessState(filename, 'ready');
                         abortDailySequence(filename);
-                        showRecorderProcessingFailure(err && err.message ? err.message : 'Downloaded file could not be analyzed.');
+                        showRecorderProcessingFailure(err && err.message ? err.message : tr('DOWNLOADED_FILE_NOT_ANALYZED'));
                     });
             } else if (state === 'upload-pending') {
                 setRecorderProcessState(filename, 'queued');
@@ -486,7 +486,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             } else if (state === 'failed') {
                 setRecorderProcessState(filename, 'ready');
                 abortDailySequence(filename);
-                showRecorderProcessingFailure(detail.message);
+                showRecorderProcessingFailure(detail.reason ? apiReasonText(detail.reason, 'DOWNLOAD_ANALYSIS_INCOMPLETE') : tr('DOWNLOAD_ANALYSIS_INCOMPLETE'));
             }
         });
 
@@ -522,11 +522,11 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                         const percent = Math.round((evt.loaded * 100) / evt.total);
                         progressCb(
                             percent,
-                            'Download: ' + percent + '% (' +
+                            tr('DOWNLOAD_PREFIX') + ': ' + percent + '% (' +
                                 formatBytes(evt.loaded) + ' / ' + formatBytes(evt.total) + ')'
                         );
                     } else {
-                        progressCb(0, 'Download: ' + formatBytes(evt.loaded) + ' received');
+                        progressCb(0, tr('DOWNLOAD_PREFIX') + ': ' + formatBytes(evt.loaded) + ' ' + tr('RECEIVED_SUFFIX'));
                     }
                 };
 
@@ -534,12 +534,12 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                     if (xhr.status >= 200 && xhr.status < 300) {
                         resolve(xhr.response);
                     } else {
-                        reject(new Error('download failed: HTTP ' + xhr.status));
+                        reject(new Error(tr('DOWNLOAD_FAILED') + ': HTTP ' + xhr.status));
                     }
                 };
 
                 xhr.onerror = function() {
-                    reject(new Error('download failed'));
+                    reject(new Error(tr('DOWNLOAD_FAILED')));
                 };
 
                 xhr.send();
@@ -551,8 +551,8 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             const status = document.getElementById('flightAnalysisStatus');
             const table = document.getElementById('flightAnalysisTable');
             if (table) table.innerHTML = '';
-            if (status) status.textContent = 'No analysis available.';
-            setProgress('downloadProgressBar', 'downloadProgressText', 0, 'Download: idle');
+            if (status) status.textContent = tr('NO_ANALYSIS_AVAILABLE');
+            setProgress('downloadProgressBar', 'downloadProgressText', 0, tr('DOWNLOAD_IDLE'));
             if (panel) panel.classList.add('hidden');
         }
 
@@ -662,7 +662,7 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
 
         function refreshLogbook() {
             const container = document.getElementById('logbookContainer');
-            container.innerHTML = '<div class="loading">Loading logbook...</div>';
+            container.innerHTML = '<div class="loading">' + escapeHtml(tr('LOADING_LOGBOOK')) + '</div>';
             recorderJsonWithRetry('/api/logbook/files')
                 .then(result => {
                     if (!result.ok || !result.json || !result.json.ok) {
@@ -694,18 +694,18 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
                 })
                 .catch(err => {
                     console.error(err);
-                    container.innerHTML = '<div class="loading">Logbook unavailable</div>';
+                    container.innerHTML = '<div class="loading">' + escapeHtml(tr('LOGBOOK_UNAVAILABLE')) + '</div>';
                 });
         }
 
         function displayLogbookRows(rows) {
             const container = document.getElementById('logbookContainer');
             if (!rows || rows.length === 0) {
-                container.innerHTML = '<div class="loading">No downloaded flight logs found</div>';
+                container.innerHTML = '<div class="loading">' + escapeHtml(tr('NO_DOWNLOADED_LOGS')) + '</div>';
                 return;
             }
             let html = '<table class="analysis-table"><thead><tr>' +
-                '<th>Date</th><th>T/O</th><th>LDG</th><th>Flight<br>Time</th>' +
+                '<th>' + escapeHtml(tr('TABLE_DATE')) + '</th><th>' + escapeHtml(tr('TABLE_TAKEOFF')) + '</th><th>' + escapeHtml(tr('TABLE_LANDING')) + '</th><th>' + escapeHtml(tr('TABLE_FLIGHT_TIME_LONG')).replace(' ', '<br>') + '</th>' +
                 '</tr></thead><tbody>';
             rows.forEach(row => {
                 html += '<tr>' +
@@ -746,22 +746,22 @@ R"rawliteral(        // Retry short recorder/SD busy windows instead of showing 
             const status = document.getElementById('flightAnalysisStatus');
             const table = document.getElementById('flightAnalysisTable');
             if (!analysis || !analysis.ok) {
-                const reason = analysis && analysis.reason ? analysis.reason : 'Analysis failed.';
-                status.textContent = filename + ' \u2014 Complete: ' + reason;
+                const reason = analysis && analysis.reason ? analysis.reason : tr('ANALYSIS_FAILED');
+                status.textContent = filename + ' \u2014 ' + tr('COMPLETE') + ': ' + reason;
                 table.innerHTML = '';
                 return;
             }
 
             if (analysis.flights.length === 0) {
-                status.textContent = filename + ' \u2014 Complete: no flight detected';
+                status.textContent = filename + ' \u2014 ' + tr('COMPLETE') + ': ' + tr('NO_FLIGHT_DETECTED').toLowerCase();
                 table.innerHTML = '';
                 return;
             }
 
-            status.textContent = filename + ' \u2014 Complete: ' + analysis.flights.length + ' flight(s)';
+            status.textContent = filename + ' \u2014 ' + tr('COMPLETE') + ': ' + analysis.flights.length + ' ' + tr('FLIGHT_PLURAL');
 
             let html = '<table class="analysis-table"><thead><tr>' +
-                '<th>FLT<br>#</th><th>T/O</th><th>LDG</th><th>FLT<br>TIME</th>' +
+                '<th>' + escapeHtml(tr('TABLE_FLT')).replace(' ', '<br>') + '</th><th>' + escapeHtml(tr('TABLE_TAKEOFF')) + '</th><th>' + escapeHtml(tr('TABLE_LANDING')) + '</th><th>' + escapeHtml(tr('TABLE_FLIGHT_TIME')).replace(' ', '<br>') + '</th>' +
                 '</tr></thead><tbody>';
 
             analysis.flights.forEach(f => {

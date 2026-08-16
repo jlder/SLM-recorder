@@ -46,23 +46,21 @@ R"rawliteral(        // Browser analysis constants. Values are generated from co
         async function analyzeRecorderFileAsync(buffer, progressCb) {
             const progress = progressCb || function(){};
 
-            progress(5, 'Processing: decoding file format...');
+            progress(5);
             await analysisYield();
 
             const decoded = decodeRecorderTimeline(buffer);
-            const samplePeriod = decoded ? computeSamplePeriodStats(decoded.records) : null;
 
             if (!decoded || decoded.records.length < SLM_ANALYSIS_FS * SLM_ANALYSIS_MIN_FILE_S) {
-                progress(100, 'Processing: not enough valid flight-analysis data.');
+                progress(100);
                 return {
                     ok: false,
-                    reason: 'Not enough valid flight-analysis data.',
+                    reason: tr('ANALYSIS_NOT_ENOUGH_DATA'),
                     formatName: decoded ? decoded.formatName : 'unknown',
-                    samplePeriod: samplePeriod
                 };
             }
 
-            progress(15, 'Processing: analyzing flight times...');
+            progress(15);
             await analysisYield();
 
             const flights = await analyzeAccelerationTimelineAsync(decoded.records, progress);
@@ -71,80 +69,11 @@ R"rawliteral(        // Browser analysis constants. Values are generated from co
             return {
                 ok: true,
                 formatName: decoded.formatName,
-                samplePeriod: samplePeriod,
                 flights: flights
             };
         }
 
-        // Report sample-period quality using only plausible adjacent sample deltas.
-        function computeSamplePeriodStats(records) {
-            if (!records || records.length < 2) {
-                return { ok: false, count: 0, excluded: 0 };
-            }
-
-            const nominalMs = 1000.0 / SLM_ANALYSIS_FS;
-            const maxValidMs = nominalMs * 4.0;
-            const minValidMs = nominalMs * 0.2;
-            const periods = [];
-            let excluded = 0;
-
-            for (let i = 1; i < records.length; i++) {
-                const dt = records[i].absMs - records[i - 1].absMs;
-                if (Number.isFinite(dt) && dt >= minValidMs && dt <= maxValidMs) {
-                    periods.push(dt);
-                } else {
-                    excluded++;
-                }
-            }
-
-            if (periods.length === 0) {
-                return { ok: false, count: 0, excluded: excluded };
-            }
-
-            let sum = 0.0;
-            let min = periods[0];
-            let max = periods[0];
-            let outside49_51 = 0;
-            let outside48_52 = 0;
-
-            periods.forEach(dt => {
-                sum += dt;
-                if (dt < min) min = dt;
-                if (dt > max) max = dt;
-                if (dt < 49.0 || dt > 51.0) outside49_51++;
-                if (dt < 48.0 || dt > 52.0) outside48_52++;
-            });
-
-            const avg = sum / periods.length;
-            let varSum = 0.0;
-            periods.forEach(dt => {
-                const d = dt - avg;
-                varSum += d * d;
-            });
-
-            return {
-                ok: true,
-                count: periods.length,
-                excluded: excluded,
-                avgMs: avg,
-                stdMs: Math.sqrt(varSum / periods.length),
-                minMs: min,
-                maxMs: max,
-                outside49_51: outside49_51,
-                outside48_52: outside48_52
-            };
-        }
-
-        function samplePeriodStatsText(stats) {
-            if (!stats || !stats.ok) {
-                return 'Sample period: unavailable';
-            }
-
-            return 'Sample period: avg ' + stats.avgMs.toFixed(2) +
-                ' ms, std ' + stats.stdMs.toFixed(2) + ' ms';
-        }
-
-        // Try all supported binary decoders and select the longest valid acceleration timeline.
+        // Select and decode the supported recorder binary format.
         function decodeRecorderTimeline(buffer) {
             const slm = decodeSlmTimeline(buffer);
             const wit = decodeWitTimeline(buffer);
@@ -298,34 +227,34 @@ R"rawliteral(        // Browser analysis constants. Values are generated from co
         async function analyzeAccelerationTimelineAsync(records, progressCb) {
             const progress = progressCb || function(){};
 
-            progress(20, 'Processing: computing acceleration magnitude...');
+            progress(20);
             await analysisYield();
             const accelMod = records.map(r => Math.sqrt(r.axG * r.axG + r.ayG * r.ayG + r.azG * r.azG));
 
-            progress(32, 'Processing: computing HIRMS (>3 Hz)...');
+            progress(32);
             await analysisYield();
             const accelHigh = butterHighpass4ZeroPhase(accelMod, 3.0, SLM_ANALYSIS_FS);
             const hirms = movingRms(accelHigh, SLM_ANALYSIS_HIRMS_WINDOW_S, SLM_ANALYSIS_FS);
 
-            progress(48, 'Processing: computing LOWRMS (0.5..3 Hz)...');
+            progress(48);
             await analysisYield();
             const accelLow = butterBandpassApproxZeroPhase(accelMod, 0.5, 3.0, SLM_ANALYSIS_FS);
             const lowrms = movingRms(accelLow, SLM_ANALYSIS_LOWRMS_WINDOW_S, SLM_ANALYSIS_FS);
 
-            progress(62, 'Processing: normalizing RMS signals...');
+            progress(62);
             await analysisYield();
             const hMin = arrayMin(hirms);
             const hMax = arrayMax(hirms);
             const hirmsNorm = normalizeWithRange(hirms, hMin, hMax);
             const lowrmsNorm = normalizeWithRange(lowrms, hMin, hMax);
 
-            progress(72, 'Processing: computing FlightGround...');
+            progress(72);
             await analysisYield();
             const flightgroundRaw = lowrmsNorm.map((v, i) => Math.max(0.0, v - hirmsNorm[i]));
             const fgCutoff = 1.0 / SLM_ANALYSIS_FLIGHTGROUND_LPF_PERIOD_S;
             const flightground = butterLowpass4ZeroPhase(flightgroundRaw, fgCutoff, SLM_ANALYSIS_FS);
 
-            progress(84, 'Processing: finding flight/ground transitions...');
+            progress(84);
             await analysisYield();
             const flightState = calculateBooleanState(
                 flightground,
@@ -341,7 +270,7 @@ R"rawliteral(        // Browser analysis constants. Values are generated from co
                 SLM_ANALYSIS_SEARCH_WINDOW_S
             );
 
-            progress(94, 'Processing: finding roll phase times...');
+            progress(94);
             await analysisYield();
             return findRollPhases(segments, hirmsNorm, records);
         }

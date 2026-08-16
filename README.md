@@ -273,13 +273,21 @@ Each new immutable recording is hashed while its bytes are written. On close, th
 
 File Management presents one logical entry per registration/date while immutable recording files remain separate on SD and on the server. Pressing **Process** sequentially downloads, verifies, analyses, queues, uploads, verifies, and archives every pending suffixed `.bin` file for that day. The visible progress is calculated from aggregate pending `.bin` bytes; physical suffixes and file counts are not exposed to the user.
 
-## Current development baseline (v1.45)
+## Current development baseline (v1.49)
 
-Recorder v1.45 is the current development baseline and is intended to be used with SLM Bridge v0.3.44. Changes introduced since v1.33 include immutable suffixed recording files, recorder-created SHA-256 companions, daily File Management presentation, sequential processing of same-day recordings, per-recording CSV flight logs, permanent archival in `/processed`, root `.bin`-only file-count enforcement, root-plus-processed Logbook aggregation, and the `/api/archive` post-upload endpoint. Legacy appended recordings without creation SHA remain supported.
+Recorder v1.49 is the current development baseline and is intended to be used with SLM Bridge v0.3.47. Changes introduced since v1.33 include immutable suffixed recording files, recorder-created SHA-256 companions, daily File Management presentation, sequential processing of same-day recordings, per-recording CSV flight logs, permanent archival in `/processed`, root `.bin`-only file-count enforcement, root-plus-processed Logbook aggregation, and the `/api/archive` post-upload endpoint. Legacy appended recordings without creation SHA remain supported.
 
-The v1.45 baseline also includes:
+The v1.49 baseline also includes:
 
+- **French/English recorder interface:** French is the default recorder language. SETTINGS provides an ENGLISH/FRANÇAIS toggle stored in NVS. The selection controls both the AMOLED interface and recorder-served Web pages through the central `src/services/language.h` catalog; protocol/API reason codes and persistent calibration-report formats remain language-independent.
+- **Self-contained recorder Web page:** since v1.47, the bilingual browser catalog remains inside the existing `HTML_PAGE`, generated from `language.h`; the existing `/api/status` response supplies only the selected `fr`/`en` code. This avoids the additional `/api/language.js` request introduced in v1.46.
 - **Installation calibration restore after recorder replacement:** Maintenance > About can restore the newest valid installation-calibration report matching the configured registration from `/calibration_reports` or `/processed` into the installation-calibration NVS record. Recorder six-face calibration remains independently required on the replacement hardware.
 - **USB-power Web gating:** File Management, Logbook, firmware update, installation calibration, report handling, and support actions require USB power. The Main Menu explains the restriction when USB is absent; Recorder Calibration remains available through Maintenance on battery power.
 - **Daily processing status:** Flight Analysis shows real `Processing: N%` progress across all physical files for the selected day. Recorder transfer contributes 95% and browser analysis 5% of each file's size-weighted contribution. Final flight details are shown only after analysis results are available; failures give an actionable retry message.
 - **Simplified Firmware Update page:** firmware is selected in one card from the server (preferred) or from the phone when requested by support, followed by a common Update Firmware / Return card. The page warns that Wi-Fi is lost during the successful restart and must be restarted before reconnecting.
+
+The v1.49 baseline retains the normal French accents in the central translation catalog. The AMOLED keeps LVGL's built-in Montserrat fonts for ASCII and uses compact accent-capable wrapper fonts that synthesize only the nine French glyphs required by the current catalog (`À Ç É Ê à ç è é ê`). The recorder Web page uses the same UTF-8 translations directly.
+
+The v1.49 baseline increases the successful OTA acknowledgement-to-reboot delay from 500 ms to 2000 ms so the asynchronous HTTP/TCP stack has more time to deliver the final `200 / ok` response before Wi-Fi disappears during restart. The support-reboot delay remains 500 ms.
+
+The repository firmware manifest continues to identify the last generated v1.48 binary until a v1.49 release firmware image is compiled and published.

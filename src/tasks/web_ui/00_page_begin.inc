@@ -13,5 +13,5 @@ R"rawliteral(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SLM Recorder</title>
+    <title data-i18n="PAGE_RECORDER"></title>
 )rawliteral"

@@ -10,10 +10,12 @@
  */
 
 #include "src/services/ui_message.h"
+#include "src/services/language.h"
+#include "src/services/settings_store.h"
 
 typedef struct {
   msg_id_t id;
-  const char *text;
+  language_text_id_t text_id;
   ui_severity_t severity;
   ui_color_t color;
   bool force_main;
@@ -23,44 +25,44 @@ typedef struct {
 // Central message policy table.
 // NOTE: Keep strings short and deterministic (no dynamic formatting).
 static const row_t kTable[] = {
-  { MSG_NONE, "", UI_SEV_INFO, UI_COLOR_DEFAULT, false, false },
+  { MSG_NONE, TXT_EMPTY, UI_SEV_INFO, UI_COLOR_DEFAULT, false, false },
 
   // Startup / nominal
-  { MSG_BOOT, "BOOT", UI_SEV_INFO, UI_COLOR_GREEN, true, false },
-  { MSG_READY, "READY", UI_SEV_INFO, UI_COLOR_GREEN, false, false },
-  { MSG_RECORDING, "RECORDING", UI_SEV_INFO, UI_COLOR_GREEN, false, false },
-  { MSG_STARTING, "STARTING", UI_SEV_INFO, UI_COLOR_GREEN, true, false },
-  { MSG_STOPPING, "STOPPING", UI_SEV_INFO, UI_COLOR_GREEN, true, false },
+  { MSG_BOOT, TXT_BOOT, UI_SEV_INFO, UI_COLOR_GREEN, true, false },
+  { MSG_READY, TXT_READY, UI_SEV_INFO, UI_COLOR_GREEN, false, false },
+  { MSG_RECORDING, TXT_RECORDING, UI_SEV_INFO, UI_COLOR_GREEN, false, false },
+  { MSG_STARTING, TXT_STARTING, UI_SEV_INFO, UI_COLOR_GREEN, true, false },
+  { MSG_STOPPING, TXT_STOPPING, UI_SEV_INFO, UI_COLOR_GREEN, true, false },
 
   // Transient / config
-  { MSG_SETTINGS_LOCKED, "NEED SETTINGS", UI_SEV_WARN, UI_COLOR_AMBER, true, true },
-  { MSG_ACCEL_CALIBRATION_REQUIRED, "REC CAL REQ", UI_SEV_WARN, UI_COLOR_AMBER, false, true },
-  { MSG_INSTALLATION_CALIBRATION_REQUIRED, "INST CAL REQ", UI_SEV_WARN, UI_COLOR_AMBER, false, true },
-  { MSG_CALIBRATION_FAULT, "REC CAL FAULT", UI_SEV_ERROR, UI_COLOR_RED, false, true },
+  { MSG_SETTINGS_LOCKED, TXT_NEED_SETTINGS, UI_SEV_WARN, UI_COLOR_AMBER, true, true },
+  { MSG_ACCEL_CALIBRATION_REQUIRED, TXT_REC_CAL_REQ, UI_SEV_WARN, UI_COLOR_AMBER, false, true },
+  { MSG_INSTALLATION_CALIBRATION_REQUIRED, TXT_INST_CAL_REQ, UI_SEV_WARN, UI_COLOR_AMBER, false, true },
+  { MSG_CALIBRATION_FAULT, TXT_REC_CAL_FAULT, UI_SEV_ERROR, UI_COLOR_RED, false, true },
 
   // Hardware errors
-  { MSG_ACCEL_ERROR, "ACCEL ERR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
-  { MSG_RTC_ERROR, "RTC ERROR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
-  { MSG_PMU_ERROR, "PMU ERROR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
-  { MSG_RECORD_FAIL, "REC FAIL", UI_SEV_ERROR, UI_COLOR_RED, true, true },
-  { MSG_TOUCH_ERROR, "TOUCH ERROR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
-  { MSG_ERROR, "ERROR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
+  { MSG_ACCEL_ERROR, TXT_ACCEL_ERR, UI_SEV_ERROR, UI_COLOR_RED, true, true },
+  { MSG_RTC_ERROR, TXT_RTC_ERROR, UI_SEV_ERROR, UI_COLOR_RED, true, true },
+  { MSG_PMU_ERROR, TXT_PMU_ERROR, UI_SEV_ERROR, UI_COLOR_RED, true, true },
+  { MSG_RECORD_FAIL, TXT_REC_FAIL, UI_SEV_ERROR, UI_COLOR_RED, true, true },
+  { MSG_TOUCH_ERROR, TXT_TOUCH_ERROR, UI_SEV_ERROR, UI_COLOR_RED, true, true },
+  { MSG_ERROR, TXT_ERROR, UI_SEV_ERROR, UI_COLOR_RED, true, true },
 
 
   // SD / storage
-  { MSG_NO_SD, "NO SD", UI_SEV_WARN, UI_COLOR_AMBER, true, true },
-  { MSG_SD_LOW_SPACE, "SD LOW", UI_SEV_WARN, UI_COLOR_AMBER, true, true },
-  { MSG_SD_FULL_FILES, "SD FULL (FILES)", UI_SEV_WARN, UI_COLOR_AMBER, false, true },
-  { MSG_SD_ERROR, "SD FILE ERR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
-  { MSG_SD_OK_CLR, "SD OK/CLR", UI_SEV_INFO, UI_COLOR_GREEN, true, false },
+  { MSG_NO_SD, TXT_NO_SD, UI_SEV_WARN, UI_COLOR_AMBER, true, true },
+  { MSG_SD_LOW_SPACE, TXT_SD_LOW, UI_SEV_WARN, UI_COLOR_AMBER, true, true },
+  { MSG_SD_FULL_FILES, TXT_SD_FULL_FILES, UI_SEV_WARN, UI_COLOR_AMBER, false, true },
+  { MSG_SD_ERROR, TXT_SD_FILE_ERR, UI_SEV_ERROR, UI_COLOR_RED, true, true },
+  { MSG_SD_OK_CLR, TXT_SD_OK_CLR, UI_SEV_INFO, UI_COLOR_GREEN, true, false },
 
   // Power / shutdown
-  { MSG_LOW_BATT, "LOW BATT", UI_SEV_WARN, UI_COLOR_AMBER, true, true },
-  { MSG_SHUTDOWN, "SHUTDOWN", UI_SEV_INFO, UI_COLOR_GREEN, true, false },
+  { MSG_LOW_BATT, TXT_LOW_BATT, UI_SEV_WARN, UI_COLOR_AMBER, true, true },
+  { MSG_SHUTDOWN, TXT_SHUTDOWN, UI_SEV_INFO, UI_COLOR_GREEN, true, false },
 
   // Fatal
-  { MSG_FATAL, "GENERIC ERROR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
-  { MSG_FATAL_WDG_CLR, "FATAL WDG/CLR", UI_SEV_ERROR, UI_COLOR_RED, true, true },
+  { MSG_FATAL, TXT_GENERIC_ERROR, UI_SEV_ERROR, UI_COLOR_RED, true, true },
+  { MSG_FATAL_WDG_CLR, TXT_FATAL_WDG_CLR, UI_SEV_ERROR, UI_COLOR_RED, true, true },
 };
 
 static ui_message_info_t s_info; // returned pointer refers to this stable object
@@ -87,7 +89,7 @@ static const row_t *find_row(msg_id_t id){
 const ui_message_info_t *ui_message_get(msg_id_t id){
   const row_t *r = find_row(id);
   s_info.id = r->id;
-  s_info.text = r->text;
+  s_info.text = language_text(r->text_id, settings_get_language());
   s_info.severity = r->severity;
   s_info.color = r->color;
   s_info.force_main = r->force_main;

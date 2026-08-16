@@ -24,8 +24,11 @@ R"rawliteral(    <script>
         // -----------------------------------------------------------------
         // Page navigation
         // -----------------------------------------------------------------
-        function setPageTitle(title) {
-            document.getElementById('pageTitle').textContent = title;
+        function setPageTitle(key) {
+            const title = document.getElementById('pageTitle');
+            if (!title) return;
+            title.dataset.i18n = key;
+            title.textContent = tr(key);
         }
 
         function hideAllPages() {
@@ -41,7 +44,7 @@ R"rawliteral(    <script>
         }
 
         function showHome() {
-            setPageTitle('SLM Recorder');
+            setPageTitle('PAGE_RECORDER');
             stopCalPolling();
             hideAllPages();
             document.getElementById('homeSection').classList.remove('hidden');
@@ -50,7 +53,7 @@ R"rawliteral(    <script>
         }
 
         function openFilesPage() {
-            setPageTitle('SLM File Management');
+            setPageTitle('PAGE_FILE_MANAGEMENT');
             stopCalPolling();
             hideAllPages();
             clearFlightAnalysisPanel();
@@ -59,7 +62,7 @@ R"rawliteral(    <script>
         }
 
         function openLogbookPage() {
-            setPageTitle('SLM Logbook');
+            setPageTitle('PAGE_LOGBOOK');
             stopCalPolling();
             hideAllPages();
             document.getElementById('logbookSection').classList.remove('hidden');
@@ -67,7 +70,7 @@ R"rawliteral(    <script>
         }
 
         function openMaintenancePage() {
-            setPageTitle('SLM Maintenance');
+            setPageTitle('PAGE_MAINTENANCE');
             stopCalPolling();
             hideAllPages();
             document.getElementById('maintenanceSection').classList.remove('hidden');
@@ -76,7 +79,7 @@ R"rawliteral(    <script>
         }
 
         function showMaintenanceLocked() {
-            setPageTitle('SLM Maintenance');
+            setPageTitle('PAGE_MAINTENANCE');
             calView = 'locked';
             stopCalPolling();
             hideAllPages();
@@ -90,7 +93,7 @@ R"rawliteral(    <script>
         }
 
         function showMaintenanceMenu() {
-            setPageTitle('SLM Maintenance');
+            setPageTitle('PAGE_MAINTENANCE');
             calView = 'menu';
             stopCalPolling();
             hideAllPages();
@@ -103,7 +106,7 @@ R"rawliteral(    <script>
         }
 
         function openAccelCal() {
-            setPageTitle('SLM Recorder Calibration');
+            setPageTitle('PAGE_RECORDER_CAL');
             if (!calAuth) { showMaintenanceLocked(); return; }
             calView = 'accel';
             stopCalPolling();
@@ -117,7 +120,7 @@ R"rawliteral(    <script>
         }
 
         function openInstallCal() {
-            setPageTitle('SLM Installation Calibration');
+            setPageTitle('PAGE_INSTALL_CAL');
             if (!calAuth) { showMaintenanceLocked(); return; }
             calView = 'install';
             stopCalPolling();
@@ -131,7 +134,7 @@ R"rawliteral(    <script>
         }
 
         function openHealthPage() {
-            setPageTitle('SLM About');
+            setPageTitle('PAGE_ABOUT');
             if (!calAuth) { showMaintenanceLocked(); return; }
             stopCalPolling();
             hideAllPages();
@@ -146,20 +149,20 @@ R"rawliteral(    <script>
             const password = document.getElementById('aboutPassword');
             if (password) password.value = '';
             const status = document.getElementById('aboutAuthStatus');
-            if (status) status.textContent = 'Locked.';
+            if (status) status.textContent = tr('LOCKED');
         }
 
         function showAboutMenu() {
             document.getElementById('aboutAuthPanel').classList.add('hidden');
             document.getElementById('aboutMenuPanel').classList.remove('hidden');
-            aboutStatus('About functions unlocked.');
+            aboutStatus(tr('ABOUT_UNLOCKED'));
             updateWatchdogDiag();
         }
 
         function aboutUnlock() {
             const code = document.getElementById('aboutPassword').value || '';
             const status = document.getElementById('aboutAuthStatus');
-            status.textContent = 'Checking...';
+            status.textContent = tr('CHECKING');
             fetch('/api/cal/support_auth?support=' + encodeURIComponent(code), { method: 'POST' })
                 .then(r => r.json().then(j => ({ok:r.ok, status:r.status, json:j})))
                 .then(res => {
@@ -167,23 +170,23 @@ R"rawliteral(    <script>
                     if (res.ok && res.json && res.json.ok) {
                         aboutAuth = true;
                         aboutSupportCode = code;
-                        status.textContent = 'Unlocked.';
+                        status.textContent = tr('UNLOCKED');
                         showAboutMenu();
                     } else {
                         aboutAuth = false;
                         aboutSupportCode = '';
-                        status.textContent = 'Wrong support code or access denied.';
+                        status.textContent = tr('WRONG_SUPPORT_CODE');
                     }
                 })
                 .catch(err => {
                     aboutAuth = false;
                     aboutSupportCode = '';
-                    status.textContent = 'Unlock error: ' + err;
+                    status.textContent = localizedError('UNLOCK_ERROR', err);
                 });
         }
 
         function openReportPage() {
-            setPageTitle('SLM Report Management');
+            setPageTitle('PAGE_REPORTS');
             if (!calAuth) { showMaintenanceLocked(); return; }
             stopCalPolling();
             hideAllPages();
@@ -192,7 +195,7 @@ R"rawliteral(    <script>
         }
 
         function openOtaPage() {
-            setPageTitle('SLM Firmware Update');
+            setPageTitle('PAGE_FIRMWARE');
             if (!calAuth) { showMaintenanceLocked(); return; }
             stopCalPolling();
             hideAllPages();
@@ -207,22 +210,22 @@ R"rawliteral(    <script>
         function calUnlock() {
             const password = document.getElementById('calPassword').value || '';
             const status = document.getElementById('calAuthStatus');
-            status.textContent = 'Checking...';
+            status.textContent = tr('CHECKING');
             fetch('/api/cal/auth?password=' + encodeURIComponent(password), { method: 'POST' })
                 .then(r => r.json().then(j => ({ok:r.ok, json:j})))
                 .then(res => {
                     if (res.ok && res.json && res.json.ok) {
                         calAuth = true;
-                        status.textContent = 'Unlocked.';
+                        status.textContent = tr('UNLOCKED');
                         showMaintenanceMenu();
                     } else {
                         calAuth = false;
-                        status.textContent = 'Wrong password or maintenance access denied.';
+                        status.textContent = tr('WRONG_MAINTENANCE_PASSWORD');
                     }
                 })
                 .catch(err => {
                     calAuth = false;
-                    status.textContent = 'Unlock error: ' + err;
+                    status.textContent = localizedError('UNLOCK_ERROR', err);
                 });
         }
 
@@ -233,8 +236,41 @@ R"rawliteral(    <script>
             el.textContent = text;
         }
 
-        function prettyJson(obj) {
-            return JSON.stringify(obj, null, 2);
+        function localizedError(key, err) {
+            if (err) console.error(err);
+            return tr(key);
+        }
+
+        // API/Bridge reason codes remain language-neutral. Only this browser
+        // presentation layer converts them into recorder-selected language.
+        function apiReasonText(reason, fallbackKey) {
+            const code = String(reason || '');
+            const map = {
+                usb_required: 'USB_POWER_REQUIRED',
+                bad_password: 'WRONG_MAINTENANCE_PASSWORD',
+                bad_support_code: 'WRONG_SUPPORT_CODE',
+                calibration_auth_required: 'MAINT_AUTH_REQUIRED',
+                maintenance_auth_required: 'MAINT_AUTH_REQUIRED',
+                sensor_cal_required: 'INSTALL_SENSOR_CAL_REQUIRED',
+                recording: 'INSTALL_RECORDING_BLOCK',
+                installation_reason_required: 'INSTALL_REASON_REQUIRED',
+                no_installation_report: 'NO_INSTALL_REPORT_REG',
+                no_valid_installation_report: 'NO_VALID_INSTALL_REPORT_REG',
+                save_failed: 'GENERIC_OPERATION_ERROR',
+                report_write_failed: 'GENERIC_OPERATION_ERROR',
+                nvs_write_failed: 'GENERIC_OPERATION_ERROR',
+                clear_failed: 'GENERIC_OPERATION_ERROR',
+                status_failed: 'GENERIC_OPERATION_ERROR',
+                sd_busy: 'GENERIC_OPERATION_ERROR',
+                busy: 'GENERIC_OPERATION_ERROR',
+                format_failed: 'GENERIC_OPERATION_ERROR',
+                response_alloc: 'GENERIC_OPERATION_ERROR',
+                invalid_file: 'GENERIC_OPERATION_ERROR',
+                missing_parameter: 'GENERIC_OPERATION_ERROR',
+                not_authorized: 'GENERIC_OPERATION_ERROR'
+            };
+            if (map[code]) return tr(map[code]);
+            return fallbackKey ? tr(fallbackKey) : tr('GENERIC_OPERATION_ERROR');
         }
 
         // -----------------------------------------------------------------
@@ -246,7 +282,7 @@ R"rawliteral(    <script>
             const start = document.getElementById('btnStart');
             if (!start) return;
             start.disabled = !!busy;
-            start.textContent = active ? 'Cancel' : 'Start';
+            start.textContent = active ? tr('CANCEL') : tr('START');
             start.dataset.active = active ? '1' : '0';
             if (active) setButtonWarning('btnStart', false);
         }
@@ -255,7 +291,7 @@ R"rawliteral(    <script>
             const start = document.getElementById('btnInstallStart');
             if (!start) return;
             start.disabled = !!busy;
-            start.textContent = active ? 'Cancel' : 'Start';
+            start.textContent = active ? tr('CANCEL') : tr('START');
             start.dataset.active = active ? '1' : '0';
             if (active) setButtonWarning('btnInstallStart', false);
         }

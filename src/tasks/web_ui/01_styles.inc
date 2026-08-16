@@ -297,5 +297,4 @@ R"rawliteral(    <style>
             .face-summary-grid { grid-template-columns: repeat(2, minmax(58px, 1fr)); }
         }
     </style>
-</head>
 )rawliteral"

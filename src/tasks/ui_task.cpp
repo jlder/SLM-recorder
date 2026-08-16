@@ -33,6 +33,7 @@ void syncUIToSystemState();
 #include "src/drivers/display_driver.h"
 #include "src/services/touch_service.h"
 #include "src/services/settings_store.h"
+#include "src/services/language.h"
 #include "src/services/datetime_service.h"
 #include "src/services/button_hold_helpers.h"
 #include "src/drivers/rtc_driver.h"
@@ -88,6 +89,7 @@ void record_btn_event_cb(lv_event_t * e);
 void save_date_cb(lv_event_t * e);
 void save_time_cb(lv_event_t * e);
 void save_reg_cb(lv_event_t * e);
+void language_toggle_cb(lv_event_t * e);
 
 /**
  * Convert a registration character to its roller index performs the ui task
@@ -183,6 +185,32 @@ lv_obj_t *btn_set = NULL;
 lv_obj_t *btn_settings_date = NULL;
 lv_obj_t *btn_settings_time = NULL;
 lv_obj_t *btn_settings_reg = NULL;
+lv_obj_t *btn_settings_language = NULL;
+
+// Static labels/buttons that need immediate text refresh when the selected
+// language changes. Dynamic record/WiFi/status text is refreshed elsewhere.
+static lv_obj_t *lbl_low_battery = NULL;
+static lv_obj_t *lbl_menu_title = NULL;
+static lv_obj_t *btn_menu_back = NULL;
+static lv_obj_t *lbl_settings_title = NULL;
+static lv_obj_t *btn_settings_back = NULL;
+static lv_obj_t *lbl_set_date_title = NULL;
+static lv_obj_t *lbl_set_date_year = NULL;
+static lv_obj_t *lbl_set_date_month = NULL;
+static lv_obj_t *lbl_set_date_day = NULL;
+static lv_obj_t *btn_set_date_save = NULL;
+static lv_obj_t *btn_set_date_back = NULL;
+static lv_obj_t *lbl_set_time_title = NULL;
+static lv_obj_t *lbl_set_time_hour = NULL;
+static lv_obj_t *lbl_set_time_minute = NULL;
+static lv_obj_t *btn_set_time_save = NULL;
+static lv_obj_t *btn_set_time_back = NULL;
+static lv_obj_t *lbl_set_reg_title = NULL;
+static lv_obj_t *lbl_set_reg_hint = NULL;
+static lv_obj_t *btn_set_reg_save = NULL;
+static lv_obj_t *btn_set_reg_back = NULL;
+static language_t s_ui_language = LANGUAGE_FRENCH;
+static bool s_ui_language_known = false;
 
 
 // UI START/STOP RECORD button hold state.  The touch button deliberately uses
@@ -408,6 +436,82 @@ void enable_button(lv_obj_t * btn, lv_color_t color) {
 }
 
 /**
+ * Return the selected recorder UI language. French is used until settings NVS
+ * becomes available and whenever a stored value is invalid.
+ */
+static language_t ui_current_language_(void){
+    return settings_get_language();
+}
+
+static const char *ui_text_(language_text_id_t id){
+    return language_text(id, s_ui_language);
+}
+
+static void ui_set_button_text_(lv_obj_t *button, language_text_id_t id){
+    if(button == NULL) return;
+    lv_obj_t *label = lv_obj_get_child(button, 0);
+    if(label != NULL) lv_label_set_text(label, ui_text_(id));
+}
+
+static void ui_update_version_text_(void){
+    if(lbl_main_version == NULL) return;
+    char text[64];
+    snprintf(text, sizeof(text), "%s %s\n%s %s",
+             ui_text_(TXT_SW_VERSION_LABEL), RECORDER_SOFTWARE_VERSION,
+             ui_text_(TXT_HW_VERSION_LABEL), RECORDER_HARDWARE_VERSION);
+    lv_label_set_text(lbl_main_version, text);
+}
+
+/** Apply a language selection to every persistent AMOLED label/button. */
+static void ui_apply_language_(language_t language){
+    s_ui_language = language_valid(language) ? language : LANGUAGE_FRENCH;
+    s_ui_language_known = true;
+
+    ui_set_button_text_(btn_main_menu, TXT_MENU);
+    if(lbl_low_battery) lv_label_set_text(lbl_low_battery, ui_text_(TXT_BATTERY_LOW_USB));
+
+    if(lbl_menu_title) lv_label_set_text(lbl_menu_title, ui_text_(TXT_MENU));
+    ui_set_button_text_(btn_set, TXT_SETTINGS);
+    ui_set_button_text_(btn_menu_back, TXT_BACK);
+
+    if(lbl_settings_title) lv_label_set_text(lbl_settings_title, ui_text_(TXT_SETTINGS));
+    ui_set_button_text_(btn_settings_date, TXT_DATE);
+    ui_set_button_text_(btn_settings_time, TXT_TIME);
+    ui_set_button_text_(btn_settings_reg, TXT_REGISTRATION);
+    ui_set_button_text_(btn_settings_language,
+                        (s_ui_language == LANGUAGE_FRENCH) ? TXT_SWITCH_TO_ENGLISH : TXT_SWITCH_TO_FRENCH);
+    ui_set_button_text_(btn_settings_back, TXT_BACK);
+
+    if(lbl_set_date_title) lv_label_set_text(lbl_set_date_title, ui_text_(TXT_SET_DATE));
+    if(lbl_set_date_year) lv_label_set_text(lbl_set_date_year, ui_text_(TXT_YEAR));
+    if(lbl_set_date_month) lv_label_set_text(lbl_set_date_month, ui_text_(TXT_MONTH));
+    if(lbl_set_date_day) lv_label_set_text(lbl_set_date_day, ui_text_(TXT_DAY));
+    ui_set_button_text_(btn_set_date_save, TXT_SAVE);
+    ui_set_button_text_(btn_set_date_back, TXT_BACK);
+
+    if(lbl_set_time_title) lv_label_set_text(lbl_set_time_title, ui_text_(TXT_SET_TIME));
+    if(lbl_set_time_hour) lv_label_set_text(lbl_set_time_hour, ui_text_(TXT_HOUR));
+    if(lbl_set_time_minute) lv_label_set_text(lbl_set_time_minute, ui_text_(TXT_MINUTE));
+    ui_set_button_text_(btn_set_time_save, TXT_SAVE);
+    ui_set_button_text_(btn_set_time_back, TXT_BACK);
+
+    if(lbl_set_reg_title) lv_label_set_text(lbl_set_reg_title, ui_text_(TXT_SET_REGISTRATION));
+    if(lbl_set_reg_hint) lv_label_set_text(lbl_set_reg_hint, ui_text_(TXT_REGISTRATION_HINT));
+    ui_set_button_text_(btn_set_reg_save, TXT_SAVE);
+    ui_set_button_text_(btn_set_reg_back, TXT_BACK);
+
+    ui_update_version_text_();
+}
+
+/** Refresh persisted language after NVS initialization or a local toggle. */
+static void ui_refresh_language_if_changed_(void){
+    const language_t language = ui_current_language_();
+    if((!s_ui_language_known) || (language != s_ui_language)){
+        ui_apply_language_(language);
+    }
+}
+
+/**
  * Handles settings action required for the local UI, display, or user
  * interaction path.
  *
@@ -606,13 +710,13 @@ void createMainScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     create_wifi_graphic_(main_screen);
 
     // Main menu entry button.
-    btn_main_menu = createButton(main_screen, "MENU", &style_huge, NULL,
+    btn_main_menu = createButton(main_screen, language_text(TXT_MENU, LANGUAGE_FRENCH), &style_huge, NULL,
         BTN_MAIN_WIDTH, BTN_MAIN_HEIGHT,
         LV_ALIGN_TOP_MID, 0, 105,
         [](lv_event_t*e){ lv_scr_load(menu_screen); });
 
     // Hardware/software version displayed under the MENU button.
-    lbl_main_version = createLabel(main_screen, RECORDER_VERSION_TEXT, NULL, FONT_SMALL,
+    lbl_main_version = createLabel(main_screen, "", NULL, FONT_SMALL,
         LV_ALIGN_TOP_MID, 0, 190, 380, LV_TEXT_ALIGN_CENTER);
 
     // Battery graphic with percentage and charging indicator.
@@ -636,13 +740,13 @@ void createLowBatteryScreen(lv_style_t &style_huge) {
     lv_obj_set_style_bg_opa(low_battery_screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(low_battery_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *label = lv_label_create(low_battery_screen);
-    lv_label_set_text(label, "BATTERY LOW\nRECHARGE WITH USB");
-    lv_obj_add_style(label, &style_huge, 0);
-    lv_obj_set_style_text_color(label, lv_color_hex(0xFF0000), 0);
-    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(label, 390);
-    lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+    lbl_low_battery = lv_label_create(low_battery_screen);
+    lv_label_set_text(lbl_low_battery, language_text(TXT_BATTERY_LOW_USB, LANGUAGE_FRENCH));
+    lv_obj_add_style(lbl_low_battery, &style_huge, 0);
+    lv_obj_set_style_text_color(lbl_low_battery, lv_color_hex(0xFF0000), 0);
+    lv_obj_set_style_text_align(lbl_low_battery, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(lbl_low_battery, 390);
+    lv_obj_align(lbl_low_battery, LV_ALIGN_CENTER, 0, 0);
 }
 
 // =============================================================================
@@ -660,23 +764,23 @@ void createLowBatteryScreen(lv_style_t &style_huge) {
 void createMenuScreen(lv_style_t &style_huge) {
     menu_screen = lv_obj_create(NULL);
 
-    (void)createLabel(menu_screen, "MENU", NULL, FONT_MEDIUM,
+    lbl_menu_title = createLabel(menu_screen, language_text(TXT_MENU, LANGUAGE_FRENCH), NULL, FONT_MEDIUM,
                       LV_ALIGN_TOP_MID, 0, 20, 0, LV_TEXT_ALIGN_CENTER);
 
-    btn_record = createButton(menu_screen, "START RECORD", &style_huge, NULL,
+    btn_record = createButton(menu_screen, language_text(TXT_START_RECORD, LANGUAGE_FRENCH), &style_huge, NULL,
                               BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
                               LV_ALIGN_TOP_MID, 0, MENU_BUTTON_FIRST_Y,
                               NULL, lv_palette_main(LV_PALETTE_BLUE));
     btn_record_label = lv_obj_get_child(btn_record, 0);
     lv_obj_add_event_cb(btn_record, record_btn_event_cb, LV_EVENT_ALL, NULL);
 
-    btn_wifi = createButton(menu_screen, "START WIFI", &style_huge, NULL,
+    btn_wifi = createButton(menu_screen, language_text(TXT_START_WIFI, LANGUAGE_FRENCH), &style_huge, NULL,
                             BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
                             LV_ALIGN_TOP_MID, 0, MENU_BUTTON_FIRST_Y + MENU_BUTTON_STEP_Y,
                             wifi_btn_cb, lv_palette_main(LV_PALETTE_BLUE));
     btn_wifi_label = lv_obj_get_child(btn_wifi, 0);
 
-    btn_set = createButton(menu_screen, "SETTINGS", &style_huge, NULL,
+    btn_set = createButton(menu_screen, language_text(TXT_SETTINGS, LANGUAGE_FRENCH), &style_huge, NULL,
                            BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
                            LV_ALIGN_TOP_MID, 0, MENU_BUTTON_FIRST_Y + (2 * MENU_BUTTON_STEP_Y),
                            [](lv_event_t* e){
@@ -686,7 +790,7 @@ void createMenuScreen(lv_style_t &style_huge) {
                            lv_palette_main(LV_PALETTE_BLUE));
 
     // BACK is a navigation action, not a corrective action, so it remains green.
-    (void)createButton(menu_screen, "BACK", &style_huge, NULL,
+    btn_menu_back = createButton(menu_screen, language_text(TXT_BACK, LANGUAGE_FRENCH), &style_huge, NULL,
                        BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
                        LV_ALIGN_TOP_MID, 0, MENU_BUTTON_FIRST_Y + (3 * MENU_BUTTON_STEP_Y),
                        [](lv_event_t* e){
@@ -710,10 +814,10 @@ void createMenuScreen(lv_style_t &style_huge) {
 void createSettingsMenuScreen(lv_style_t &style_huge) {
     settings_menu_screen = lv_obj_create(NULL);
 
-    (void)createLabel(settings_menu_screen, "SETTINGS", NULL, FONT_MEDIUM,
+    lbl_settings_title = createLabel(settings_menu_screen, language_text(TXT_SETTINGS, LANGUAGE_FRENCH), NULL, FONT_MEDIUM,
                       LV_ALIGN_TOP_MID, 0, 20, 0, LV_TEXT_ALIGN_CENTER);
 
-    btn_settings_date = createButton(settings_menu_screen, "DATE", &style_huge, NULL,
+    btn_settings_date = createButton(settings_menu_screen, language_text(TXT_DATE, LANGUAGE_FRENCH), &style_huge, NULL,
                                      BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
                                      LV_ALIGN_TOP_MID, 0, 70,
                                      [](lv_event_t* e){
@@ -730,7 +834,7 @@ void createSettingsMenuScreen(lv_style_t &style_huge) {
                                      },
                                      lv_palette_main(LV_PALETTE_BLUE));
 
-    btn_settings_time = createButton(settings_menu_screen, "TIME", &style_huge, NULL,
+    btn_settings_time = createButton(settings_menu_screen, language_text(TXT_TIME, LANGUAGE_FRENCH), &style_huge, NULL,
                                      BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
                                      LV_ALIGN_TOP_MID, 0, 160,
                                      [](lv_event_t* e){
@@ -743,7 +847,7 @@ void createSettingsMenuScreen(lv_style_t &style_huge) {
                                      },
                                      lv_palette_main(LV_PALETTE_BLUE));
 
-    btn_settings_reg = createButton(settings_menu_screen, "REGISTRATION", &style_huge, NULL,
+    btn_settings_reg = createButton(settings_menu_screen, language_text(TXT_REGISTRATION, LANGUAGE_FRENCH), &style_huge, NULL,
                                     BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
                                     LV_ALIGN_TOP_MID, 0, 250,
                                     [](lv_event_t* e){
@@ -753,15 +857,21 @@ void createSettingsMenuScreen(lv_style_t &style_huge) {
                                     },
                                     lv_palette_main(LV_PALETTE_BLUE));
 
-    // BACK is a navigation action, not a corrective action, so it remains green.
-    (void)createButton(settings_menu_screen, "BACK", &style_huge, NULL,
-                       BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
-                       LV_ALIGN_TOP_MID, 0, 340,
-                       [](lv_event_t* e){
-                           (void)e;
-                           lv_scr_load(menu_screen);
-                       },
-                       lv_palette_main(LV_PALETTE_GREEN));
+    // Language is optional configuration. The button always names the language
+    // that will be selected by pressing it. BACK remains green.
+    btn_settings_language = createButton(settings_menu_screen, language_text(TXT_SWITCH_TO_ENGLISH, LANGUAGE_FRENCH),
+                                         NULL, FONT_LANGUAGE_BUTTON, BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
+                                         LV_ALIGN_BOTTOM_LEFT, 30, -30,
+                                         language_toggle_cb, lv_palette_main(LV_PALETTE_BLUE));
+
+    btn_settings_back = createButton(settings_menu_screen, language_text(TXT_BACK, LANGUAGE_FRENCH),
+                                     &style_huge, NULL, BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
+                                     LV_ALIGN_BOTTOM_RIGHT, -30, -30,
+                                     [](lv_event_t* e){
+                                         (void)e;
+                                         lv_scr_load(menu_screen);
+                                     },
+                                     lv_palette_main(LV_PALETTE_GREEN));
 }
 
 // =============================================================================
@@ -778,7 +888,7 @@ void createSettingsMenuScreen(lv_style_t &style_huge) {
 void createSetDateScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     set_date_screen = lv_obj_create(NULL);
 
-    (void)createLabel(set_date_screen, "SET DATE", NULL, FONT_MEDIUM,
+    lbl_set_date_title = createLabel(set_date_screen, language_text(TXT_SET_DATE, LANGUAGE_FRENCH), NULL, FONT_MEDIUM,
                       LV_ALIGN_TOP_MID, 0, 20, 0, LV_TEXT_ALIGN_CENTER);
 
     // Maximize roller size: 1 row up to 5 rollers, 2 rows up to 10 rollers.
@@ -792,15 +902,15 @@ void createSetDateScreen(lv_style_t &style_huge, lv_style_t &style_large) {
                                                      /*row_gap*/10);
 
     // Column labels (same width as rollers, centered text).
-    (void)createLabel(set_date_screen, "Year", &style_large, NULL,
+    lbl_set_date_year = createLabel(set_date_screen, language_text(TXT_YEAR, LANGUAGE_FRENCH), &style_large, NULL,
                       LV_ALIGN_TOP_LEFT,
                       lay.start_x + 0 * (lay.roller_w + lay.col_gap),
                       70, lay.roller_w, LV_TEXT_ALIGN_CENTER);
-    (void)createLabel(set_date_screen, "Month", &style_large, NULL,
+    lbl_set_date_month = createLabel(set_date_screen, language_text(TXT_MONTH, LANGUAGE_FRENCH), &style_large, NULL,
                       LV_ALIGN_TOP_LEFT,
                       lay.start_x + 1 * (lay.roller_w + lay.col_gap),
                       70, lay.roller_w, LV_TEXT_ALIGN_CENTER);
-    (void)createLabel(set_date_screen, "Day", &style_large, NULL,
+    lbl_set_date_day = createLabel(set_date_screen, language_text(TXT_DAY, LANGUAGE_FRENCH), &style_large, NULL,
                       LV_ALIGN_TOP_LEFT,
                       lay.start_x + 2 * (lay.roller_w + lay.col_gap),
                       70, lay.roller_w, LV_TEXT_ALIGN_CENTER);
@@ -811,11 +921,11 @@ void createSetDateScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     mo_roller = rollers[1];
     d_roller  = rollers[2];
 
-    (void)createButton(set_date_screen, "SAVE", &style_huge, NULL,
+    btn_set_date_save = createButton(set_date_screen, language_text(TXT_SAVE, LANGUAGE_FRENCH), &style_huge, NULL,
                        BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
                        LV_ALIGN_BOTTOM_LEFT, 30, -30, save_date_cb,
                        lv_palette_main(LV_PALETTE_BLUE));
-    (void)createButton(set_date_screen, "BACK", &style_huge, NULL,
+    btn_set_date_back = createButton(set_date_screen, language_text(TXT_BACK, LANGUAGE_FRENCH), &style_huge, NULL,
                        BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
                        LV_ALIGN_BOTTOM_RIGHT, -30, -30,
                        [](lv_event_t*e){
@@ -839,7 +949,7 @@ void createSetDateScreen(lv_style_t &style_huge, lv_style_t &style_large) {
 void createSetTimeScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     set_time_screen = lv_obj_create(NULL);
 
-    (void)createLabel(set_time_screen, "SET TIME", NULL, FONT_MEDIUM,
+    lbl_set_time_title = createLabel(set_time_screen, language_text(TXT_SET_TIME, LANGUAGE_FRENCH), NULL, FONT_MEDIUM,
                       LV_ALIGN_TOP_MID, 0, 20, 0, LV_TEXT_ALIGN_CENTER);
 
     static const RollerType kTypes[2] = { ROLLER_HOUR, ROLLER_MINUTE };
@@ -851,11 +961,11 @@ void createSetTimeScreen(lv_style_t &style_huge, lv_style_t &style_large) {
                                                      /*col_gap*/20,
                                                      /*row_gap*/10);
 
-    (void)createLabel(set_time_screen, "Hour", &style_large, NULL,
+    lbl_set_time_hour = createLabel(set_time_screen, language_text(TXT_HOUR, LANGUAGE_FRENCH), &style_large, NULL,
                       LV_ALIGN_TOP_LEFT,
                       lay.start_x + 0 * (lay.roller_w + lay.col_gap),
                       70, lay.roller_w, LV_TEXT_ALIGN_CENTER);
-    (void)createLabel(set_time_screen, "Minute", &style_large, NULL,
+    lbl_set_time_minute = createLabel(set_time_screen, language_text(TXT_MINUTE, LANGUAGE_FRENCH), &style_large, NULL,
                       LV_ALIGN_TOP_LEFT,
                       lay.start_x + 1 * (lay.roller_w + lay.col_gap),
                       70, lay.roller_w, LV_TEXT_ALIGN_CENTER);
@@ -865,11 +975,11 @@ void createSetTimeScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     h_roller = rollers[0];
     m_roller = rollers[1];
 
-    (void)createButton(set_time_screen, "SAVE", &style_huge, NULL,
+    btn_set_time_save = createButton(set_time_screen, language_text(TXT_SAVE, LANGUAGE_FRENCH), &style_huge, NULL,
                        BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
                        LV_ALIGN_BOTTOM_LEFT, 30, -30, save_time_cb,
                        lv_palette_main(LV_PALETTE_BLUE));
-    (void)createButton(set_time_screen, "BACK", &style_huge, NULL,
+    btn_set_time_back = createButton(set_time_screen, language_text(TXT_BACK, LANGUAGE_FRENCH), &style_huge, NULL,
                        BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
                        LV_ALIGN_BOTTOM_RIGHT, -30, -30,
                        [](lv_event_t*e){
@@ -893,10 +1003,10 @@ void createSetTimeScreen(lv_style_t &style_huge, lv_style_t &style_large) {
 void createSetRegScreen(lv_style_t &style_huge, lv_style_t &style_large) {
     set_reg_screen = lv_obj_create(NULL);
 
-    (void)createLabel(set_reg_screen, "SET REGISTRATION", NULL, FONT_MEDIUM,
+    lbl_set_reg_title = createLabel(set_reg_screen, language_text(TXT_SET_REGISTRATION, LANGUAGE_FRENCH), NULL, FONT_MEDIUM,
                       LV_ALIGN_TOP_MID, 0, 20, 0, LV_TEXT_ALIGN_CENTER);
 
-    (void)createLabel(set_reg_screen, "5 uppercase letters/digits",
+    lbl_set_reg_hint = createLabel(set_reg_screen, language_text(TXT_REGISTRATION_HINT, LANGUAGE_FRENCH),
         NULL, FONT_SMALL, LV_ALIGN_TOP_MID, 0, 60, 0, LV_TEXT_ALIGN_CENTER);
 
     static const RollerType kTypes[5] = { ROLLER_REG_CHAR, ROLLER_REG_CHAR, ROLLER_REG_CHAR, ROLLER_REG_CHAR, ROLLER_REG_CHAR };
@@ -909,11 +1019,11 @@ void createSetRegScreen(lv_style_t &style_huge, lv_style_t &style_large) {
                                                      /*row_gap*/8);
     ui_create_typed_roller_grid(set_reg_screen, reg_rollers, 5, kTypes, &style_huge, &lay, nullptr);
 
-    (void)createButton(set_reg_screen, "SAVE", &style_huge, NULL,
+    btn_set_reg_save = createButton(set_reg_screen, language_text(TXT_SAVE, LANGUAGE_FRENCH), &style_huge, NULL,
                        BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
                        LV_ALIGN_BOTTOM_LEFT, 30, -30, save_reg_cb,
                        lv_palette_main(LV_PALETTE_BLUE));
-    (void)createButton(set_reg_screen, "BACK", &style_huge, NULL,
+    btn_set_reg_back = createButton(set_reg_screen, language_text(TXT_BACK, LANGUAGE_FRENCH), &style_huge, NULL,
                        BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
                        LV_ALIGN_BOTTOM_RIGHT, -30, -30,
                        [](lv_event_t*e){
@@ -949,6 +1059,7 @@ void initUI() {
     display_brightness_set(DISPLAY_BRIGHTNESS_ACTIVE);
 
 lv_init();
+    slm_fonts_init();
     lv_tick_set_cb([](){ return (uint32_t)millis(); });
 
     screenWidth = gfx->width();
@@ -967,11 +1078,11 @@ lv_init();
 
     static lv_style_t style_huge;
     lv_style_init(&style_huge);
-    lv_style_set_text_font(&style_huge, &lv_font_montserrat_34);
+    lv_style_set_text_font(&style_huge, &slm_font_montserrat_34);
 
     static lv_style_t style_large;
     lv_style_init(&style_large);
-    lv_style_set_text_font(&style_large, &lv_font_montserrat_24);
+    lv_style_set_text_font(&style_large, &slm_font_montserrat_24);
 
     createMainScreen(style_huge, style_large);
     createMenuScreen(style_huge);
@@ -980,6 +1091,7 @@ lv_init();
     createSetTimeScreen(style_huge, style_large);
     createSetRegScreen(style_huge, style_large);
     createLowBatteryScreen(style_huge);
+    ui_apply_language_(ui_current_language_());
 
     // Initialize status manager
     statusManager.setLabel(lbl_status);
@@ -1087,7 +1199,7 @@ void syncUIToSystemState() {
     // request and WiFi/Web is OFF; otherwise it is disabled and gray.
     // STOP RECORD remains red while recording is active.
     if(btn_record_label){
-        lv_label_set_text(btn_record_label, recording_like ? "STOP RECORD" : "START RECORD");
+        lv_label_set_text(btn_record_label, recording_like ? ui_text_(TXT_STOP_RECORD) : ui_text_(TXT_START_RECORD));
     }
     if(btn_record){
         if(ui_record_button_enabled_(st)) enable_button(btn_record, recording ? lv_palette_main(LV_PALETTE_RED) : blue);
@@ -1096,7 +1208,7 @@ void syncUIToSystemState() {
 
     // Update WiFi button label if exists
     if (btn_wifi_label) {
-        lv_label_set_text(btn_wifi_label, wifi_active ? "STOP WIFI" : "START WIFI");
+        lv_label_set_text(btn_wifi_label, wifi_active ? ui_text_(TXT_STOP_WIFI) : ui_text_(TXT_START_WIFI));
     }
 
     // START WIFI is disabled while settings are incomplete. The AP password is
@@ -1135,6 +1247,8 @@ void syncUIToSystemState() {
  * Returns: None.
  */
 void updateUI() {
+    ui_refresh_language_if_changed_();
+
     // Pull everything needed from State Task (UI owns no hardware/I2C).
     system_status_t st = state_task_get_status();
 
@@ -1256,6 +1370,15 @@ void wifi_btn_cb(lv_event_t * e) {
  * Inputs: `e`.
  * Returns: None.
  */
+void language_toggle_cb(lv_event_t * e) {
+    (void)e;
+    const language_t current = ui_current_language_();
+    const language_t next = (current == LANGUAGE_FRENCH) ? LANGUAGE_ENGLISH : LANGUAGE_FRENCH;
+    if(settings_set_language(next)){
+        ui_apply_language_(next);
+    }
+}
+
 void save_date_cb(lv_event_t * e) {
     (void)e;
 

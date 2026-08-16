@@ -72,8 +72,8 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.45` | version text displayed on device |
-| `RECORDER_VERSION_TEXT` | `sw ver 1.25` / `hw ver 1.00` | main display version text |
+| `RECORDER_SOFTWARE_VERSION` | `1.49` | version text displayed on device |
+| `language.h` version labels | English: `sw ver` / `hw ver`; French: `ver. logic.` / `ver. mat.` | localized main-display version labels |
 
 ### 3.3 Web/WiFi
 
@@ -86,6 +86,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `AP_SUBNET` | `255.255.255.0` | access-point subnet |
 | `WEB_SINGLE_CLIENT_TIMEOUT_MS` | 60000 ms | Web single-client timeout |
 | `WEB_SD_BUSY_STALE_MS` | 30000 ms | Web SD busy-lock stale recovery guard |
+| `OTA_REBOOT_ACK_DELAY_MS` | 2000 ms | delay after successful OTA HTTP acknowledgement is queued before recorder reboot |
 
 ### 3.4 Browser flight-time analysis
 
@@ -480,6 +481,7 @@ The SETTINGS page shall provide:
 - DATE;
 - TIME;
 - REGISTRATION;
+- language-selection button;
 - BACK.
 
 Each setting page shall provide rollers to change the setting and shall provide:
@@ -488,6 +490,17 @@ Each setting page shall provide rollers to change the setting and shall provide:
 - BACK button at bottom-right.
 
 Rollers shall be preloaded with default values or with the values stored in NVS when available.
+
+Status:
+
+- **Implemented.**
+
+
+#### OP-SET-003A — Recorder interface language
+
+French shall be the default language when no language preference has been stored. The SETTINGS language-selection button shall show `ENGLISH` while French is selected and `FRANCAIS` while English is selected. The selected language shall be stored in NVS but shall not participate in the required-settings completeness gate.
+
+The selected recorder language shall apply to both the AMOLED user interface and the recorder-served Web interface. User-visible strings shall be centralized in `src/services/language.h`. Machine-readable protocol/API reason codes, JSON keys, filenames, NVS keys, and persistent calibration-report parser strings shall remain language-independent.
 
 Status:
 

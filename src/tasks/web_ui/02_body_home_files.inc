@@ -1,64 +1,55 @@
 /*******************************************************************************
  * HOME AND FILE-MANAGEMENT PAGES
  * Static HTML for the main menu, recorder file list, download controls, and flight-analysis result panel.
- *
- * Byte-stability rule: this file contains one raw string literal fragment.
- * Do not add comments or whitespace inside the raw string literal
- * block unless the generated web page is intentionally being changed.
  ******************************************************************************/
 
 R"rawliteral(<body>
     <div class="container">
-        <!-- Shared page header. JavaScript updates pageTitle and statusBadge. -->
         <div class="header">
-            <h1 id="pageTitle">SLM Recorder</h1>
+            <h1 id="pageTitle" data-i18n="PAGE_RECORDER"></h1>
             <span id="statusBadge"></span>
         </div>
 
-        <!-- Main landing page. Maintenance is amber when calibration is required. -->
         <div id="homeSection" class="section">
-            <h2>Main Menu</h2>
+            <h2 data-i18n="MAIN_MENU"></h2>
             <div class="button-grid main-menu-grid">
-                <button class="btn btn-primary" id="btnHomeFiles" onclick="openFilesPage()">File Management</button>
-                <button class="btn btn-primary" id="btnHomeLogbook" onclick="openLogbookPage()">Logbook</button>
-                <button class="btn btn-primary" id="btnHomeMaintenance" onclick="openMaintenancePage()">Maintenance</button>
+                <button class="btn btn-primary" id="btnHomeFiles" onclick="openFilesPage()" data-i18n="FILE_MANAGEMENT"></button>
+                <button class="btn btn-primary" id="btnHomeLogbook" onclick="openLogbookPage()" data-i18n="LOGBOOK"></button>
+                <button class="btn btn-primary" id="btnHomeMaintenance" onclick="openMaintenancePage()" data-i18n="MAINTENANCE"></button>
             </div>
             <div id="usbPowerRequiredMessage" class="analysis-window hidden">
-                <b>USB power required.</b><br>
-                Connect USB power to use all recorder functions except Recorder Calibration.
+                <b data-i18n="USB_POWER_REQUIRED"></b><br>
+                <span data-i18n="USB_POWER_FUNCTIONS"></span>
             </div>
         </div>
 
-        <!-- Logbook combines the stored analysis logs for the last five flying days of downloaded recordings. -->
         <div id="logbookSection" class="hidden">
-            <p class="small"><b>Only files downloaded through the SLM app are included in the logbook.</b></p>
-            <p class="small">Only the last 5 flying days are displayed.</p>
+            <p class="small"><b data-i18n="LOGBOOK_PROCESSED_ONLY"></b></p>
+            <p class="small" data-i18n="LOGBOOK_LAST_FIVE_DAYS"></p>
             <div class="controls compact-controls cal-actions">
-                <button class="btn btn-return" onclick="showHome()">Return</button>
+                <button class="btn btn-return" onclick="showHome()" data-i18n="RETURN"></button>
             </div>
             <div id="logbookContainer">
-                <div class="loading">Loading logbook...</div>
+                <div class="loading" data-i18n="LOADING_LOGBOOK"></div>
             </div>
         </div>
 
-        <!-- File-management page. JavaScript fills SD info, file rows, and analysis output. -->
         <div id="filesSection" class="hidden">
             <div class="info-bar">
-                <span class="info-item">SD Card: <span class="info-value" id="sdSize">-</span></span>
-                <span class="info-item">Free: <span class="info-value" id="sdFree">-</span></span>
-                <span class="info-item">Files: <span class="info-value" id="fileCount">-</span></span>
+                <span class="info-item"><span data-i18n="SD_CARD_LABEL"></span> <span class="info-value" id="sdSize">-</span></span>
+                <span class="info-item"><span data-i18n="FREE_LABEL"></span> <span class="info-value" id="sdFree">-</span></span>
+                <span class="info-item"><span data-i18n="FILES_LABEL"></span> <span class="info-value" id="fileCount">-</span></span>
             </div>
 
             <div class="controls compact-controls cal-actions">
-                <button class="btn btn-return" onclick="showHome()">Return</button>
+                <button class="btn btn-return" onclick="showHome()" data-i18n="RETURN"></button>
             </div>
             <div id="fileListContainer">
-                <div class="loading">Loading files...</div>
+                <div class="loading" data-i18n="LOADING_FILES"></div>
             </div>
-            <!-- Analysis window reports only the flight times for the currently processed day. -->
             <div id="flightAnalysisWindow" class="analysis-window hidden">
-                <h2>SLM Flight Analysis</h2>
-                <div id="flightAnalysisStatus" class="small">No flight analysis available.</div>
+                <h2 data-i18n="FLIGHT_ANALYSIS"></h2>
+                <div id="flightAnalysisStatus" class="small" data-i18n="NO_FLIGHT_ANALYSIS"></div>
                 <div id="flightAnalysisTable"></div>
                 <div class="hidden">
                     <div id="downloadProgressText"></div>

@@ -605,7 +605,7 @@ void createBatteryGraphic(
 
 // Create percentage label below battery
     battery->lbl_percent = lv_label_create(parent);
-    lv_obj_set_style_text_font(battery->lbl_percent, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_font(battery->lbl_percent, &slm_font_montserrat_18, 0);
     lv_obj_set_style_text_color(battery->lbl_percent, lv_color_black(), 0);
     lv_obj_align_to(battery->lbl_percent, battery->container, 
                     LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
@@ -614,7 +614,7 @@ void createBatteryGraphic(
     
     // Create charging indicator (lightning symbol) above battery - initially hidden
     battery->lbl_charging = lv_label_create(parent);
-    lv_obj_set_style_text_font(battery->lbl_charging, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(battery->lbl_charging, &slm_font_montserrat_24, 0);
     lv_obj_set_style_text_color(battery->lbl_charging, 
                                  lv_palette_main(LV_PALETTE_PURPLE), 0);
     lv_obj_align_to(battery->lbl_charging, battery->container,

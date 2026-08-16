@@ -1,18 +1,14 @@
-SLM Recorder v1.42 -> v1.45 combined delta
+SLM Recorder v1.48 -> v1.49 OTA acknowledgement reliability
 
 Functional changes:
-- Restore Installation Calibration from newest valid matching report in /calibration_reports or /processed into the existing installation-calibration NVS record.
-- Correct daily Flight Analysis result/state handling and callback filename normalization.
-- Actionable processing failure message instead of a stale Processing indication.
-- Main-menu USB-power-required message and Web function gating; Recorder Calibration remains available through Maintenance without USB.
-- Simplified Firmware Update page: server preferred / phone by support request, then common Update Firmware / Return controls and Wi-Fi restart warning.
-- Daily processing progress across the selected day, size weighted: 95% transfer / 5% browser analysis for each physical file.
+- config.h: recorder software version 1.48 -> 1.49.
+- src/tasks/web_task.cpp: increase the successful OTA HTTP-acknowledgement-to-reboot delay from 500 ms to 2000 ms.
+- src/tasks/web_task.cpp: keep support-triggered reboot on its existing explicit 500 ms delay.
+- docs/01_recorder_requirements.md: document the 2000 ms OTA reboot acknowledgement delay.
+- README.md / VALIDATION.md: document and validate the OTA acknowledgement/reboot behavior and Bridge v0.3.47 pairing.
 
-Release/documentation changes:
-- Recorder software version 1.45.
-- README current baseline updated to v1.45 and paired with SLM Bridge v0.3.44.
-- Requirements, architecture, validation strategy, and release validation synchronized with the implemented behavior.
+Rationale:
+- The recorder uses ESPAsyncWebServer. request->send(200, "text/plain", "ok") queues the final OTA response asynchronously. Rebooting only 500 ms later can cause a marginal Wi-Fi/TCP connection to lose the final acknowledgement even though the firmware image was successfully written. The 2000 ms delay gives the response more time to reach the phone before Wi-Fi is intentionally dropped by ESP.restart().
 
-Intentionally unchanged:
-- docs/manifest.json remains at the last real published/compiled recorder binary (v1.42) until a v1.45 merged binary is built and published.
-- VALIDATION-v1.39.md is historical and unchanged.
+Release note:
+- Source version is 1.49. No v1.49 compiled firmware binary is included in this source delta; docs/manifest.json remains on the last generated v1.48 image until a v1.49 binary is built and published.

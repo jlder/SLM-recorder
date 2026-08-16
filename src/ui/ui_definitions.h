@@ -13,6 +13,7 @@
 #pragma once
 
 #include <lvgl.h>
+#include "src/ui/slm_fonts.h"
 
 // Display draw-buffer sizing used by ui_task.cpp.
 #define UI_DRAW_BUF_LINES     40u
@@ -27,7 +28,8 @@
 #define BTN_MAIN_HEIGHT       80
 
 // Font aliases used by UI helper calls.
-#define FONT_HUGE             &lv_font_montserrat_48
-#define FONT_LARGE            &lv_font_montserrat_36
-#define FONT_MEDIUM           &lv_font_montserrat_32
-#define FONT_SMALL            &lv_font_montserrat_18
+#define FONT_HUGE             &slm_font_montserrat_48
+#define FONT_LARGE            &slm_font_montserrat_36
+#define FONT_MEDIUM           &slm_font_montserrat_32
+#define FONT_LANGUAGE_BUTTON  &slm_font_montserrat_30
+#define FONT_SMALL            &slm_font_montserrat_18
