@@ -1037,6 +1037,84 @@ static String cal_export_csv_(){
 }
 
 /**
+ * Serves the embedded single-page web interface.
+ *
+ * The document is assembled on the fly from the PROGMEM segments declared in
+ * html_interface.h so that only the recorder-selected translation catalog is
+ * transmitted, and so the language code is already correct in the first bytes
+ * the browser parses.  A version-and-language ETag lets a returning browser
+ * revalidate with a 304 instead of re-downloading the whole document.
+ *
+ * Inputs:
+ *   request - the pending GET request for "/".
+ * Returns: None.
+ */
+static void send_html_page_(AsyncWebServerRequest *request){
+  if(request == nullptr) return;
+
+  const bool english = (settings_get_language() == LANGUAGE_ENGLISH);
+
+  const char  *catalog     = english ? HTML_TEXT_EN : HTML_TEXT_FR;
+  const size_t catalog_len = english ? HTML_TEXT_EN_LEN : HTML_TEXT_FR_LEN;
+  const char  *lang        = english ? HTML_LANG_EN : HTML_LANG_FR;
+  const size_t lang_len    = english ? HTML_LANG_EN_LEN : HTML_LANG_FR_LEN;
+
+  // The document only changes when the firmware or the selected language
+  // changes, so both are sufficient to identify a cached copy.
+  char etag[48];
+  snprintf(etag, sizeof(etag), "\"%s-%s\"",
+           RECORDER_SOFTWARE_VERSION, english ? "en" : "fr");
+
+  const AsyncWebHeader *inm = request->getHeader("If-None-Match");
+  if((inm != nullptr) && (inm->value() == etag)){
+    AsyncWebServerResponse *not_modified = request->beginResponse(304);
+    not_modified->addHeader("ETag", etag);
+    not_modified->addHeader("Cache-Control", "no-cache");
+    request->send(not_modified);
+    return;
+  }
+
+  const size_t total = HTML_PAGE_A_LEN + catalog_len + HTML_PAGE_B_LEN +
+                       lang_len + HTML_PAGE_C_LEN + HTML_PAGE_D_LEN;
+
+  AsyncWebServerResponse *response = request->beginResponse(
+      "text/html", total,
+      [catalog, catalog_len, lang, lang_len](uint8_t *buffer,
+                                             size_t maxLen,
+                                             size_t index) -> size_t {
+        const char *parts[6] = {
+          HTML_PAGE_A, catalog, HTML_PAGE_B, lang, HTML_PAGE_C, HTML_PAGE_D
+        };
+        const size_t lens[6] = {
+          HTML_PAGE_A_LEN, catalog_len, HTML_PAGE_B_LEN,
+          lang_len, HTML_PAGE_C_LEN, HTML_PAGE_D_LEN
+        };
+
+        size_t written = 0u;
+        size_t part_start = 0u;   // absolute offset of the current segment
+
+        for(size_t i = 0u; (i < 6u) && (written < maxLen); i++){
+          const size_t part_end = part_start + lens[i];
+          const size_t want = index + written;   // next absolute byte needed
+
+          if(want < part_end){
+            const size_t skip = want - part_start;
+            size_t chunk = lens[i] - skip;
+            if(chunk > (maxLen - written)) chunk = maxLen - written;
+            memcpy_P(buffer + written, parts[i] + skip, chunk);
+            written += chunk;
+          }
+          part_start = part_end;
+        }
+        return written;
+      });
+
+  response->addHeader("ETag", etag);
+  response->addHeader("Cache-Control", "no-cache");
+  request->send(response);
+}
+
+/**
  * Registers web routes for status, file management, calibration actions, and
  * embedded pages on the current server object.
  *
@@ -1055,7 +1133,7 @@ static void register_routes(){
   });
 
   s_server->on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send_P(200, "text/html", HTML_PAGE);
+    send_html_page_(request);
   });
 
   // Lightweight health-check endpoint for AP, DHCP, and HTTP reachability

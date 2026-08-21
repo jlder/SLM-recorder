@@ -169,7 +169,7 @@
 // Hardware version identifies the recorder hardware configuration.
 // Software version identifies the firmware build.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.49"
+#define RECORDER_SOFTWARE_VERSION      "1.50"
 
 // Storage / SD
 #define PREFS_NAMESPACE              "slm-data"
