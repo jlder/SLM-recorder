@@ -278,41 +278,77 @@ static bool calibration_is_expired_(const rtc_datetime_t *cal, const rtc_datetim
   return false;
 }
 
+// Last effective calibration published by state_task to the accelerometer
+// driver. Calibration service/API paths update service state only; state_task
+// is the sole publisher of driver coefficients.
+static bool s_driver_state_initialized = false;
+static bool s_driver_sensor_active = false;
+static bool s_driver_installation_active = false;
+static accel_calibration_t s_driver_calibration = {};
+static accel_installation_t s_driver_installation = {};
+
 /**
- * Apply or clear driver calibration according to current service status.
- *
- * Parameters:
- *   none
- *
- * Return:
- *   none.
+ * Publish the effective calibration to the accelerometer driver only when it
+ * has changed. This function is called only by state_task.
  */
-static void calibration_apply_driver_state_(void){
-  if(s_status != CAL_STATUS_VALID){
-    accel_driver_clear_calibration();
-    accel_driver_clear_installation();
+void calibration_service_publish_driver_state(void){
+  bool sensor_active = false;
+  bool installation_active = false;
+  accel_calibration_t driver_cal = {};
+  accel_installation_t installation = {};
+
+  calibration_lock_();
+  if((s_status == CAL_STATUS_VALID) &&
+     s_active_loaded &&
+     s_active_cal.sensor.valid &&
+     calibration_to_driver_(&s_active_cal, &driver_cal)){
+    sensor_active = true;
+
+    if(s_active_cal.installation.valid){
+      memcpy(installation.matrix, s_active_cal.installation.matrix, sizeof(installation.matrix));
+      installation_active = true;
+    }
+  }
+  calibration_unlock_();
+
+  const bool sensor_changed =
+      (!s_driver_state_initialized) ||
+      (sensor_active != s_driver_sensor_active) ||
+      (sensor_active &&
+       (memcmp(&driver_cal, &s_driver_calibration, sizeof(driver_cal)) != 0));
+
+  const bool installation_changed =
+      (!s_driver_state_initialized) ||
+      (installation_active != s_driver_installation_active) ||
+      (installation_active &&
+       (memcmp(&installation, &s_driver_installation, sizeof(installation)) != 0));
+
+  if(!sensor_changed && !installation_changed){
     return;
   }
 
-  accel_calibration_t driver_cal = {};
-  if(calibration_to_driver_(&s_active_cal, &driver_cal)){
+  if(sensor_active){
     (void)accel_driver_set_calibration(&driver_cal);
   } else {
     accel_driver_clear_calibration();
   }
 
-  if(s_active_cal.installation.valid){
-    accel_installation_t installation = {};
-    memcpy(installation.matrix, s_active_cal.installation.matrix, sizeof(installation.matrix));
+  if(installation_active){
     (void)accel_driver_set_installation(&installation);
   } else {
     accel_driver_clear_installation();
   }
+
+  s_driver_sensor_active = sensor_active;
+  s_driver_installation_active = installation_active;
+  s_driver_calibration = driver_cal;
+  s_driver_installation = installation;
+  s_driver_state_initialized = true;
 }
 
 /**
  * Initializes calibration storage, loads the latest stored calibration,
- * applies it to the driver, and initializes calibration status.
+ * and initializes calibration status. Driver publication is owned by state_task.
  *
  * Inputs: None.
  * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
@@ -356,6 +392,12 @@ bool calibration_service_init(void){
   }
 
   calibration_service_refresh_status();
+
+  // Driver publication is deliberately not performed here.  state_task is the
+  // sole publisher, and it publishes on every READY tick.  This is safe because
+  // the only consumer of the driver coefficients is recording_service(), which
+  // runs in ST_RECORDING, and ST_RECORDING is reachable only through ST_READY.
+  // The coefficients are therefore always published before first use.
   return storage_ok;
 }
 
@@ -367,10 +409,17 @@ bool calibration_service_init(void){
  * Returns: None.
  */
 void calibration_service_refresh_status(void){
+  // Called both by state_task on every READY tick and, through the Web API, by
+  // the asynchronous HTTP task during operator calibration.  The guard makes
+  // the read of the calibration record and the resulting status update atomic
+  // with respect to the other caller, so status can never reflect a partially
+  // updated record.  Every call site is outside the lock and none of the
+  // callees take it, so this cannot nest.
+  CalibrationLockGuard_ guard;
+
   if(calibration_store_fault_get()){
     s_fault_reason = calibration_store_fault_reason_get();
     s_status = CAL_STATUS_FAULT;
-    calibration_apply_driver_state_();
     return;
   }
   s_fault_reason = CAL_FAULT_NONE;
@@ -379,7 +428,6 @@ void calibration_service_refresh_status(void){
      !s_active_cal.sensor.valid ||
      !s_active_cal.sensor.temperature_valid){
     s_status = CAL_STATUS_MISSING;
-    calibration_apply_driver_state_();
     return;
   }
 
@@ -387,18 +435,15 @@ void calibration_service_refresh_status(void){
   if(!datetime_service_get(&now)){
     // Date/time is required to prove calibration freshness.
     s_status = CAL_STATUS_MISSING;
-    calibration_apply_driver_state_();
     return;
   }
 
   if(calibration_is_expired_(&s_active_cal.sensor.timestamp, &now)){
     s_status = CAL_STATUS_EXPIRED;
-    calibration_apply_driver_state_();
     return;
   }
 
   s_status = CAL_STATUS_VALID;
-  calibration_apply_driver_state_();
 }
 
 /**
@@ -438,7 +483,6 @@ const char *calibration_save_result_name(calibration_save_result_t result){
  * Returns: `true` when the requested operation succeeds or condition is met; otherwise `false`.
  */
 bool calibration_service_is_recording_allowed(void){
-  calibration_service_refresh_status();
   return (s_status == CAL_STATUS_VALID) && s_active_cal.installation.valid;
 }
 
@@ -486,8 +530,14 @@ bool calibration_service_get_installation(installation_calibration_t *out){
 }
 
 /**
- * Latches calibration fault state in NVS, marks calibration status as faulted,
- * and disables driver calibration use.
+ * Latches calibration fault state in NVS and marks calibration status faulted.
+ *
+ * This does not touch the accelerometer driver.  Driver coefficients are
+ * published only by state_task through calibration_service_publish_driver_state(),
+ * which clears them on its next tick because the status is no longer VALID.
+ * Both call sites of this function are inside the operator calibration flow,
+ * which runs in READY only, so the deferral is bounded by one state_task
+ * period and cannot occur while a recording is sampling.
  *
  * Inputs: None.
  * Returns: None.
@@ -496,7 +546,6 @@ void calibration_service_latch_fault_reason(calibration_fault_reason_t reason){
   (void)calibration_store_fault_set(true);
   calibration_set_fault_reason_(reason);
   s_status = CAL_STATUS_FAULT;
-  calibration_apply_driver_state_();
 }
 
 
@@ -539,7 +588,6 @@ bool calibration_service_support_clear(void){
   }
   s_fault_reason = CAL_FAULT_NONE;
   s_status = CAL_STATUS_MISSING;
-  calibration_apply_driver_state_();
 
   calibration_session_cancel();
   calibration_installation_session_cancel();

@@ -38,6 +38,12 @@ bool calibration_service_init(void);
 void calibration_service_refresh_status(void);
 
 /**
+ * Publish the current effective calibration to the accelerometer driver if it
+ * changed. This is a state_task-owned operation.
+ */
+void calibration_service_publish_driver_state(void);
+
+/**
  * Return current calibration status.
  *
  * Parameters:

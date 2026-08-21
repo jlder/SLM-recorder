@@ -1688,7 +1688,6 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
     // such as About, Recorder Calibration, and Installation Calibration.
     (void)cal_client_authorized_(request);
 
-    calibration_service_refresh_status();
     const calibration_status_t status = calibration_service_status();
     const bool recording_allowed = calibration_service_is_recording_allowed();
     calibration_record_t active = {};
@@ -2159,8 +2158,6 @@ s_server->on("/api/download", HTTP_GET, [](AsyncWebServerRequest *request){
       request->send(409, "application/json", "{\"ok\":false,\"reason\":\"sd_busy\"}");
       return;
     }
-
-    calibration_service_refresh_status();
 
     calibration_record_t active = {};
     const bool active_ok = calibration_service_get_active(&active) && active.sensor.valid;

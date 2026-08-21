@@ -1,7 +1,7 @@
-# Validation — Recorder v1.49
+# Validation — Recorder v1.51
 
-1. Compile and install Recorder v1.49.
-2. Connect with SLM Bridge v0.3.47.
+1. Compile and install Recorder v1.51.
+2. Connect with SLM Bridge v0.3.48.
 3. With USB power connected, confirm the recorder home page shows File Management, Logbook, and Maintenance active.
 4. Remove USB power and confirm File Management and Logbook become grey while Maintenance remains reachable. Confirm the Main Menu displays `USB power required.` and `Connect USB power to use all recorder functions except Recorder Calibration.` Reconnect USB and confirm both the message disappears and the buttons become active after status refresh.
 5. In File Management, select a recording day containing more than one physical `.bin` file and press Process.
@@ -18,13 +18,13 @@
 16. Confirm Report Management, recording SHA verification, and existing calibration functions remain unchanged.
 17. On a recorder with no stored language key, confirm French is selected by default and the SETTINGS language button shows `ENGLISH`.
 18. Press `ENGLISH` and confirm the AMOLED interface immediately changes to English and the button changes to `FRANÇAIS`; power-cycle and confirm the selection persists.
-19. Select French again and confirm the AMOLED version lines show `ver. logic. 1.49` and `ver. mat. 1.00`, and the agreed abbreviated French labels fit without clipping.
+19. Select French again and confirm the AMOLED version lines show `ver. logic. 1.51` and `ver. mat. 1.00`, and the agreed abbreviated French labels fit without clipping.
 20. On the main page, confirm `ENREGIST.` and all other status messages fit fully inside the bottom status area without clipping.
 21. In REGLAGES/SETTINGS, confirm both `FRANÇAIS` and `ENGLISH` fit comfortably in the language button using the reduced font.
 22. With WiFi active, reload the recorder Web interface and confirm all normal pages, calibration workflows, support messages, file-processing messages, and firmware-update messages follow the recorder-selected language.
 23. Confirm changing recorder language does not alter required-settings state, calibration state, API reason codes, filenames, or existing calibration-report contents/parsing.
 24. Confirm Bridge-originated transfer/OTA failures are rendered by the recorder page using recorder-selected language rather than a Bridge-provided human-readable sentence.
-25. With SLM Bridge v0.3.47, enable recorder WiFi and connect. Confirm the recorder Web page appears normally and remains usable for at least 30 seconds while the Bridge health monitor continues to report the recorder connected.
+25. With SLM Bridge v0.3.48, enable recorder WiFi and connect. Confirm the recorder Web page appears normally and remains usable for at least 30 seconds while the Bridge health monitor continues to report the recorder connected.
 26. Confirm the recorder Web page is self-contained: loading `/` shall not require `/api/language.js` or any other new recorder-side script/style resource. Existing API calls such as `/api/status` remain unchanged except for the added `language` field.
 27. With the recorder Web page open, change the recorder language and confirm the page follows the new `fr`/`en` value on the next `/api/status` refresh without navigating away from the current page.
 
@@ -33,8 +33,24 @@
 30. Confirm the recorder Web interface displays the same French accents correctly and that the v1.47 self-contained Web/WiFi behavior is unchanged.
 
 31. Perform a successful phone-file OTA update and confirm the recorder returns HTTP success before Wi-Fi disappears for reboot; verify the successful response/restart transition remains reliable with the 2000 ms OTA acknowledgement grace.
-32. Perform Firmware from Server through SLM Bridge v0.3.47 and confirm the same successful acknowledgement/reboot behavior.
+32. Perform Firmware from Server through SLM Bridge v0.3.48 and confirm the same successful acknowledgement/reboot behavior.
 33. Confirm support-triggered reboot behavior remains unchanged apart from using its explicit 500 ms delay.
+
+34. Load the recorder Web page through SLM Bridge and confirm the three main-menu buttons appear with their labels already present; confirm no button is displayed as a plain coloured rectangle without text at any point during loading.
+35. Confirm the page is served in the recorder-selected language only, that it does not visibly re-translate itself after the first `/api/status` response, and that changing the recorder language from the AMOLED while the page is open causes the page to reload in the new language.
+36. Reload the page and confirm the browser revalidates with `304 Not Modified` while the firmware version and selected language are unchanged, and performs a full download after either changes.
+37. Download a recording of at least 8 MB and confirm the file is byte-identical to the SD copy and passes SHA-256 verification. Repeat with the same file to confirm repeatability.
+38. Confirm downloads still complete correctly if the read-ahead buffer cannot be allocated, by exercising the direct per-chunk fallback path.
+39. With calibration valid and the recorder in READY, confirm no accelerometer driver write occurs while Web calibration status is polled, and that a driver update does occur after a calibration is saved, accepted, cleared, or restored.
+40. Confirm recorded acceleration remains correctly calibrated after a calibration change followed by a recording, and that a recording started immediately after boot uses the stored calibration.
+
+Static checks performed for the v1.51 source delta:
+
+- Host-side tests of `sd_files_download_read()` against a stubbed SD layer confirm byte-exact reassembly at 1, 7, 1436, 2920, and 65536-byte request sizes, for file sizes that are and are not multiples of the read-ahead block, and for the no-PSRAM fallback path.
+- A negative host-side test confirms that an SD read returning more than the requested length is rejected rather than accepted as valid file content.
+- Preprocessor and brace/parenthesis balance checks pass on the modified `web_task.cpp`, `sd_files.cpp`, and `html_interface.h`.
+- Extraction of the served Web page from its C++ raw-string segments confirms every `<script>` block parses, the translation catalog parses as JSON, and every `data-i18n` and `tr()` key resolves in both languages.
+- Call-site inspection confirms every `calibration_service_refresh_status()` call is made outside the calibration-service mutex and that none of its callees take that mutex, so the added guard cannot nest.
 
 Static checks performed for the v1.49 source delta:
 

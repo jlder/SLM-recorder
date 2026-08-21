@@ -273,21 +273,35 @@ Each new immutable recording is hashed while its bytes are written. On close, th
 
 File Management presents one logical entry per registration/date while immutable recording files remain separate on SD and on the server. Pressing **Process** sequentially downloads, verifies, analyses, queues, uploads, verifies, and archives every pending suffixed `.bin` file for that day. The visible progress is calculated from aggregate pending `.bin` bytes; physical suffixes and file counts are not exposed to the user.
 
-## Current development baseline (v1.49)
+## Current development baseline (v1.51)
 
-Recorder v1.49 is the current development baseline and is intended to be used with SLM Bridge v0.3.47. Changes introduced since v1.33 include immutable suffixed recording files, recorder-created SHA-256 companions, daily File Management presentation, sequential processing of same-day recordings, per-recording CSV flight logs, permanent archival in `/processed`, root `.bin`-only file-count enforcement, root-plus-processed Logbook aggregation, and the `/api/archive` post-upload endpoint. Legacy appended recordings without creation SHA remain supported.
+Recorder v1.51 is the current development baseline and is intended to be used with SLM Bridge v0.3.48. Changes introduced since v1.33 include immutable suffixed recording files, recorder-created SHA-256 companions, daily File Management presentation, sequential processing of same-day recordings, per-recording CSV flight logs, permanent archival in `/processed`, root `.bin`-only file-count enforcement, root-plus-processed Logbook aggregation, and the `/api/archive` post-upload endpoint. Legacy appended recordings without creation SHA remain supported.
 
-The v1.49 baseline also includes:
+The v1.51 baseline also includes:
 
 - **French/English recorder interface:** French is the default recorder language. SETTINGS provides an ENGLISH/FRANÇAIS toggle stored in NVS. The selection controls both the AMOLED interface and recorder-served Web pages through the central `src/services/language.h` catalog; protocol/API reason codes and persistent calibration-report formats remain language-independent.
-- **Self-contained recorder Web page:** since v1.47, the bilingual browser catalog remains inside the existing `HTML_PAGE`, generated from `language.h`; the existing `/api/status` response supplies only the selected `fr`/`en` code. This avoids the additional `/api/language.js` request introduced in v1.46.
+- **Self-contained recorder Web page:** the browser translation catalog is generated from `language.h` and embedded directly in the served page, avoiding the additional `/api/language.js` request introduced in v1.46. Since v1.50 the page is assembled per request from PROGMEM segments so that only the recorder-selected language is transmitted, the language code is already correct in the first bytes the browser parses, and the page carries a version-and-language `ETag` so a returning browser revalidates with `304` instead of downloading the whole document again.
 - **Installation calibration restore after recorder replacement:** Maintenance > About can restore the newest valid installation-calibration report matching the configured registration from `/calibration_reports` or `/processed` into the installation-calibration NVS record. Recorder six-face calibration remains independently required on the replacement hardware.
 - **USB-power Web gating:** File Management, Logbook, firmware update, installation calibration, report handling, and support actions require USB power. The Main Menu explains the restriction when USB is absent; Recorder Calibration remains available through Maintenance on battery power.
 - **Daily processing status:** Flight Analysis shows real `Processing: N%` progress across all physical files for the selected day. Recorder transfer contributes 95% and browser analysis 5% of each file's size-weighted contribution. Final flight details are shown only after analysis results are available; failures give an actionable retry message.
 - **Simplified Firmware Update page:** firmware is selected in one card from the server (preferred) or from the phone when requested by support, followed by a common Update Firmware / Return card. The page warns that Wi-Fi is lost during the successful restart and must be restarted before reconnecting.
 
-The v1.49 baseline retains the normal French accents in the central translation catalog. The AMOLED keeps LVGL's built-in Montserrat fonts for ASCII and uses compact accent-capable wrapper fonts that synthesize only the nine French glyphs required by the current catalog (`À Ç É Ê à ç è é ê`). The recorder Web page uses the same UTF-8 translations directly.
+The v1.51 baseline retains the normal French accents in the central translation catalog. The AMOLED keeps LVGL's built-in Montserrat fonts for ASCII and uses compact accent-capable wrapper fonts that synthesize only the nine French glyphs required by the current catalog (`À Ç É Ê à ç è é ê`). The recorder Web page uses the same UTF-8 translations directly.
 
-The v1.49 baseline increases the successful OTA acknowledgement-to-reboot delay from 500 ms to 2000 ms so the asynchronous HTTP/TCP stack has more time to deliver the final `200 / ok` response before Wi-Fi disappears during restart. The support-reboot delay remains 500 ms.
+The v1.51 baseline increases the successful OTA acknowledgement-to-reboot delay from 500 ms to 2000 ms so the asynchronous HTTP/TCP stack has more time to deliver the final `200 / ok` response before Wi-Fi disappears during restart. The support-reboot delay remains 500 ms.
 
-The repository firmware manifest continues to identify the last generated v1.48 binary until a v1.49 release firmware image is compiled and published.
+### Web interface responsiveness (v1.50)
+
+Before v1.50 the recorder page emitted every label as an empty element carrying a `data-i18n` key and filled them from JavaScript on the last line of the document. The three main menu buttons therefore appeared as plain coloured rectangles until the whole page had been transferred and parsed. v1.50 applies the static translations immediately after the body markup instead, sends one language rather than both, and injects the selected language code server-side, which also removes the full-page re-translation that previously followed the first `/api/status` response. The served document is about 183 kB instead of 194 kB, and the menu labels are present roughly 44 kB into the stream instead of at the final byte.
+
+### Download read-ahead (v1.51)
+
+Every `sd_files` operation is a synchronous handshake with `sd_task`, and the HTTP response filler is called once per TCP window. Reading directly per chunk therefore cost one handshake per 1436 bytes. v1.51 reads one 32 KiB block into a PSRAM buffer and serves the transmitted chunks from it, cutting the handshakes for a one-megabyte file from roughly 730 to 32 and raising measured download throughput from about 0.5 MB/s to about 0.7-0.8 MB/s. If PSRAM cannot be allocated the original direct per-chunk path is used unchanged.
+
+Measurements taken with a diagnostic endpoint that streamed a RAM pattern with no SD access showed that the remaining transfer time is dominated by the WiFi link rather than by SD access. Throughput is limited by the fixed 5744-byte lwIP send buffer divided by the client round-trip time, which is why it varies from about 0.6 MB/s to about 1.0 MB/s depending on the client. The diagnostic endpoint was removed once the measurements were complete.
+
+### Calibration driver publication (v1.51)
+
+`calibration_service_refresh_status()` previously published the accelerometer calibration to `accel_driver` on every path, so `state_task` rewrote the driver coefficients twenty times a second and Web status polling wrote them as well. v1.51 separates the two concerns. Status recalculation stays where it was; publication moves to `calibration_service_publish_driver_state()`, which is called only by `state_task` and writes to the driver only when the effective calibration has actually changed. In steady state no driver write occurs. `calibration_service_refresh_status()` now takes the calibration-service mutex, because Web operator calibration actions call it from the asynchronous HTTP task.
+
+The repository firmware manifest continues to identify the last generated v1.48 binary until a v1.51 release firmware image is compiled and published.

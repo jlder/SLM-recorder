@@ -783,7 +783,6 @@ static void state_task_main(void *arg){
           // Refresh the application date/time cache from RTC on entry unless a
           // local settings edit is waiting to be written back to RTC.
           (void)datetime_service_sync_rtc();
-          calibration_service_refresh_status();
 
           // Initialize READY-local USB transition detection.  USB already
           // absent when entering/re-entering READY is only the reference
@@ -814,6 +813,7 @@ static void state_task_main(void *arg){
         settings_t settings = {};
         const bool settings_ready = settings_storage_ok && settings_get(&settings) && settings_is_complete(&settings);
         calibration_service_refresh_status();
+        calibration_service_publish_driver_state();
         const calibration_status_t cal_status = calibration_service_status();
         const bool installation_ready = calibration_service_installation_valid();
         const bool calibration_ready = calibration_service_is_recording_allowed();

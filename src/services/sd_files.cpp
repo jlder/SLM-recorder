@@ -16,6 +16,7 @@
 #include "src/services/watchdog_service.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_heap_caps.h"
 
 #include <string.h>
 
@@ -39,6 +40,27 @@ static volatile bool s_archive_requested = false;
 static volatile bool s_verify_sha_requested = false;
 
 static volatile bool s_download_active = false;
+
+// A single PSRAM read-ahead buffer amortizes the synchronous web_task ->
+// sd_task handshake across many AsyncTCP chunks.  32 KiB covers roughly
+// 22 typical 1436-byte TCP fill callbacks while keeping each SD read bounded.
+static const uint32_t SD_DOWNLOAD_READAHEAD_BYTES = 32u * 1024u;
+static uint8_t *s_download_cache = nullptr;
+static uint32_t s_download_cache_pos = 0u;
+static uint32_t s_download_cache_len = 0u;
+
+static void download_cache_reset_(void){
+  s_download_cache_pos = 0u;
+  s_download_cache_len = 0u;
+}
+
+static void download_cache_prepare_(void){
+  download_cache_reset_();
+  if(s_download_cache == nullptr){
+    s_download_cache = (uint8_t *)heap_caps_malloc(
+        SD_DOWNLOAD_READAHEAD_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  }
+}
 
 // Paths and output pointers are copied/stored here because callers may pass
 // temporary String buffers.  s_request_done prevents those output pointers from
@@ -340,20 +362,70 @@ bool sd_files_download_begin(const char *path, uint32_t *out_size){
 
   const bool ok = request_wait_(SD_FILE_WAIT_TICKS);
   s_download_active = ok;
+  if(ok){
+    download_cache_prepare_();
+  } else {
+    download_cache_reset_();
+  }
   return ok;
 }
 
 /** Read the next chunk from the active sequential download session. */
 bool sd_files_download_read(uint8_t *out, uint32_t len, uint32_t *out_len){
+  if((out == nullptr) || (out_len == nullptr) || (len == 0u)){
+    return false;
+  }
+
+  *out_len = 0u;
+
   if(!sd_files_is_authorized() || !s_download_active){
     return false;
   }
 
-  if(!request_download_read_(out, len, out_len)){
-    return false;
+  // If PSRAM allocation is unavailable, retain the original direct-read path.
+  if(s_download_cache == nullptr){
+    if(!request_download_read_(out, len, out_len)){
+      return false;
+    }
+    return request_wait_(SD_FILE_WAIT_TICKS);
   }
 
-  return request_wait_(SD_FILE_WAIT_TICKS);
+  while(*out_len < len){
+    if(s_download_cache_pos < s_download_cache_len){
+      const uint32_t available = s_download_cache_len - s_download_cache_pos;
+      const uint32_t needed = len - *out_len;
+      const uint32_t copy_len = (available < needed) ? available : needed;
+      memcpy(out + *out_len, s_download_cache + s_download_cache_pos, copy_len);
+      s_download_cache_pos += copy_len;
+      *out_len += copy_len;
+      continue;
+    }
+
+    uint32_t refill_len = 0u;
+    if(!request_download_read_(s_download_cache, SD_DOWNLOAD_READAHEAD_BYTES, &refill_len)){
+      return false;
+    }
+    if(!request_wait_(SD_FILE_WAIT_TICKS)){
+      return false;
+    }
+
+    // sd_storage_download_read() must never return more than requested.
+    // Checking it here keeps "s_download_cache_len is within the allocation" a
+    // locally provable invariant instead of one that depends on a function two
+    // layers away, and turns a contract break into an immediate failure rather
+    // than silently serving out-of-bounds bytes as file content.
+    if(refill_len > SD_DOWNLOAD_READAHEAD_BYTES){
+      return false;
+    }
+
+    s_download_cache_pos = 0u;
+    s_download_cache_len = refill_len;
+    if(refill_len == 0u){
+      break;
+    }
+  }
+
+  return true;
 }
 
 /** End the active sequential download session. */
@@ -368,6 +440,7 @@ bool sd_files_download_end(void){
 
   const bool ok = request_wait_(SD_FILE_WAIT_TICKS);
   s_download_active = false;
+  download_cache_reset_();
   return ok;
 }
 

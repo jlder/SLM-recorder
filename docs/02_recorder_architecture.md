@@ -349,6 +349,8 @@ The implemented block sequence is:
 - Raw SD/filesystem access is serialized through SD/storage modules.
 - Web file operations are authorized only when recording is not active.
 - Calibration sampling is serviced by `state_task`; Web handlers own operator lifecycle actions such as start, cancel, status, and save. Shared calibration session state is protected by the calibration-service mutex so Web lifecycle actions and state-task sampling cannot observe partially updated session state.
+- Accelerometer driver coefficients are published only by `state_task`, through `calibration_service_publish_driver_state()`, which is called on every READY tick and writes to `accel_driver` only when the effective calibration has actually changed. Calibration service and Web API paths update service state only; they never write driver coefficients. Because the only consumer of those coefficients is `recording_service()`, which also runs in `state_task`, publication and use are strictly ordered within one task and require no additional locking.
+- `calibration_service_refresh_status()` is called both by `state_task` and, through Web operator calibration actions, by the asynchronous HTTP task. It takes the calibration-service mutex so the record read and the resulting status update are atomic with respect to the other caller.
 - Display brightness changes are owned by `ui_task`, which owns LVGL/display interaction.
 - Date/time cache access is protected inside `datetime_service`.
 - Settings and calibration persistence are owned by their respective store modules.
@@ -490,6 +492,8 @@ Web downloads are implemented as an SD-owned sequential download session:
 - the file is opened once at download start, read sequentially by chunk, and closed when the transfer ends or is aborted.
 
 This avoids repeated open/seek/close cycles for each HTTP chunk while preserving the rule that SD filesystem access remains owned by the SD layer.
+
+Each `sd_files` request is a synchronous handshake: the calling task queues the request and waits while `sd_task` executes it. The HTTP response filler is invoked once per TCP window, so reading directly per chunk would cost one handshake per 1436 bytes. `sd_files` therefore reads one `SD_DOWNLOAD_READAHEAD_BYTES` block into a PSRAM buffer and serves the transmitted chunks from it, reducing the handshake count for a one-megabyte file from roughly 730 to 32. The buffer is allocated on the first download and retained; if PSRAM is unavailable the direct per-chunk path is used unchanged. A returned length larger than the requested length is rejected, so the held length is always within the allocation.
 
 While the SD state machine is in `SD_IDLE` and SD file-management is authorized, the SD task may use `SD_TASK_FILE_OP_PERIOD_MS` instead of `SD_TASK_PERIOD_MS` to improve Web file-management responsiveness. This shorter period is not used during SD boot, recording open, recording write, recording close, or SD error handling.
 

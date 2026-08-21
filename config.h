@@ -54,6 +54,14 @@
 // after this grace period so an unattended recorder cannot discharge itself.
 #define WIFI_BATTERY_IDLE_SHUTDOWN_MS 180000u
 
+// Diagnostic link-throughput endpoint (/api/speedtest).  It streams a RAM
+// pattern with no SD access, so comparing its rate against a real
+// /api/download of similar size separates the WiFi/TCP ceiling from SD
+// access cost.  Set RECORDER_ENABLE_SPEEDTEST to 0 to compile the route out.
+#define RECORDER_ENABLE_SPEEDTEST        1
+#define RECORDER_SPEEDTEST_DEFAULT_MB    4u
+#define RECORDER_SPEEDTEST_MAX_MB       32u
+
 
 // Browser-side flight-time analysis parameters.
 // These values are embedded in the served JavaScript flight-analysis page at
@@ -169,7 +177,7 @@
 // Hardware version identifies the recorder hardware configuration.
 // Software version identifies the firmware build.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.50"
+#define RECORDER_SOFTWARE_VERSION      "1.52"
 
 // Storage / SD
 #define PREFS_NAMESPACE              "slm-data"
