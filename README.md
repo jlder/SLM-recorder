@@ -292,6 +292,8 @@ For this field-validation build:
 
 Historical replay of the frozen AUTO logic on the current official/recovered data gives 190/190 pre-roll AUTO START coverage and 189/189 evaluable flight-end confirmations with zero premature stops and zero misses; `FCJAF_20260627_3.bin` is right-censored because its historical file ends at landing and contains no post-landing confirmation interval.
 
+The derivation of this logic, including the causal/offline comparison, historical data basis, nuisance-session treatment, AUTO DELETE rationale, AUTO WIFI policy, and the distinction between historical replay and prospective v1.54 field validation, is documented in `docs/06_automation_methodology.md`.
+
 The inherited v1.52 baseline also includes:
 
 - **French/English recorder interface:** French is the default recorder language. SETTINGS provides an ENGLISH/FRANÇAIS toggle stored in NVS. The selection controls both the AMOLED interface and recorder-served Web pages through the central `src/services/language.h` catalog; protocol/API reason codes and persistent calibration-report formats remain language-independent.

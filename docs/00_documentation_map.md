@@ -28,6 +28,7 @@ Scope, requirements, architecture decisions, state-machine behavior, coding rule
 | `03_state_machine_behavior_review.md` | Captures code-grounded behavior of `state_task`, `sd_task`, and calibration session servicing | implemented state behavior |
 | `04_lightweight_software_coding_standard.md` | Captures lightweight coding and maintainability rules for the prototype recorder-core software | coding rules |
 | `05_lightweight_validation_strategy.md` | Captures practical validation strategy and validation case candidates | validation planning and evidence approach |
+| `06_automation_methodology.md` | Captures how AUTO RECORDING, AUTO WIFI, and AUTO DELETE were derived from historical data, converted to causal real-time logic, frozen, and prepared for field validation | automation derivation rationale and development/replay evidence |
 
 ## 3. Recommended Reading Order
 
@@ -38,6 +39,14 @@ For requirements and design review:
 3. `03_state_machine_behavior_review.md`
 4. `04_lightweight_software_coding_standard.md`
 5. `05_lightweight_validation_strategy.md`
+6. `06_automation_methodology.md` when reviewing automatic-operation derivation or evidence
+
+For automation review:
+
+1. `06_automation_methodology.md`
+2. `01_recorder_requirements.md`, Section 4.4A
+3. `02_recorder_architecture.md`, automatic-operation section
+4. `05_lightweight_validation_strategy.md`, `VAL-AUTO-*` cases
 
 For file-format or post-processing work:
 
@@ -67,6 +76,7 @@ To avoid duplication and drift:
 | Detailed state-machine behavior | `03_state_machine_behavior_review.md` |
 | Coding rules | `04_lightweight_software_coding_standard.md` |
 | Validation approach and validation case candidates | `05_lightweight_validation_strategy.md` |
+| Automation derivation rationale, historical-development evidence, and algorithm freeze methodology | `06_automation_methodology.md` |
 
 ## 5. Maintenance Rule
 
@@ -77,4 +87,5 @@ When a behavior changes:
 3. update `03_state_machine_behavior_review.md` if state behavior changes;
 4. update recording block definitions in `01_recorder_requirements.md` if recorded-file layout changes;
 5. update `05_lightweight_validation_strategy.md` if validation evidence or procedure changes;
-6. update `README.md` if the operator build/install/use workflow changes.
+6. update `06_automation_methodology.md` if the derivation rationale, frozen automation algorithm, historical replay basis, or field-validation methodology changes;
+7. update `README.md` if the operator build/install/use workflow changes.

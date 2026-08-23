@@ -1,5 +1,7 @@
 # v1.54 automation field-diagnostic overlay
 
+The automation derivation and field-validation methodology are documented in `../docs/06_automation_methodology.md`. This file owns only the diagnostic wire encoding and observe-only trace behavior.
+
 This diagnostic build instruments AUTO RECORD logic without feeding diagnostic
 values back into recorder signal processing.
 

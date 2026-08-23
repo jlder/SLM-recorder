@@ -834,6 +834,8 @@ New immutable recording files are protected by a streaming SHA-256 calculated ov
 - Confirm no Web endpoint or page provides complete `/processed` listing or permanent deletion.
 
 
+The derivation and historical replay used to freeze the automation algorithm are documented separately in `06_automation_methodology.md`. The `VAL-AUTO-*` cases below define validation of the frozen implementation and field-diagnostic behavior rather than re-deriving the thresholds.
+
 ## VAL-AUTO-001 — v1.54 forced-ON observe-only mode
 
 1. Install v1.54 and confirm SETTINGS > AUTOMATION immediately shows AUTO RECORDING, AUTO WIFI, and AUTO DELETE all ON.

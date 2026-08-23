@@ -550,6 +550,8 @@ Status:
 
 ### 4.4A Automatic Operation
 
+The development rationale, historical-data basis, causal/offline comparison, and algorithm-freeze methodology for the three automation functions are documented in `06_automation_methodology.md`. This section remains the normative owner of the resulting operational requirements.
+
 #### OP-AUTO-001 — Production selections and v1.54 diagnostic override
 
 The production automation design provides independent `AUTO RECORDING`, `AUTO WIFI`, and `AUTO DELETE` selections. In the dedicated v1.54 field-validation build, `AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY` and `AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON` override those selections: all three functions are logically ON from boot, SETTINGS > AUTOMATION displays them as ON with disabled controls, and stored NVS selection values are neither used as runtime gates nor rewritten by the override.

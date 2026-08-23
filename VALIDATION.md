@@ -46,6 +46,8 @@
 
 ## v1.54 automation field-validation additions
 
+Algorithm derivation, historical replay rationale, and the distinction between development evidence and prospective field validation are documented in `docs/06_automation_methodology.md`. The checks below validate the frozen v1.54 implementation.
+
 41. Confirm SETTINGS > AUTOMATION shows AUTO RECORDING, AUTO WIFI, and AUTO DELETE all `ON` immediately after boot. Confirm the three controls are disabled/fixed in this diagnostic build and cannot be toggled OFF.
 42. Confirm the forced-ON diagnostic override does not rewrite the stored NVS automation selections; it is an effective runtime override only.
 43. Confirm all three automations are observe-only: automation never physically starts/stops a recording, never automatically enables/disables WiFi, and never deletes a `.bin` or `.sha`. Manual controls, faults, and <=5% battery shutdown remain effective.

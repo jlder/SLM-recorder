@@ -602,6 +602,8 @@ Daily grouping is implemented only in browser JavaScript. The recorder storage A
 
 ## 30. Automatic Operation Architecture (v1.54 field-validation build)
 
+The development methodology and historical evidence used to derive/freeze this architecture are documented in `06_automation_methodology.md`. This section owns the software allocation and data/control-flow consequences of that logic.
+
 Automation remains a thin service layer under the existing recorder state machine. No `ST_*` automation states are added. `state_task` remains the sole owner of READY/STARTING/RECORDING/STOPPING transitions, while `automation_service` owns continuous signal processing and semantic detector outputs.
 
 ### Continuous signal path
