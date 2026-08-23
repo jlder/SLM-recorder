@@ -1,9 +1,0 @@
-SLM Recorder v1.47 Web/WiFi hotfix
-
-Cause addressed:
-- v1.46 introduced a separate /api/language.js resource assembled dynamically.
-- v1.47 removes that resource and restores a self-contained recorder Web page.
-- Both language catalogs are compiled into HTML_PAGE from language.h.
-- The existing /api/status endpoint carries only the selected language code (fr/en).
-
-WiFi/AP lifecycle and state_task shutdown logic are unchanged from the v1.45 baseline.

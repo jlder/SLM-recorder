@@ -23,10 +23,8 @@
 #define UI_HELPERS_H
 
 #include <lvgl.h>
-#include <Preferences.h>
 #include "src/ui/ui_definitions.h"
 
-extern Preferences prefs;
 
 // =============================================================================
 // ROLLER TYPE ENUMERATION

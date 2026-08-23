@@ -62,13 +62,14 @@ void setup() {
   // Initialize the display before the UI task starts.
   display_ok = display_init();
 
-  // Start the UI task early so boot progress can be shown.
+  // Load/migrate recorder settings before any task can read them. Runtime
+  // settings changes are subsequently owned exclusively by the State task.
+  settings_storage_ok = settings_init();
+
+  // Start the UI task after the settings snapshot is initialized.
   if(display_ok) {
     ui_task_init();
   }
-
-  // Open the settings storage backend before entering the state loop.
-  settings_storage_ok = settings_init();
 
   // Initialize watchdog service before monitored tasks start.
   watchdog_service_init();

@@ -52,7 +52,7 @@ static uint32_t s_web_start_cycle = 0u;
 // WiFi/AP/HTTP server state remains owned by web_task_loop.  s_started is
 // only ever read/written inside web_task_loop, so it does not need volatile.
 static volatile bool s_enabled_requested = false;
-static bool s_started = false;
+static volatile bool s_started = false;
 static volatile bool s_ota_active = false;
 static volatile bool s_ota_ok = false;
 static volatile bool s_ota_reboot_pending = false;
@@ -2753,3 +2753,5 @@ void web_task_init(void){
   }
 
 }
+
+bool web_task_is_started(void){ return s_started; }

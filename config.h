@@ -54,14 +54,6 @@
 // after this grace period so an unattended recorder cannot discharge itself.
 #define WIFI_BATTERY_IDLE_SHUTDOWN_MS 180000u
 
-// Diagnostic link-throughput endpoint (/api/speedtest).  It streams a RAM
-// pattern with no SD access, so comparing its rate against a real
-// /api/download of similar size separates the WiFi/TCP ceiling from SD
-// access cost.  Set RECORDER_ENABLE_SPEEDTEST to 0 to compile the route out.
-#define RECORDER_ENABLE_SPEEDTEST        1
-#define RECORDER_SPEEDTEST_DEFAULT_MB    4u
-#define RECORDER_SPEEDTEST_MAX_MB       32u
-
 
 // Browser-side flight-time analysis parameters.
 // These values are embedded in the served JavaScript flight-analysis page at
@@ -110,6 +102,69 @@
 #define FLIGHT_ANALYSIS_STRICT_TAKEOFF_TRANSITION_ENABLED 1
 #define FLIGHT_ANALYSIS_TRANSITION_CONFIRM_S           2.0
 
+// Automatic operation. Automation is opt-in and is reset to OFF whenever the
+// firmware version or this settings schema changes. The automatic-start
+// detectors are independent of the live flight-presence/flight-end detector.
+#define AUTOMATION_SETTINGS_SCHEMA_VERSION              1u
+#define AUTO_RECORD_MOTION_WINDOW_S                      2.0
+#define AUTO_RECORD_MOTION_THRESHOLD_G                   0.020
+#define AUTO_RECORD_START_CONFIRM_S                      1.0
+#define AUTO_RECORD_STOP_QUIET_S                       300.0
+
+// Additional low-frequency attitude-change trigger used by AUTO RECORDING.
+// Two independent first-order causal high-pass filters run continuously on
+// installation-aligned Nx and Ny. Either axis may satisfy the common 1 s
+// automatic-start confirmation above.
+#define AUTO_RECORD_ATTITUDE_HP_HZ                        0.10
+#define AUTO_RECORD_ATTITUDE_THRESHOLD_G                  0.020
+
+// Live flight-presence detector. HIRMS/LOWRMS filters run continuously at
+// 20 Hz and are not reset at a recording boundary. LOWRMS uses the validated
+// 0.25 Hz high-pass followed by the existing 3 Hz low-pass.
+#define AUTO_FLIGHT_LOWRMS_HP_HZ                         0.25
+#define AUTO_FLIGHT_HIRMS_G                              0.050
+#define AUTO_FLIGHT_PRIMARY_DELTA_G                      0.120
+#define AUTO_FLIGHT_PRIMARY_CONFIRM_S                    4.0
+#define AUTO_FLIGHT_LATE_LOWRMS_G                        0.050
+#define AUTO_FLIGHT_LATE_CONFIRM_S                       5.0
+
+// Automatic flight-end detector. It reuses the causal HIRMS/LOWRMS signals
+// above and runs only after flight_seen has latched for the current recording.
+// FlightGround is normalized by the running flight-local HIRMS range.
+#define AUTO_FLIGHT_END_HIRMS_EVENT_CONFIRM_S            3.0
+#define AUTO_FLIGHT_END_FG_FLIGHT_NORM                   0.100
+#define AUTO_FLIGHT_END_EVENT_WINDOW_S                  25.0
+#define AUTO_FLIGHT_END_FG_GROUND_NORM                   0.020
+#define AUTO_FLIGHT_END_FG_CONFIRM_S                     2.0
+#define AUTO_FLIGHT_END_GROUND_CONFIRM_S                50.0
+#define AUTO_FLIGHT_END_HIRMS_RANGE_MIN_G                0.001
+
+// Field diagnostic overlay for AUTO RECORD validation. When enabled, only the
+// SD-bound copy of selected acceleration samples is modified. Recorder-side
+// signal processing always consumes the untouched corrected sample. Diagnostic
+// event encoding is computed after the recording-ring push and therefore appears
+// in a later sample (normally one 50 ms cycle later).
+//
+// The QMI8658 is configured for +/-8 g. A +/-10 g clean-axis bound therefore
+// leaves room for an exactly reversible three-band encoding: diagnostic trits
+// add -20.001 g, 0 g, or +20.001 g independently to X/Y/Z. The three trits
+// encode one wire event code in the range 0..26; code 13 is NO EVENT and leaves
+// all axes unchanged. tools/automation_diag_decode.py removes the overlay.
+#define AUTOMATION_DIAGNOSTIC_OVERLAY_ENABLED             1
+// Dedicated field-test mode: detector/policy decisions are logged, but AUTO
+// RECORD / AUTO WIFI / AUTO DELETE are not allowed to actuate recorder state,
+// WiFi, or file deletion.
+#define AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY                 1
+// v1.54 field-validation build: all three automation functions are forced
+// logically ON from boot. Their decisions are evaluated/logged only; the
+// observe-only guard still prevents recorder/WiFi/file actuation. Stored NVS
+// selections are not rewritten and are ignored while this diagnostic mode is on.
+#define AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON                  1
+#define AUTOMATION_DIAGNOSTIC_AUTO_WIFI_QUIET_S            5.0
+#define AUTOMATION_DIAGNOSTIC_CLEAN_AXIS_LIMIT_MG     10000
+#define AUTOMATION_DIAGNOSTIC_AXIS_OFFSET_MG          20001
+#define AUTOMATION_DIAGNOSTIC_QUEUE_DEPTH                64u
+
 
 // Software watchdog
 #define WATCHDOG_TIMEOUT_MS             3000u
@@ -125,6 +180,7 @@
 
 // Display brightness management
 #define DISPLAY_BRIGHTNESS_ACTIVE      255u
+#define DISPLAY_BRIGHTNESS_DIMMED      128u
 #define DISPLAY_DIM_TIMEOUT_MS         10000u
 
 // Accelerometer calibration
@@ -168,6 +224,10 @@
 #define AUDIO_ALERT_PREROLL_SILENCE_MS  300u
 #define AUDIO_ALERT_TRAILING_SILENCE_MS 100u
 #define AUDIO_ALERT_REPEAT_MS           4000u
+// Persistent USB-power-loss warning used while AUTO RECORDING waits in READY.
+#define AUDIO_USB_LOSS_BEEP_MS          100u
+#define AUDIO_USB_LOSS_GAP_MS           100u
+#define AUDIO_USB_LOSS_REPEAT_MS        2000u
 #define AUDIO_ALERT_TONE_HZ             1000u
 #define AUDIO_ALERT_AMPLITUDE           7000
 #define AUDIO_ALERT_VOLUME_PERCENT      60u
@@ -177,7 +237,7 @@
 // Hardware version identifies the recorder hardware configuration.
 // Software version identifies the firmware build.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.52"
+#define RECORDER_SOFTWARE_VERSION      "1.54"
 
 // Storage / SD
 #define PREFS_NAMESPACE              "slm-data"

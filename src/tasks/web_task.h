@@ -34,3 +34,6 @@ void web_task_set_enabled(bool enabled);
  */
 bool web_task_is_enabled(void);
 
+
+/** Diagnostic/status helper: true after the Web task has started the SoftAP lifecycle. */
+bool web_task_is_started(void);

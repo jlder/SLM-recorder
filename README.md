@@ -273,11 +273,26 @@ Each new immutable recording is hashed while its bytes are written. On close, th
 
 File Management presents one logical entry per registration/date while immutable recording files remain separate on SD and on the server. Pressing **Process** sequentially downloads, verifies, analyses, queues, uploads, verifies, and archives every pending suffixed `.bin` file for that day. The visible progress is calculated from aggregate pending `.bin` bytes; physical suffixes and file counts are not exposed to the user.
 
-## Current development baseline (v1.51)
+## Current development baseline (v1.54 field-validation candidate)
 
-Recorder v1.51 is the current development baseline and is intended to be used with SLM Bridge v0.3.48. Changes introduced since v1.33 include immutable suffixed recording files, recorder-created SHA-256 companions, daily File Management presentation, sequential processing of same-day recordings, per-recording CSV flight logs, permanent archival in `/processed`, root `.bin`-only file-count enforcement, root-plus-processed Logbook aggregation, and the `/api/archive` post-upload endpoint. Legacy appended recordings without creation SHA remain supported.
+Recorder v1.54 is a dedicated automation field-validation build based on the v1.53 State-ownership/automation architecture and remains intended to interoperate with the existing SLM Bridge protocol. It is deliberately **observe-only**: automation detectors and virtual policy run continuously, but AUTO RECORDING, AUTO WIFI, and AUTO DELETE are not allowed to actuate recorder state, WiFi, or file deletion. Manual controls, faults, and the <=5% battery shutdown remain real.
 
-The v1.51 baseline also includes:
+For this field-validation build:
+
+- AUTO RECORDING, AUTO WIFI, and AUTO DELETE are forced logically **ON from boot**. SETTINGS > AUTOMATION shows all three as ON with disabled controls. Stored NVS selections are not rewritten and are ignored while the diagnostic override is compiled.
+- The intended field procedure is one manually started morning-to-evening recording. Virtual AUTO sessions run inside that physical file so multiple flights and nuisance cycles can be evaluated without automation changing the recorder state.
+- AUTO START is confirmed by either the existing 2 s three-axis motion RMS >=0.020 g for 1 s or a first-order 0.10 Hz high-pass on installation-aligned Nx/Ny with `max(|HP(Nx)|, |HP(Ny)|) >= 0.020 g` for 1 s.
+- Before `flight_seen`, the virtual AUTO session retains the 300 s continuous quiet nuisance timeout. Once `flight_seen` latches, motion quiet cannot end the virtual flight session.
+- Flight end reuses the continuous causal HIRMS/LOWRMS signals. A valid landing event requires HIRMS >=0.050 g for >=3 s, with normalized FlightGround >=0.10 during that same HIRMS event; after HIRMS falls below 0.050 g, FlightGround <=0.020 for 2 s within 25 s creates GROUND. FlightGround >=0.10 cancels GROUND; 50 s continuous GROUND confirms the virtual flight end.
+- AUTO DELETE is evaluated virtually only. A virtual automatic no-flight session logs `WOULD_AUTO_DELETE`; the physical `.bin` and `.sha` are never deleted by automation in v1.54.
+- AUTO WIFI is evaluated virtually only. The trace logs the intended policy: ON in virtual READY, OFF for confirmed motion or virtual recording, and ON again after 5 s quiet. Actual manual WiFi request/AP transitions are logged separately.
+- The diagnostic event stream is embedded reversibly in the SD-bound Nx/Ny/Nz copy only. The current sample is pushed first; diagnostic transitions are evaluated afterward and therefore normally appear one 50 ms sample later. `tools/automation_diag_decode.py` restores the original acceleration stream exactly and writes a separate event CSV.
+- With USB absent, the display enters full standby after the normal inactivity delay. With USB present, the display remains on and dims to about 50% (`128/255`) after the same delay. Local activity restores full brightness.
+- Battery <=5% remains an unconditional controlled stop-and-shutdown threshold.
+
+Historical replay of the frozen AUTO logic on the current official/recovered data gives 190/190 pre-roll AUTO START coverage and 189/189 evaluable flight-end confirmations with zero premature stops and zero misses; `FCJAF_20260627_3.bin` is right-censored because its historical file ends at landing and contains no post-landing confirmation interval.
+
+The inherited v1.52 baseline also includes:
 
 - **French/English recorder interface:** French is the default recorder language. SETTINGS provides an ENGLISH/FRANÇAIS toggle stored in NVS. The selection controls both the AMOLED interface and recorder-served Web pages through the central `src/services/language.h` catalog; protocol/API reason codes and persistent calibration-report formats remain language-independent.
 - **Self-contained recorder Web page:** the browser translation catalog is generated from `language.h` and embedded directly in the served page, avoiding the additional `/api/language.js` request introduced in v1.46. Since v1.50 the page is assembled per request from PROGMEM segments so that only the recorder-selected language is transmitted, the language code is already correct in the first bytes the browser parses, and the page carries a version-and-language `ETag` so a returning browser revalidates with `304` instead of downloading the whole document again.
@@ -286,9 +301,9 @@ The v1.51 baseline also includes:
 - **Daily processing status:** Flight Analysis shows real `Processing: N%` progress across all physical files for the selected day. Recorder transfer contributes 95% and browser analysis 5% of each file's size-weighted contribution. Final flight details are shown only after analysis results are available; failures give an actionable retry message.
 - **Simplified Firmware Update page:** firmware is selected in one card from the server (preferred) or from the phone when requested by support, followed by a common Update Firmware / Return card. The page warns that Wi-Fi is lost during the successful restart and must be restarted before reconnecting.
 
-The v1.51 baseline retains the normal French accents in the central translation catalog. The AMOLED keeps LVGL's built-in Montserrat fonts for ASCII and uses compact accent-capable wrapper fonts that synthesize only the nine French glyphs required by the current catalog (`À Ç É Ê à ç è é ê`). The recorder Web page uses the same UTF-8 translations directly.
+The v1.52 baseline retains the normal French accents in the central translation catalog. The AMOLED keeps LVGL's built-in Montserrat fonts for ASCII and uses compact accent-capable wrapper fonts that synthesize only the nine French glyphs required by the current catalog (`À Ç É Ê à ç è é ê`). The recorder Web page uses the same UTF-8 translations directly.
 
-The v1.51 baseline increases the successful OTA acknowledgement-to-reboot delay from 500 ms to 2000 ms so the asynchronous HTTP/TCP stack has more time to deliver the final `200 / ok` response before Wi-Fi disappears during restart. The support-reboot delay remains 500 ms.
+The v1.52 baseline increases the successful OTA acknowledgement-to-reboot delay from 500 ms to 2000 ms so the asynchronous HTTP/TCP stack has more time to deliver the final `200 / ok` response before Wi-Fi disappears during restart. The support-reboot delay remains 500 ms.
 
 ### Web interface responsiveness (v1.50)
 
@@ -304,4 +319,9 @@ Measurements taken with a diagnostic endpoint that streamed a RAM pattern with n
 
 `calibration_service_refresh_status()` previously published the accelerometer calibration to `accel_driver` on every path, so `state_task` rewrote the driver coefficients twenty times a second and Web status polling wrote them as well. v1.51 separates the two concerns. Status recalculation stays where it was; publication moves to `calibration_service_publish_driver_state()`, which is called only by `state_task` and writes to the driver only when the effective calibration has actually changed. In steady state no driver write occurs. `calibration_service_refresh_status()` now takes the calibration-service mutex, because Web operator calibration actions call it from the asynchronous HTTP task.
 
-The repository firmware manifest continues to identify the last generated v1.48 binary until a v1.51 release firmware image is compiled and published.
+The repository firmware manifest identifies the v1.52 release image `SLM_recorder_20260822_v1_52.merged.bin`.
+
+
+### Runtime settings ownership
+
+The State task is the sole runtime authority for recorder setting changes and WiFi enable decisions. UI callbacks post one-shot requests; they do not call Preferences-backed setters or `web_task_set_enabled()` directly. `settings_init()` performs only boot-time NVS loading/migration before tasks start.

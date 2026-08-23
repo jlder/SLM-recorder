@@ -12,10 +12,8 @@
 #pragma once
 #include <stdbool.h>
 #include <stddef.h>
-#include <Preferences.h>
 #include "src/services/language.h"
 
-extern Preferences prefs;
 
 static const size_t SETTINGS_REGISTRATION_LEN = 6u;
 static const size_t SETTINGS_WIFI_PASSWORD_LEN = 32u;
@@ -26,6 +24,9 @@ typedef struct {
   bool date_set;
   bool time_set;
   language_t language;
+  bool auto_recording;
+  bool auto_wifi;
+  bool auto_delete;
 } settings_t;
 
 /**
@@ -41,13 +42,13 @@ typedef struct {
 bool settings_init(void);
 
 /**
- * Load the current settings from Preferences into the caller output buffer.
+ * Copy the current cached settings snapshot into the caller output buffer.
  *
  * Parameters:
  *   out - destination structure that receives the loaded settings.
  *
  * Return:
- *   true if settings were loaded successfully,
+ *   true if the initialized settings snapshot was copied,
  *   false if storage is not ready or out is null.
  */
 bool settings_get(settings_t *out);
@@ -79,83 +80,6 @@ bool settings_is_complete(const settings_t *in);
  */
 bool settings_make_wifi_password(char *out, size_t out_sz, const char *reg);
 
-// NOTE: These functions write to NVS/flash via Preferences.
-// Project policy: only the State task shall call these setters.
-
-/**
- * Save the registration string.
- *
- * Parameters:
- *   reg - null-terminated registration string to store.
- *
- * Return:
- *   true if the value was written successfully,
- *   false otherwise.
- */
-bool settings_set_registration(const char *reg);
-
-/**
- * Save a Wi-Fi password string.
- *
- * @note The current AP password is generated from the registration. This setter
- * is kept only for compatibility with older code paths and does not change the
- * generated AP password.
- *
- * Parameters:
- *   pwd - ignored legacy password string.
- *
- * Return:
- *   true if settings storage is available,
- *   false otherwise.
- */
-bool settings_set_wifi_password(const char *pwd);
-
-/**
- * Save the flag that indicates whether the date was set by the user.
- *
- * Parameters:
- *   done - true when the date has been configured, false otherwise.
- *
- * Return:
- *   true if the value was written successfully,
- *   false otherwise.
- */
-bool settings_set_date_set(bool done);
-
-/**
- * Save the flag that indicates whether the time was set by the user.
- *
- * Parameters:
- *   done - true when the time has been configured, false otherwise.
- *
- * Return:
- *   true if the value was written successfully,
- *   false otherwise.
- */
-bool settings_set_time_set(bool done);
-
-/**
- * Save the recorder user-interface language.
- *
- * French is the default when no language key exists. Language selection is
- * optional configuration and does not participate in settings completeness.
- *
- * Parameters:
- *   language - LANGUAGE_FRENCH or LANGUAGE_ENGLISH.
- *
- * Return:
- *   true if the value was written successfully, false otherwise.
- */
-bool settings_set_language(language_t language);
-
-/**
- * Clear all recorder settings stored in the Preferences namespace.
- *
- * Parameters:
- *   none
- *
- * Return:
- *   true if all keys in the namespace were cleared successfully,
- *   false otherwise.
- */
-bool settings_clear(void);
+// Runtime settings writes are intentionally not exposed through this public
+// read API.  The State task owns all runtime settings changes through the
+// private settings_store_write.h interface.

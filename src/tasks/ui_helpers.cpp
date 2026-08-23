@@ -399,12 +399,7 @@ void createTypedRollerArray(
         }
         lv_obj_align(roller_array[i], LV_ALIGN_TOP_MID, x_pos, y_pos);
         
-        if (pref_key_prefix != nullptr) {
-            char key[16];
-            sprintf(key, "%s%d", pref_key_prefix, i);
-            uint16_t saved_value = prefs.getInt(key, 0);
-            lv_roller_set_selected(roller_array[i], saved_value, LV_ANIM_OFF);
-        }
+        (void)pref_key_prefix; // Persistence belongs to the State/settings path.
     }
 }
 
@@ -449,12 +444,7 @@ void createTypedRollerArray(
         }
         lv_obj_align(roller_array[i], LV_ALIGN_TOP_MID, x_pos, y_pos);
         
-        if (pref_key_prefix != nullptr) {
-            char key[16];
-            sprintf(key, "%s%d", pref_key_prefix, i);
-            uint16_t saved_value = prefs.getInt(key, 0);
-            lv_roller_set_selected(roller_array[i], saved_value, LV_ANIM_OFF);
-        }
+        (void)pref_key_prefix; // Persistence belongs to the State/settings path.
     }
 }
 

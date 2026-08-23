@@ -363,17 +363,19 @@ Button color semantics are defined by requirements: blue for normal active actio
 
 Orange buttons form an operator guidance path to resolve the current blocking condition. For example, settings-required follows MENU -> SETTINGS -> missing setting buttons; calibration-required follows MENU -> START WIFI -> Web calibration menu -> missing calibration page -> enabled Start/Save action. A calibration Start button that has become Cancel is intentionally blue because Cancel does not resolve the missing-calibration condition; disabled buttons remain gray.
 
-## 17. Display Standby Architecture
+## 17. Display Inactivity Architecture
 
-After the configured display inactivity timeout, the UI may switch directly to display standby. In standby the AMOLED output is switched off, the panel supply controlled by `LCD_EN` is disabled, and the display appears black with no standby text.
+Display inactivity is a UI sub-state owned entirely by `ui_task`; it is not a recorder state. The same inactivity timeout is used in both power cases, but the resulting display action depends on USB availability.
 
-Display standby is a UI sub-state, not a recorder state. It is page-independent for normal recorder UI pages: main, MENU, SETTINGS, setting-edit pages, and WiFi-support pages may all be replaced by the standby screen. The active message does not by itself prevent standby. The dedicated low-battery shutdown notice and any active recorder error are excluded. An error wakes a display that is already in standby and keeps it on until the error clears.
+With USB absent, expiry enters full standby: AMOLED output is switched off, `LCD_EN` is disabled, normal `updateUI()` refresh is skipped, and the reduced-rate UI/LVGL/touch loop remains active only to detect wake conditions. With USB present, expiry does **not** enter standby; the panel remains active and brightness is reduced from `DISPLAY_BRIGHTNESS_ACTIVE` (255) to `DISPLAY_BRIGHTNESS_DIMMED` (128, approximately 50%).
 
-While standby is active, the UI task skips the normal `updateUI()` refresh and runs at a reduced loop rate, currently about 5 Hz in standby while keeping LVGL/touch processing active for wake detection. Wake conditions are touch, power/clear button press, record button press, or USB insertion. On wake, the display supply is re-enabled and the UI restores the previously active page at full brightness.
+The behavior is page-independent for normal recorder pages. The dedicated low-battery shutdown notice and any active recorder error force full brightness. Touch, power/clear button activity, record button activity, or USB insertion restores full brightness and restarts the inactivity timer. If USB is removed while already dimmed and the inactivity interval has expired, the next UI service cycle may enter full standby immediately.
+
+The date/time cache continues to be refreshed during RECORDING while the display is active. Recording sample timing remains independent of UI refresh and uses the captured recording start time plus the monotonic ESP timer.
 
 ## 18. WiFi Support Power Rule
 
-WiFi/AP support is user-selected from MENU. The AP is stopped when the operator selects STOP WIFI or when `state_task` disables Web support during state transitions such as recording. While WiFi is active, the screen START RECORD button is disabled/gray. The physical RECORD button remains authoritative; if it starts recording while WiFi is active, READY exit cleanup turns WiFi/Web OFF before STARTING/RECORDING.
+Manual WiFi/AP support remains user-selected from MENU. The intended AUTO WIFI policy is described in Section 30; in the v1.54 observe-only field-validation build it is simulated/logged only and does not actuate the actual AP. The AP is stopped when the operator selects STOP WIFI or when normal recorder transitions explicitly disable Web support. While actual WiFi is active, the screen START RECORD button is disabled/gray; the physical RECORD button retains manual authority.
 
 The HTTP listener is not stopped in normal operation. It remains allocated and started once because the tested AsyncWebServer/AsyncTCP stack does not reliably recover port-80 dispatch after `AsyncWebServer::end()` has been called following real HTTP traffic. When Web support is OFF, the listener is not exposed to the operator because the AP is down and SD file-management authorization is disabled.
 
@@ -596,3 +598,55 @@ Daily grouping is implemented only in browser JavaScript. The recorder storage A
 ### Archive and bounded-list architecture (v1.35)
 
 `/processed` is an immutable SD archive and is not exposed as a complete Web list. Highest-suffix discovery and exact matching-file searches iterate directory entries one at a time and retain only the required suffix or match. Root File Management remains bounded by `SD_MAX_RECORD_FILES` and includes only root-level `.bin` recordings. Calibration reports retain their separate bounded list because they remain downloadable and uploadable through the Bridge report workflow. The virtual Logbook scans root first and `/processed` second, groups matching per-recording `.log` names by registration/date, and retains only the newest bounded set of days while scanning, so archive size does not determine RAM use.
+
+
+## 30. Automatic Operation Architecture (v1.54 field-validation build)
+
+Automation remains a thin service layer under the existing recorder state machine. No `ST_*` automation states are added. `state_task` remains the sole owner of READY/STARTING/RECORDING/STOPPING transitions, while `automation_service` owns continuous signal processing and semantic detector outputs.
+
+### Continuous signal path
+
+The State task acquires one corrected, installation-aligned accelerometer sample on its normal 20 Hz cadence whenever normal acquisition is available. `automation_service` consumes that untouched sample for:
+
+- 2 s three-axis motion RMS;
+- first-order 0.10 Hz high-pass filters on Nx and Ny for slow attitude-change AUTO START evidence;
+- continuous causal HIRMS/LOWRMS filters;
+- per-logical-session `flight_seen` evidence;
+- the ordered flight-end detector.
+
+Only `ST_RECORDING` formats a 0x70 sample and pushes it into the recording ring. READY/STARTING samples remain detector-only data.
+
+### v1.54 forced-ON observe-only override
+
+The field-validation build compiles both `AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY` and `AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON`. The effective AUTO RECORDING, AUTO WIFI, and AUTO DELETE values are therefore always ON from boot regardless of stored NVS values. SETTINGS > AUTOMATION shows the three functions as ON with disabled controls. The override does not rewrite NVS.
+
+Observe-only means those decisions cannot actuate recorder state, Web/AP state, or file deletion. Manual controls, fault handling, and low-battery shutdown remain real. This makes a single manually started morning-to-evening recording a passive telemetry container for several virtual AUTO sessions.
+
+### Virtual AUTO RECORD sessions
+
+Inside a manual diagnostic recording, the virtual policy waits for either start path:
+
+- motion RMS >=0.020 g for 1 s; or
+- `max(|HP0.10Hz(Nx)|, |HP0.10Hz(Ny)|) >=0.020 g` for 1 s.
+
+A virtual session then resets only per-session evidence. Before `flight_seen`, 300 s continuous motion quiet ends a no-flight virtual session and may log `WOULD_AUTO_DELETE`. After `flight_seen`, motion quiet is ignored for flight end.
+
+The ordered landing detector uses running flight-local HIRMS extrema to normalize `FG = max(0, (LOWRMS-HIRMS)/(Hmax-Hmin))`. HIRMS must remain >=0.050 g for at least 3 s and see `FG >=0.10` during that same event. After HIRMS falls below 0.050 g, `FG <=0.020` for 2 s within 25 s creates GROUND. `FG >=0.10` cancels GROUND. Fifty continuous seconds of GROUND sets `flight_end_confirmed` and logs a virtual AUTO stop. The physical manual recording remains open.
+
+### Virtual AUTO WIFI policy
+
+The intended AUTO WIFI policy is simulated rather than actuated: ON in quiet virtual READY, OFF for confirmed motion or an active virtual recording, and ON again after 5 s quiet. Manual WiFi remains available and its actual requested/AP state transitions are logged separately from the virtual `WOULD_AUTO_WIFI_*` events.
+
+### Reversible diagnostic overlay and jitter boundary
+
+Diagnostic telemetry is inserted only into the SD-bound copy of the acceleration sample. Before `ring_buffer_push()` the only diagnostic work is applying three already-precomputed integer offsets. After the ring push, State compares detector/policy state, queues event codes, advances virtual-session logic, and prepares a later sample's offsets. Diagnostic events therefore normally appear at least one 20 Hz sample (50 ms) after the internal transition.
+
+The QMI8658 +/-8 g measurement range permits an exactly reversible ternary encoding using -20.001 g / 0 / +20.001 g offsets independently on Nx/Ny/Nz. `tools/automation_diag_decode.py` strips the overlay, restores original milli-g samples/checksums, and writes a separate event CSV.
+
+### Safety and ownership
+
+The <=5% low-battery threshold remains globally authoritative. A manually recorded diagnostic file closes through the normal STOPPING path before shutdown. Observe-only automation cannot delete it or interfere with manual stop/power/fault paths. SD-task ownership and Web-task AP/HTTP ownership are unchanged.
+
+### State-owned runtime configuration
+
+UI is a request producer only. Runtime settings writes and WiFi enable decisions are consumed/applied by State task. The settings service owns the NVS implementation and cached snapshot, but its write interface is private to State task. Web task remains the sole owner of AP/HTTP driver lifecycle after receiving the State task's enable request.

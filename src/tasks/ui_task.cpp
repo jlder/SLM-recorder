@@ -69,6 +69,7 @@ extern lv_obj_t *reg_rollers[5];
 static volatile bool s_touch_activity_detected = false;
 static uint32_t s_display_last_activity_ms = 0u;
 static bool s_display_standby = false;
+static bool s_display_dimmed = false;
 static bool s_display_ignore_touch_until_release = false;
 static bool s_display_prev_usb_valid = false;
 static bool s_display_prev_usb_present = false;
@@ -79,6 +80,7 @@ static bool s_display_prev_usb_present = false;
 void createMainScreen(lv_style_t &style_huge, lv_style_t &style_large);
 void createMenuScreen(lv_style_t &style_huge);
 void createSettingsMenuScreen(lv_style_t &style_huge);
+void createAutomationScreen(lv_style_t &style_huge);
 void createSetDateScreen(lv_style_t &style_huge, lv_style_t &style_large);
 void createSetTimeScreen(lv_style_t &style_huge, lv_style_t &style_large);
 void createSetRegScreen(lv_style_t &style_huge, lv_style_t &style_large);
@@ -90,6 +92,9 @@ void save_date_cb(lv_event_t * e);
 void save_time_cb(lv_event_t * e);
 void save_reg_cb(lv_event_t * e);
 void language_toggle_cb(lv_event_t * e);
+void auto_recording_toggle_cb(lv_event_t * e);
+void auto_wifi_toggle_cb(lv_event_t * e);
+void auto_delete_toggle_cb(lv_event_t * e);
 
 /**
  * Convert a registration character to its roller index performs the ui task
@@ -147,6 +152,7 @@ static lv_color_t *disp_draw_buf = s_disp_draw_buf_mem;
 lv_obj_t *main_screen = NULL;
 lv_obj_t *menu_screen = NULL;
 lv_obj_t *settings_menu_screen = NULL;
+lv_obj_t *automation_screen = NULL;
 lv_obj_t *set_date_screen = NULL;
 lv_obj_t *set_time_screen = NULL;
 lv_obj_t *set_reg_screen = NULL;
@@ -186,6 +192,7 @@ lv_obj_t *btn_settings_date = NULL;
 lv_obj_t *btn_settings_time = NULL;
 lv_obj_t *btn_settings_reg = NULL;
 lv_obj_t *btn_settings_language = NULL;
+lv_obj_t *btn_settings_automation = NULL;
 
 // Static labels/buttons that need immediate text refresh when the selected
 // language changes. Dynamic record/WiFi/status text is refreshed elsewhere.
@@ -194,6 +201,11 @@ static lv_obj_t *lbl_menu_title = NULL;
 static lv_obj_t *btn_menu_back = NULL;
 static lv_obj_t *lbl_settings_title = NULL;
 static lv_obj_t *btn_settings_back = NULL;
+static lv_obj_t *lbl_automation_title = NULL;
+static lv_obj_t *btn_auto_recording = NULL;
+static lv_obj_t *btn_auto_wifi = NULL;
+static lv_obj_t *btn_auto_delete = NULL;
+static lv_obj_t *btn_automation_back = NULL;
 static lv_obj_t *lbl_set_date_title = NULL;
 static lv_obj_t *lbl_set_date_year = NULL;
 static lv_obj_t *lbl_set_date_month = NULL;
@@ -266,19 +278,26 @@ static void ui_display_wake_(uint32_t now){
     if(s_display_standby){
         display_driver_standby_exit();
         s_display_standby = false;
+        s_display_dimmed = false;
         s_display_ignore_touch_until_release = true;
 
         lv_obj_t *active = lv_scr_act();
         if(active != NULL){
             lv_obj_invalidate(active);
         }
+        return;
+    }
+
+    if(s_display_dimmed){
+        display_brightness_set(DISPLAY_BRIGHTNESS_ACTIVE);
+        s_display_dimmed = false;
     }
 }
 
 /**
- * Display standby service switches only the physical AMOLED display output off
- * after inactivity, detects wake conditions, and requests a redraw of the
- * still-active LVGL page on wake.
+ * Display inactivity service dims the AMOLED when USB power is present and
+ * enters physical display standby when USB power is absent. Activity restores
+ * full brightness; waking from standby also redraws the active LVGL page.
  *
  * Inputs: None.
  * Returns: None.
@@ -324,8 +343,18 @@ static void ui_display_standby_service_(void){
 
     if(!s_display_standby &&
        ((now - s_display_last_activity_ms) >= DISPLAY_DIM_TIMEOUT_MS)){
-        display_driver_standby_enter();
-        s_display_standby = true;
+        const bool usb_present = st.usb_present_valid && st.usb_present;
+
+        if(usb_present){
+            if(!s_display_dimmed){
+                display_brightness_set(DISPLAY_BRIGHTNESS_DIMMED);
+                s_display_dimmed = true;
+            }
+        }else{
+            display_driver_standby_enter();
+            s_display_standby = true;
+            s_display_dimmed = false;
+        }
     }
 }
 
@@ -462,6 +491,55 @@ static void ui_update_version_text_(void){
     lv_label_set_text(lbl_main_version, text);
 }
 
+static void ui_refresh_automation_buttons_(void){
+#if AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY && AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON
+    const bool auto_recording = true;
+    const bool auto_wifi = true;
+    const bool auto_delete = true;
+#else
+    settings_t settings = {};
+    const bool ok = settings_get(&settings);
+    const bool auto_recording = ok && settings.auto_recording;
+    const bool auto_wifi = ok && settings.auto_wifi;
+    const bool auto_delete = ok && settings.auto_delete;
+#endif
+
+    char text[48];
+    if(btn_auto_recording){
+        snprintf(text, sizeof(text), "%s: %s", ui_text_(TXT_AUTO_RECORDING),
+                 ui_text_(auto_recording ? TXT_ON : TXT_OFF));
+        lv_label_set_text(lv_obj_get_child(btn_auto_recording, 0), text);
+#if AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY && AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON
+        disable_button(btn_auto_recording);
+#else
+        enable_button(btn_auto_recording,
+                      lv_palette_main(auto_recording ? LV_PALETTE_GREEN : LV_PALETTE_BLUE));
+#endif
+    }
+    if(btn_auto_wifi){
+        snprintf(text, sizeof(text), "%s: %s", ui_text_(TXT_AUTO_WIFI),
+                 ui_text_(auto_wifi ? TXT_ON : TXT_OFF));
+        lv_label_set_text(lv_obj_get_child(btn_auto_wifi, 0), text);
+#if AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY && AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON
+        disable_button(btn_auto_wifi);
+#else
+        enable_button(btn_auto_wifi,
+                      lv_palette_main(auto_wifi ? LV_PALETTE_GREEN : LV_PALETTE_BLUE));
+#endif
+    }
+    if(btn_auto_delete){
+        snprintf(text, sizeof(text), "%s: %s", ui_text_(TXT_AUTO_DELETE),
+                 ui_text_(auto_delete ? TXT_ON : TXT_OFF));
+        lv_label_set_text(lv_obj_get_child(btn_auto_delete, 0), text);
+#if AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY && AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON
+        disable_button(btn_auto_delete);
+#else
+        enable_button(btn_auto_delete,
+                      lv_palette_main(auto_delete ? LV_PALETTE_GREEN : LV_PALETTE_BLUE));
+#endif
+    }
+}
+
 /** Apply a language selection to every persistent AMOLED label/button. */
 static void ui_apply_language_(language_t language){
     s_ui_language = language_valid(language) ? language : LANGUAGE_FRENCH;
@@ -478,9 +556,13 @@ static void ui_apply_language_(language_t language){
     ui_set_button_text_(btn_settings_date, TXT_DATE);
     ui_set_button_text_(btn_settings_time, TXT_TIME);
     ui_set_button_text_(btn_settings_reg, TXT_REGISTRATION);
+    ui_set_button_text_(btn_settings_automation, TXT_AUTOMATION);
     ui_set_button_text_(btn_settings_language,
                         (s_ui_language == LANGUAGE_FRENCH) ? TXT_SWITCH_TO_ENGLISH : TXT_SWITCH_TO_FRENCH);
     ui_set_button_text_(btn_settings_back, TXT_BACK);
+    if(lbl_automation_title) lv_label_set_text(lbl_automation_title, ui_text_(TXT_AUTOMATION));
+    ui_set_button_text_(btn_automation_back, TXT_BACK);
+    ui_refresh_automation_buttons_();
 
     if(lbl_set_date_title) lv_label_set_text(lbl_set_date_title, ui_text_(TXT_SET_DATE));
     if(lbl_set_date_year) lv_label_set_text(lbl_set_date_year, ui_text_(TXT_YEAR));
@@ -819,7 +901,7 @@ void createSettingsMenuScreen(lv_style_t &style_huge) {
 
     btn_settings_date = createButton(settings_menu_screen, language_text(TXT_DATE, LANGUAGE_FRENCH), &style_huge, NULL,
                                      BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
-                                     LV_ALIGN_TOP_MID, 0, 70,
+                                     LV_ALIGN_TOP_MID, 0, 60,
                                      [](lv_event_t* e){
                                          (void)e;
                                          rtc_datetime_t dt = {};
@@ -836,7 +918,7 @@ void createSettingsMenuScreen(lv_style_t &style_huge) {
 
     btn_settings_time = createButton(settings_menu_screen, language_text(TXT_TIME, LANGUAGE_FRENCH), &style_huge, NULL,
                                      BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
-                                     LV_ALIGN_TOP_MID, 0, 160,
+                                     LV_ALIGN_TOP_MID, 0, 140,
                                      [](lv_event_t* e){
                                          (void)e;
                                          rtc_datetime_t dt = {};
@@ -849,13 +931,23 @@ void createSettingsMenuScreen(lv_style_t &style_huge) {
 
     btn_settings_reg = createButton(settings_menu_screen, language_text(TXT_REGISTRATION, LANGUAGE_FRENCH), &style_huge, NULL,
                                     BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
-                                    LV_ALIGN_TOP_MID, 0, 250,
+                                    LV_ALIGN_TOP_MID, 0, 220,
                                     [](lv_event_t* e){
                                         (void)e;
                                         load_registration_into_rollers();
                                         lv_scr_load(set_reg_screen);
                                     },
                                     lv_palette_main(LV_PALETTE_BLUE));
+
+    btn_settings_automation = createButton(settings_menu_screen, language_text(TXT_AUTOMATION, LANGUAGE_FRENCH),
+                                           &style_huge, NULL, BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
+                                           LV_ALIGN_TOP_MID, 0, 300,
+                                           [](lv_event_t* e){
+                                               (void)e;
+                                               ui_refresh_automation_buttons_();
+                                               lv_scr_load(automation_screen);
+                                           },
+                                           lv_palette_main(LV_PALETTE_BLUE));
 
     // Language is optional configuration. The button always names the language
     // that will be selected by pressing it. BACK remains green.
@@ -872,6 +964,43 @@ void createSettingsMenuScreen(lv_style_t &style_huge) {
                                          lv_scr_load(menu_screen);
                                      },
                                      lv_palette_main(LV_PALETTE_GREEN));
+}
+
+// =============================================================================
+// SCREEN: AUTOMATION
+// =============================================================================
+
+/** Create the three independent automation selections. */
+void createAutomationScreen(lv_style_t &style_huge) {
+    automation_screen = lv_obj_create(NULL);
+
+    lbl_automation_title = createLabel(automation_screen, language_text(TXT_AUTOMATION, LANGUAGE_FRENCH),
+                                       NULL, FONT_MEDIUM, LV_ALIGN_TOP_MID, 0, 25, 0, LV_TEXT_ALIGN_CENTER);
+
+    btn_auto_recording = createButton(automation_screen, "AUTO RECORDING: OFF", NULL, FONT_MEDIUM,
+                                      BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
+                                      LV_ALIGN_TOP_MID, 0, 85,
+                                      auto_recording_toggle_cb, lv_palette_main(LV_PALETTE_BLUE));
+
+    btn_auto_wifi = createButton(automation_screen, "AUTO WIFI: OFF", NULL, FONT_MEDIUM,
+                                 BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
+                                 LV_ALIGN_TOP_MID, 0, 175,
+                                 auto_wifi_toggle_cb, lv_palette_main(LV_PALETTE_BLUE));
+
+    btn_auto_delete = createButton(automation_screen, "AUTO DELETE: OFF", NULL, FONT_MEDIUM,
+                                   BTN_MENU_WIDTH, BTN_MENU_HEIGHT,
+                                   LV_ALIGN_TOP_MID, 0, 265,
+                                   auto_delete_toggle_cb, lv_palette_main(LV_PALETTE_BLUE));
+
+    btn_automation_back = createButton(automation_screen, language_text(TXT_BACK, LANGUAGE_FRENCH),
+                                       &style_huge, NULL, BTN_ACTION_WIDTH, BTN_ACTION_HEIGHT,
+                                       LV_ALIGN_BOTTOM_MID, 0, -30,
+                                       [](lv_event_t* e){
+                                           (void)e;
+                                           lv_scr_load(settings_menu_screen);
+                                       },
+                                       lv_palette_main(LV_PALETTE_GREEN));
+    ui_refresh_automation_buttons_();
 }
 
 // =============================================================================
@@ -1055,6 +1184,7 @@ void initUI() {
 
         s_display_last_activity_ms = (uint32_t)millis();
     s_display_standby = false;
+    s_display_dimmed = false;
     s_display_ignore_touch_until_release = false;
     display_brightness_set(DISPLAY_BRIGHTNESS_ACTIVE);
 
@@ -1087,6 +1217,7 @@ lv_init();
     createMainScreen(style_huge, style_large);
     createMenuScreen(style_huge);
     createSettingsMenuScreen(style_huge);
+    createAutomationScreen(style_huge);
     createSetDateScreen(style_huge, style_large);
     createSetTimeScreen(style_huge, style_large);
     createSetRegScreen(style_huge, style_large);
@@ -1248,6 +1379,9 @@ void syncUIToSystemState() {
  */
 void updateUI() {
     ui_refresh_language_if_changed_();
+    if((automation_screen != NULL) && (lv_scr_act() == automation_screen)){
+        ui_refresh_automation_buttons_();
+    }
 
     // Pull everything needed from State Task (UI owns no hardware/I2C).
     system_status_t st = state_task_get_status();
@@ -1346,37 +1480,33 @@ void record_btn_event_cb(lv_event_t * e) {
 void wifi_btn_cb(lv_event_t * e) {
     (void)e;
 
-    bool changed = false;
-
-    if(web_task_is_enabled()){
-        web_task_set_enabled(false);
-        changed = true;
-    }else if(local_settings_complete_()){
-        web_task_set_enabled(true);
-        changed = true;
-    }
-
-    syncUIToSystemState();
-
-    if(changed && (main_screen != NULL)){
-        lv_scr_load(main_screen);
+    if((state_task_get_status().state == ST_READY) && local_settings_complete_()){
+        state_task_request_wifi_toggle();
+        if(main_screen != NULL){
+            lv_scr_load(main_screen);
+        }
     }
 }
 
-/**
- * Date save callback stores the selected date, updates the RTC/date-time
- * cache, and refreshes settings button state.
- *
- * Inputs: `e`.
- * Returns: None.
- */
+/** Automation callbacks post selection requests; State owns persistence. */
+void auto_recording_toggle_cb(lv_event_t * e) {
+    (void)e;
+    state_task_request_auto_recording_toggle();
+}
+
+void auto_wifi_toggle_cb(lv_event_t * e) {
+    (void)e;
+    state_task_request_auto_wifi_toggle();
+}
+
+void auto_delete_toggle_cb(lv_event_t * e) {
+    (void)e;
+    state_task_request_auto_delete_toggle();
+}
+
 void language_toggle_cb(lv_event_t * e) {
     (void)e;
-    const language_t current = ui_current_language_();
-    const language_t next = (current == LANGUAGE_FRENCH) ? LANGUAGE_ENGLISH : LANGUAGE_FRENCH;
-    if(settings_set_language(next)){
-        ui_apply_language_(next);
-    }
+    state_task_request_language_toggle();
 }
 
 void save_date_cb(lv_event_t * e) {
@@ -1395,9 +1525,7 @@ void save_date_cb(lv_event_t * e) {
     dt.month = month;
     dt.day   = day;
 
-    if(datetime_service_set(&dt)){
-        (void)settings_set_date_set(true);
-    }
+    state_task_request_set_date(dt.year, dt.month, dt.day);
 
     // Return to settings menu after saving
     lv_scr_load(settings_menu_screen);
@@ -1428,9 +1556,7 @@ void save_time_cb(lv_event_t * e) {
     dt.min  = min;
     dt.sec  = 0;
 
-    if(datetime_service_set(&dt)){
-        (void)settings_set_time_set(true);
-    }
+    state_task_request_set_time(dt.hour, dt.min);
 
     // Return to settings menu after saving
     lv_scr_load(settings_menu_screen);
@@ -1441,14 +1567,13 @@ void save_time_cb(lv_event_t * e) {
 
 
 /**
- * Registration save callback stores the selected glider registration in NVS
- * and refreshes settings button state.
+ * Registration save callback posts the selected glider registration to State.
  *
  * Inputs: `e`.
  * Returns: None.
  */
 void save_reg_cb(lv_event_t * e) {
-    // Store the registration through the settings store abstraction.
+    // Build the requested registration locally; State validates/persists it.
     static const char kRegOpts[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     char reg[6] = {0};
     for(int i = 0; i < 5; i++) {
@@ -1458,9 +1583,7 @@ void save_reg_cb(lv_event_t * e) {
     }
     reg[5] = '\0';
 
-    // Persist settings directly via settings_store (updates RAM cache + NVS).
-    (void)settings_set_registration(reg);
-    syncUIToSystemState();
+    state_task_request_set_registration(reg);
 
     lv_scr_load(settings_menu_screen);
 }

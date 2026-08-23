@@ -124,7 +124,7 @@ Recurring actions:
 - displays setup-lock messages when needed;
 - handles WiFi state indirectly through UI/Web task control;
 - monitors SD task error status even while idle;
-- monitors fresh READY-local USB loss edge, low battery, and power-long shutdown request;
+- monitors READY USB status, low battery, and power-long shutdown request;
 - detects record-start hold.
 
 Setup lock behavior:
@@ -148,7 +148,8 @@ Transitions:
 | Condition | Transition |
 |---|---|
 | SD error active | `ST_ERROR` |
-| USB loss edge while READY | `ST_OFF` |
+| USB loss edge while READY and actual WiFi OFF | `ST_OFF` in the v1.54 observe-only diagnostic build |
+| Production AUTO RECORDING power exemption | not actuated in v1.54; only virtual automation is logged |
 | low battery on battery power | `ST_OFF` or `ST_STOPPING` before `ST_OFF` |
 | power button held for shutdown threshold | `ST_OFF` |
 | settings clear gesture succeeds | `ST_OFF` |
@@ -526,3 +527,20 @@ New immutable recording files are protected by a streaming SHA-256 calculated ov
 ### File Management daily processing sequence (v1.33)
 
 The visible daily row is a presentation state, not a recorder state-machine state. Physical files retain the existing `ready`, `downloading`, `analyzing`, `queued`, `uploading`, and `finalizing` states. A daily row reports the highest-priority active member state; it becomes processable whenever at least one matching root member is ready and no local download/analysis is active.
+
+
+## 28. Automatic Operation Behavior (v1.54 field-validation build)
+
+Automation still does not add recorder states. The v1.54 field-validation build forces AUTO RECORDING, AUTO WIFI, and AUTO DELETE logically ON from boot, but all three are observe-only: they generate virtual policy/events and cannot change physical recorder state, Web/AP state, or file deletion. SETTINGS > AUTOMATION shows all three ON with disabled controls.
+
+The normal 20 Hz corrected acceleration stream is processed continuously by `automation_service`. AUTO START evidence is either the existing 2 s motion RMS >=0.020 g for 1 s or a first-order 0.10 Hz high-pass on Nx/Ny with either absolute axis >=0.020 g for 1 s. HIRMS/LOWRMS filter histories remain continuous.
+
+The intended field procedure is a manually started all-day recording. Inside that physical `ST_RECORDING` file, the diagnostic policy runs virtual AUTO sessions. A virtual session begins on AUTO START evidence. Before `flight_seen`, 300 s continuous quiet ends a no-flight virtual session. After `flight_seen`, quiet motion no longer ends the session; the ordered landing detector must confirm flight end.
+
+The landing sequence is HIRMS >=0.050 g for >=3 s while normalized FlightGround reaches at least 0.10 during the same HIRMS event; HIRMS must then fall below 0.050 g; within 25 s FlightGround <=0.020 for 2 s creates GROUND; FlightGround >=0.10 cancels GROUND; 50 s continuous GROUND confirms the virtual flight end. The physical recording remains in `ST_RECORDING` until manual stop or a real safety/fault transition.
+
+AUTO DELETE is represented only by `WOULD_AUTO_DELETE`. AUTO WIFI is represented by virtual ON/OFF events: ON in quiet virtual READY, OFF for confirmed motion or virtual recording, and ON again after 5 s quiet. Manual WiFi operation remains real and actual WiFi requested/AP states are logged separately.
+
+Diagnostic overlay encoding is applied only to the SD-bound sample copy. The current sample is pushed before diagnostic state comparison/virtual-policy work runs, so event telemetry is delayed by at least one 50 ms cycle and cannot add variable diagnostic work to the acquisition-to-ring critical path.
+
+With USB absent, UI inactivity still enters full display standby. With USB present, inactivity dims the display to approximately 50% rather than switching it off. Battery <=5% remains an unconditional controlled stop-and-shutdown request; an active manual recording is closed first.

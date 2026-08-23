@@ -9,11 +9,15 @@
  * the source can support future DO-178C planning artifacts.
  */
 
-#include "src/services/settings_store.h"
+#include "src/services/settings_store_write.h"
 #include <string.h>
+#include <Preferences.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
 #include "config.h"
 
-Preferences prefs;
+static Preferences s_prefs;
+static portMUX_TYPE s_cache_mux = portMUX_INITIALIZER_UNLOCKED;
 
 // Settings storage currently uses independent scalar NVS keys in PREFS_NAMESPACE
 // (for example "registration", "date_set", and "time_set"). Storage-maintenance rule:
@@ -23,7 +27,7 @@ Preferences prefs;
 // handling here. Do not make incompatible persistent settings changes silently.
 
 // Keep one local copy of the settings so getters and setters use the same data shape.
-static settings_t s_cache = {"", "", false, false, LANGUAGE_FRENCH};
+static settings_t s_cache = {"", "", false, false, LANGUAGE_FRENCH, false, false, false};
 
 // Latch whether the Preferences namespace is available.
 static bool s_storage_ready = false;
@@ -156,58 +160,69 @@ static bool registration_valid_(const char *reg){
  *   false otherwise.
  */
 bool settings_init(void){
-  s_storage_ready = prefs.begin(PREFS_NAMESPACE, false);
-  if(s_storage_ready){
-    const uint8_t stored_language = prefs.getUChar("language", (uint8_t)LANGUAGE_FRENCH);
-    s_cache.language = language_valid((language_t)stored_language)
-                         ? (language_t)stored_language
-                         : LANGUAGE_FRENCH;
+  s_storage_ready = s_prefs.begin(PREFS_NAMESPACE, false);
+  if(!s_storage_ready){
+    return false;
   }
-  return s_storage_ready;
+
+  // Firmware/schema migration is a boot-time initialization operation performed
+  // before recorder tasks start. Runtime writes are State-task-only.
+  const String automation_firmware = s_prefs.getString("automation_fw", "");
+  const uint32_t automation_schema = s_prefs.getUInt("auto_schema", 0u);
+  if((automation_firmware != String(RECORDER_SOFTWARE_VERSION)) ||
+     (automation_schema != AUTOMATION_SETTINGS_SCHEMA_VERSION)){
+    (void)s_prefs.putBool("auto_record", false);
+    (void)s_prefs.putBool("auto_wifi", false);
+    (void)s_prefs.putBool("auto_delete", false);
+    (void)s_prefs.putString("automation_fw", RECORDER_SOFTWARE_VERSION);
+    (void)s_prefs.putUInt("auto_schema", AUTOMATION_SETTINGS_SCHEMA_VERSION);
+  }
+
+  settings_t loaded = {"", "", false, false, LANGUAGE_FRENCH, false, false, false};
+  sanitize_registration_(loaded.registration,
+                         sizeof(loaded.registration),
+                         s_prefs.getString("registration", "").c_str());
+  (void)settings_make_wifi_password(loaded.wifi_password,
+                                    sizeof(loaded.wifi_password),
+                                    loaded.registration);
+  loaded.date_set = s_prefs.getBool("date_set", false);
+  loaded.time_set = s_prefs.getBool("time_set", false);
+  const uint8_t stored_language = s_prefs.getUChar("language", (uint8_t)LANGUAGE_FRENCH);
+  loaded.language = language_valid((language_t)stored_language)
+                      ? (language_t)stored_language
+                      : LANGUAGE_FRENCH;
+  loaded.auto_recording = s_prefs.getBool("auto_record", false);
+  loaded.auto_wifi = s_prefs.getBool("auto_wifi", false);
+  loaded.auto_delete = s_prefs.getBool("auto_delete", false);
+
+  portENTER_CRITICAL(&s_cache_mux);
+  s_cache = loaded;
+  portEXIT_CRITICAL(&s_cache_mux);
+  return true;
 }
 
 language_t settings_get_language(void){
-  return language_valid(s_cache.language) ? s_cache.language : LANGUAGE_FRENCH;
+  language_t language = LANGUAGE_FRENCH;
+  portENTER_CRITICAL(&s_cache_mux);
+  language = s_cache.language;
+  portEXIT_CRITICAL(&s_cache_mux);
+  return language_valid(language) ? language : LANGUAGE_FRENCH;
 }
 
 /**
- * Load the current settings from Preferences into the caller output buffer.
+ * Load the current settings snapshot into the caller output buffer.
  *
- * Parameters:
- *   out - destination structure that receives the loaded settings.
- *
- * Return:
- *   true if settings were loaded successfully,
- *   false if storage is not ready or out is null.
+ * NVS is read only during settings_init(). Runtime readers consume the cached
+ * snapshot; the State task is the sole runtime writer.
  */
 bool settings_get(settings_t *out){
   if((out == nullptr) || !s_storage_ready){
     return false;
   }
 
-  // Read and normalize the registration string stored in flash.
-  sanitize_registration_(s_cache.registration,
-                         sizeof(s_cache.registration),
-                         prefs.getString("registration", "").c_str());
-
-  // The WiFi password is generated from the normalized registration and is not
-  // user-editable. Keep the derived value in the cache for status consumers.
-  (void)settings_make_wifi_password(s_cache.wifi_password,
-                                    sizeof(s_cache.wifi_password),
-                                    s_cache.registration);
-
-  // Read whether the user has already set the date and time at least once.
-  s_cache.date_set = prefs.getBool("date_set", false);
-  s_cache.time_set = prefs.getBool("time_set", false);
-
-  // Language is optional and defaults to French for new and upgraded recorders.
-  const uint8_t stored_language = prefs.getUChar("language", (uint8_t)LANGUAGE_FRENCH);
-  s_cache.language = language_valid((language_t)stored_language)
-                       ? (language_t)stored_language
-                       : LANGUAGE_FRENCH;
-
-  // Return the loaded cache to the caller.
+  portENTER_CRITICAL(&s_cache_mux);
   *out = s_cache;
+  portEXIT_CRITICAL(&s_cache_mux);
   return true;
 }
 
@@ -295,85 +310,83 @@ bool settings_set_registration(const char *reg){
     return false;
   }
 
-  // Update the local cache first, then persist the same normalized value to flash.
+  char password[SETTINGS_WIFI_PASSWORD_LEN] = {0};
+  (void)settings_make_wifi_password(password, sizeof(password), normalized);
+  if(s_prefs.putString("registration", normalized) == 0u){
+    return false;
+  }
+
+  portENTER_CRITICAL(&s_cache_mux);
   copy_bounded_string(s_cache.registration, sizeof(s_cache.registration), normalized);
-  (void)settings_make_wifi_password(s_cache.wifi_password,
-                                    sizeof(s_cache.wifi_password),
-                                    s_cache.registration);
-  return (prefs.putString("registration", s_cache.registration) > 0u);
+  copy_bounded_string(s_cache.wifi_password, sizeof(s_cache.wifi_password), password);
+  portEXIT_CRITICAL(&s_cache_mux);
+  return true;
 }
 
-/**
- * Save a Wi-Fi password string.
- *
- * The current access-point password is generated from the registration, so this
- * legacy setter only reports whether settings storage is available.
- *
- * Parameters:
- *   pwd - ignored legacy password string.
- *
- * Return:
- *   true if settings storage is available,
- *   false otherwise.
- */
 bool settings_set_wifi_password(const char *pwd){
   (void)pwd;
   return s_storage_ready;
 }
 
-/**
- * Save the flag that indicates whether the date was set by the user.
- *
- * Parameters:
- *   done - true when the date has been configured, false otherwise.
- *
- * Return:
- *   true if the value was written successfully,
- *   false otherwise.
- */
 bool settings_set_date_set(bool done){
-  if(!s_storage_ready){
+  if(!s_storage_ready || (s_prefs.putBool("date_set", done) == 0u)){
     return false;
   }
-
-  // Update the cached flag and persist the same value to flash.
+  portENTER_CRITICAL(&s_cache_mux);
   s_cache.date_set = done;
-  return (prefs.putBool("date_set", done) > 0u);
+  portEXIT_CRITICAL(&s_cache_mux);
+  return true;
 }
 
-/**
- * Save the flag that indicates whether the time was set by the user.
- *
- * Parameters:
- *   done - true when the time has been configured, false otherwise.
- *
- * Return:
- *   true if the value was written successfully,
- *   false otherwise.
- */
 bool settings_set_time_set(bool done){
-  if(!s_storage_ready){
+  if(!s_storage_ready || (s_prefs.putBool("time_set", done) == 0u)){
     return false;
   }
-
-  // Update the cached flag and persist the same value to flash.
+  portENTER_CRITICAL(&s_cache_mux);
   s_cache.time_set = done;
-  return (prefs.putBool("time_set", done) > 0u);
+  portEXIT_CRITICAL(&s_cache_mux);
+  return true;
 }
 
-/**
- * Save the recorder user-interface language.
- *
- * Language selection is optional configuration and does not affect the
- * settings-complete gate used for recorder operation.
- */
 bool settings_set_language(language_t language){
-  if(!s_storage_ready || !language_valid(language)){
+  if(!s_storage_ready || !language_valid(language) ||
+     (s_prefs.putUChar("language", (uint8_t)language) == 0u)){
     return false;
   }
-
+  portENTER_CRITICAL(&s_cache_mux);
   s_cache.language = language;
-  return (prefs.putUChar("language", (uint8_t)language) > 0u);
+  portEXIT_CRITICAL(&s_cache_mux);
+  return true;
+}
+
+bool settings_set_auto_recording(bool enabled){
+  if(!s_storage_ready || (s_prefs.putBool("auto_record", enabled) == 0u)){
+    return false;
+  }
+  portENTER_CRITICAL(&s_cache_mux);
+  s_cache.auto_recording = enabled;
+  portEXIT_CRITICAL(&s_cache_mux);
+  return true;
+}
+
+bool settings_set_auto_wifi(bool enabled){
+  if(!s_storage_ready || (s_prefs.putBool("auto_wifi", enabled) == 0u)){
+    return false;
+  }
+  portENTER_CRITICAL(&s_cache_mux);
+  s_cache.auto_wifi = enabled;
+  portEXIT_CRITICAL(&s_cache_mux);
+  return true;
+}
+
+bool settings_set_auto_delete(bool enabled){
+  if(!s_storage_ready || (s_prefs.putBool("auto_delete", enabled) == 0u)){
+    return false;
+  }
+  portENTER_CRITICAL(&s_cache_mux);
+  s_cache.auto_delete = enabled;
+  portEXIT_CRITICAL(&s_cache_mux);
+  return true;
 }
 
 /**
@@ -391,9 +404,12 @@ bool settings_clear(void){
     return false;
   }
 
-  const bool ok = prefs.clear();
+  const bool ok = s_prefs.clear();
   if(ok){
-    memset(&s_cache, 0, sizeof(s_cache));
+    settings_t cleared = {"", "", false, false, LANGUAGE_FRENCH, false, false, false};
+    portENTER_CRITICAL(&s_cache_mux);
+    s_cache = cleared;
+    portEXIT_CRITICAL(&s_cache_mux);
   }
   return ok;
 }

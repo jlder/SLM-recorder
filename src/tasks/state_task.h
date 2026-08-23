@@ -11,6 +11,7 @@
 
 #pragma once
 #include <stdbool.h>
+#include <stdint.h>
 #include "src/models/system_status.h"
 
 /**
@@ -64,7 +65,14 @@ void state_task_request_record_start(void);
 void state_task_request_record_stop(void);
 
 
-// NOTE: Persistence of settings to non-volatile storage is owned by the
-// settings_store service. The State task only *reads* settings to gate
-// transitions (e.g., registration configured before recording).
+// UI/control requests below are latched and applied by the State task.
+// Other tasks shall not write recorder settings or command WiFi directly.
+void state_task_request_wifi_toggle(void);
+void state_task_request_auto_recording_toggle(void);
+void state_task_request_auto_wifi_toggle(void);
+void state_task_request_auto_delete_toggle(void);
+void state_task_request_language_toggle(void);
+void state_task_request_set_date(uint16_t year, uint8_t month, uint8_t day);
+void state_task_request_set_time(uint8_t hour, uint8_t minute);
+void state_task_request_set_registration(const char *registration);
 

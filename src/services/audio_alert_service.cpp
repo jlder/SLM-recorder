@@ -3,7 +3,7 @@
 
 /**
  * @file src/services/audio_alert_service.cpp
- * @brief Repeating three-beep error alert isolated from recorder-critical tasks.
+ * @brief Error and USB-power-loss audio alerts isolated from recorder-critical tasks.
  */
 
 #include "src/services/audio_alert_service.h"
@@ -24,6 +24,7 @@ static TaskHandle_t s_task = nullptr;
 static portMUX_TYPE s_alert_mux = portMUX_INITIALIZER_UNLOCKED;
 static bool s_active = false;
 static bool s_acknowledged = false;
+static bool s_usb_power_loss_active = false;
 static uint32_t s_error_key = 0u;
 
 static const uint32_t AUDIO_SAMPLE_RATE_HZ = 16000u;
@@ -33,6 +34,7 @@ static int16_t s_pcm[AUDIO_CHUNK_FRAMES * 2u];
 struct alert_snapshot_t {
   bool active;
   bool acknowledged;
+  bool usb_power_loss_active;
   uint32_t error_key;
 };
 
@@ -41,6 +43,7 @@ static alert_snapshot_t snapshot_(void){
   portENTER_CRITICAL(&s_alert_mux);
   out.active = s_active;
   out.acknowledged = s_acknowledged;
+  out.usb_power_loss_active = s_usb_power_loss_active;
   out.error_key = s_error_key;
   portEXIT_CRITICAL(&s_alert_mux);
   return out;
@@ -49,6 +52,41 @@ static alert_snapshot_t snapshot_(void){
 static bool alert_should_play_(uint32_t error_key){
   const alert_snapshot_t current = snapshot_();
   return current.active && !current.acknowledged && (current.error_key == error_key);
+}
+
+static bool usb_power_loss_should_play_(void){
+  const alert_snapshot_t current = snapshot_();
+  return current.usb_power_loss_active && !current.active;
+}
+
+static bool write_usb_duration_(bool tone, uint32_t duration_ms, uint32_t *phase){
+  uint32_t remaining_ms = duration_ms;
+
+  while(remaining_ms > 0u){
+    if(!usb_power_loss_should_play_()){
+      return false;
+    }
+
+    if(tone){
+      audio_tone_fill_square(s_pcm,
+                             AUDIO_CHUNK_FRAMES,
+                             AUDIO_SAMPLE_RATE_HZ,
+                             AUDIO_ALERT_TONE_HZ,
+                             AUDIO_ALERT_AMPLITUDE,
+                             phase);
+    } else {
+      audio_tone_fill_silence(s_pcm, AUDIO_CHUNK_FRAMES);
+    }
+
+    if(!audio_driver_write_frames(s_pcm, AUDIO_CHUNK_FRAMES)){
+      return false;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(10u));
+    remaining_ms = (remaining_ms > 10u) ? (remaining_ms - 10u) : 0u;
+  }
+
+  return true;
 }
 
 static bool write_duration_(bool tone, uint32_t duration_ms, uint32_t error_key, uint32_t *phase){
@@ -92,14 +130,61 @@ static void wait_interruptible_(uint32_t wait_ms, uint32_t error_key){
   }
 }
 
+static void wait_usb_interruptible_(uint32_t wait_ms){
+  uint32_t elapsed_ms = 0u;
+  while((elapsed_ms < wait_ms) && usb_power_loss_should_play_()){
+    vTaskDelay(pdMS_TO_TICKS(50u));
+    elapsed_ms += 50u;
+  }
+}
+
 static void audio_alert_task_(void *arg){
   (void)arg;
 
   for(;;){
     const alert_snapshot_t current = snapshot_();
     if(!current.active || current.acknowledged){
-      (void)audio_driver_set_enabled(false);
-      vTaskDelay(pdMS_TO_TICKS(100u));
+      if(current.usb_power_loss_active && !current.active){
+        if(audio_driver_set_enabled(true)){
+          const uint32_t cycle_start_ms = millis();
+          uint32_t phase = 0u;
+
+          // Prime the audio path once per two-second alert cycle. The warm-up
+          // is silent and does not alter the requested two-beep audible pattern.
+          bool complete = write_usb_duration_(false,
+                                              AUDIO_ALERT_PREROLL_SILENCE_MS,
+                                              &phase);
+          if(complete){
+            complete = write_usb_duration_(true, AUDIO_USB_LOSS_BEEP_MS, &phase);
+          }
+          if(complete){
+            complete = write_usb_duration_(false, AUDIO_USB_LOSS_GAP_MS, &phase);
+          }
+          if(complete){
+            complete = write_usb_duration_(true, AUDIO_USB_LOSS_BEEP_MS, &phase);
+          }
+          if(complete){
+            complete = write_usb_duration_(false,
+                                           AUDIO_ALERT_TRAILING_SILENCE_MS,
+                                           &phase);
+          }
+
+          (void)audio_driver_set_enabled(false);
+
+          if(complete){
+            const uint32_t elapsed_ms = millis() - cycle_start_ms;
+            if(elapsed_ms < AUDIO_USB_LOSS_REPEAT_MS){
+              wait_usb_interruptible_(AUDIO_USB_LOSS_REPEAT_MS - elapsed_ms);
+            }
+          }
+        } else {
+          // Audio is auxiliary. Avoid tight retry loops if hardware is unavailable.
+          vTaskDelay(pdMS_TO_TICKS(100u));
+        }
+      } else {
+        (void)audio_driver_set_enabled(false);
+        vTaskDelay(pdMS_TO_TICKS(100u));
+      }
       continue;
     }
 
@@ -199,5 +284,12 @@ void audio_alert_service_acknowledge(void){
   if(s_active){
     s_acknowledged = true;
   }
+  portEXIT_CRITICAL(&s_alert_mux);
+}
+
+
+void audio_alert_service_set_usb_power_loss(bool active){
+  portENTER_CRITICAL(&s_alert_mux);
+  s_usb_power_loss_active = active;
   portEXIT_CRITICAL(&s_alert_mux);
 }

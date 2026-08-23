@@ -1,0 +1,27 @@
+SLM Recorder v1.54 - observe-only automation field-validation build
+Based on the State-ownership-corrected v1.53 source.
+
+Ownership remains unchanged:
+- UI callbacks do not write recorder settings directly and do not control WiFi/Web directly.
+- State task consumes UI requests and remains sole owner of recorder state transitions and runtime WiFi enable requests.
+- automation_service owns continuous motion / HP(Nx,Ny) / HIRMS / LOWRMS / flight-presence / flight-end signal logic.
+- settings Preferences object remains private to settings_store.cpp; settings_get() returns the locked RAM snapshot.
+- SD task/storage ownership is unchanged.
+- Web task remains sole owner of AP/HTTP driver lifecycle after State requests enable/disable.
+
+v1.54 diagnostic override:
+- AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY=1 suppresses AUTO RECORD, AUTO WIFI, and AUTO DELETE physical actuation.
+- AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON=1 makes all three automation functions effective ON from boot for virtual-policy logging only.
+- SETTINGS > AUTOMATION displays all three ON with disabled controls; stored NVS selections are not rewritten by the override.
+- A manually started physical recording can contain multiple virtual AUTO sessions.
+- Diagnostic event encoding is applied only to the SD-bound acceleration copy.
+- Before ring_buffer_push(), diagnostic overhead is limited to three precomputed integer additions.
+- Diagnostic comparison, virtual policy, queueing, and preparation of later overlay values run after the current ring push.
+
+Static checks:
+- automation_service.cpp and state_task.cpp: host C++17 syntax checks with minimal platform stubs: PASS.
+- ui_task.cpp forced-ON display logic was source-audited; standalone host compile was not attempted because LVGL headers/toolchain are not installed here.
+- Diagnostic encode/decode round-trip on a real SLM binary restores the original bytes/checksums exactly.
+- Source audit confirms observe-only guards block automatic physical recording start/stop, AUTO WIFI actuation, and AUTO DELETE.
+
+Full ESP32/Arduino target build was not available in this environment.

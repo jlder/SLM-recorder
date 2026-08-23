@@ -36,6 +36,12 @@ typedef enum : uint8_t {
   X(DATE, "DATE", "DATE") \
   X(TIME, "TIME", "HEURE") \
   X(REGISTRATION, "REGISTRATION", "IMMATRICUL.") \
+  X(AUTOMATION, "AUTOMATION", "AUTOMATISME") \
+  X(AUTO_RECORDING, "AUTO RECORDING", "ENREG. AUTO") \
+  X(AUTO_WIFI, "AUTO WIFI", "WIFI AUTO") \
+  X(AUTO_DELETE, "AUTO DELETE", "SUPPR. AUTO") \
+  X(ON, "ON", "ON") \
+  X(OFF, "OFF", "OFF") \
   X(SET_DATE, "SET DATE", "RÉGLER DATE") \
   X(YEAR, "Year", "Année") \
   X(MONTH, "Month", "Mois") \

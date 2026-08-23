@@ -105,10 +105,11 @@ error_code_t sd_flush_record(void);
 /**
  * @brief SD close record.
  *
- * Inputs: None.
+ * Inputs: `delete_recording` - when true, remove the closed .bin and companion
+ *         .sha instead of retaining the completed recording.
  * Returns: `ERR_NONE` on success; otherwise an error code that explains the failure.
  */
-error_code_t sd_close_record(void);
+error_code_t sd_close_record(bool delete_recording = false);
 
 /** Result of a manual root-recording SHA verification pass. */
 typedef struct {

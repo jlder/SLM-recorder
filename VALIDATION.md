@@ -1,6 +1,6 @@
-# Validation — Recorder v1.51
+# Validation — Recorder v1.54 automation field-validation candidate
 
-1. Compile and install Recorder v1.51.
+1. Compile and install Recorder v1.54.
 2. Connect with SLM Bridge v0.3.48.
 3. With USB power connected, confirm the recorder home page shows File Management, Logbook, and Maintenance active.
 4. Remove USB power and confirm File Management and Logbook become grey while Maintenance remains reachable. Confirm the Main Menu displays `USB power required.` and `Connect USB power to use all recorder functions except Recorder Calibration.` Reconnect USB and confirm both the message disappears and the buttons become active after status refresh.
@@ -18,7 +18,7 @@
 16. Confirm Report Management, recording SHA verification, and existing calibration functions remain unchanged.
 17. On a recorder with no stored language key, confirm French is selected by default and the SETTINGS language button shows `ENGLISH`.
 18. Press `ENGLISH` and confirm the AMOLED interface immediately changes to English and the button changes to `FRANÇAIS`; power-cycle and confirm the selection persists.
-19. Select French again and confirm the AMOLED version lines show `ver. logic. 1.51` and `ver. mat. 1.00`, and the agreed abbreviated French labels fit without clipping.
+19. Select French again and confirm the AMOLED version lines show `ver. logic. 1.54` and `ver. mat. 1.00`, and the agreed abbreviated French labels fit without clipping.
 20. On the main page, confirm `ENREGIST.` and all other status messages fit fully inside the bottom status area without clipping.
 21. In REGLAGES/SETTINGS, confirm both `FRANÇAIS` and `ENGLISH` fit comfortably in the language button using the reduced font.
 22. With WiFi active, reload the recorder Web interface and confirm all normal pages, calibration workflows, support messages, file-processing messages, and firmware-update messages follow the recorder-selected language.
@@ -43,6 +43,29 @@
 38. Confirm downloads still complete correctly if the read-ahead buffer cannot be allocated, by exercising the direct per-chunk fallback path.
 39. With calibration valid and the recorder in READY, confirm no accelerometer driver write occurs while Web calibration status is polled, and that a driver update does occur after a calibration is saved, accepted, cleared, or restored.
 40. Confirm recorded acceleration remains correctly calibrated after a calibration change followed by a recording, and that a recording started immediately after boot uses the stored calibration.
+
+## v1.54 automation field-validation additions
+
+41. Confirm SETTINGS > AUTOMATION shows AUTO RECORDING, AUTO WIFI, and AUTO DELETE all `ON` immediately after boot. Confirm the three controls are disabled/fixed in this diagnostic build and cannot be toggled OFF.
+42. Confirm the forced-ON diagnostic override does not rewrite the stored NVS automation selections; it is an effective runtime override only.
+43. Confirm all three automations are observe-only: automation never physically starts/stops a recording, never automatically enables/disables WiFi, and never deletes a `.bin` or `.sha`. Manual controls, faults, and <=5% battery shutdown remain effective.
+44. Manually start one long recording and confirm the virtual AUTO START trace responds to either motion RMS >=0.020 g for 1 s or `max(|HP0.10Hz(Nx)|, |HP0.10Hz(Ny)|) >=0.020 g` for 1 s.
+45. Confirm virtual no-flight sessions use the 300 s quiet timeout and log `WOULD_AUTO_DELETE` when they end without `flight_seen`; the physical recording remains open and retained.
+46. Confirm `flight_seen` uses the continuous causal HIRMS/LOWRMS primary and secondary paths and that a virtual flight session cannot be ended by motion quiet after `flight_seen` latches.
+47. Confirm the ordered landing trace: HIRMS >=0.050 g for >=3 s, FG >=0.10 during that HIRMS event, HIRMS subsequently below 0.050 g, FG <=0.020 for 2 s within 25 s, then 50 s continuous GROUND; FG >=0.10 cancels a GROUND candidate.
+48. Confirm virtual AUTO WIFI logs ON in virtual READY, OFF for confirmed motion or virtual recording, and ON again after 5 s quiet, while actual manual WiFi requested/AP transitions remain separately visible in the diagnostic event CSV.
+49. Confirm diagnostic overlay events are added only to the SD-bound sample copy and appear with the expected >=50 ms telemetry delay; recorder-side HIRMS/LOWRMS/motion results remain based on untouched acceleration.
+50. Run `tools/automation_diag_decode.py` on a diagnostic recording. Confirm it writes both a clean `.bin` and an event CSV and that a known round-trip test restores the original binary byte-for-byte, including valid 0x70 checksums.
+51. With USB absent, leave the UI inactive past `DISPLAY_DIM_TIMEOUT_MS` and confirm full display standby. With USB present, confirm the same timeout dims the display to approximately 50% rather than switching it off; local activity restores full brightness.
+52. At battery <=5%, confirm an active manual recording closes and the recorder shuts down regardless of the observe-only automation mode.
+
+Static checks for the v1.54 field-validation source candidate:
+
+- `automation_service.cpp` and `state_task.cpp` pass host C++17 syntax compilation with warnings treated as errors using the project stubs.
+- Historical replay of the frozen detector gives 190/190 pre-roll AUTO START coverage and 189/189 evaluable flight-end confirmations with zero premature stops and zero misses; `FCJAF_20260627_3.bin` is right-censored at landing.
+- Source-path inspection confirms diagnostic event evaluation/queueing occurs after the current recording sample has been pushed; pre-push diagnostic overhead is limited to three precomputed integer additions.
+- A real SLM binary instrumented with primary/extended diagnostic events decodes back to the original binary byte-for-byte.
+- Observe-only guards suppress automatic physical recording start/stop, AUTO WIFI actuation, and AUTO DELETE while retaining virtual policy/event evaluation.
 
 Static checks performed for the v1.51 source delta:
 
@@ -70,3 +93,11 @@ Static checks performed for the v1.49 source delta:
 - Host compilation of `html_interface.h` confirms the complete self-contained Web page is a valid C++ string object; the resulting page contains no external `<script src>` or stylesheet resource.
 - Extracted JavaScript from the complete generated HTML passes `node --check`; all 248 statically referenced Web translation keys resolve in the 329-entry central catalog.
 - Source comparison confirms `ensure_server_ready_()`, `start_ap_and_server()`, `stop_ap_and_server()`, `web_task_set_enabled()`, `web_task_loop()`, and `state_task.cpp` WiFi/shutdown logic are unchanged from the v1.45 baseline.
+
+
+## State-task ownership audit
+
+- Verify no UI/Web source calls any `settings_set_*()` function or `settings_clear()`.
+- Verify `web_task_set_enabled()` runtime callers are State task only.
+- Verify `Preferences` for the recorder settings namespace is private to `settings_store.cpp`.
+- Verify UI date/time/registration/language/automation actions are posted to State task request APIs.

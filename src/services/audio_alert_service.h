@@ -19,3 +19,6 @@ void audio_alert_service_set_error(bool active, uint32_t error_key);
 
 /** Silence the current error alert until the error changes or clears. */
 void audio_alert_service_acknowledge(void);
+
+/** Enable or disable the repeating USB-power-loss alert. */
+void audio_alert_service_set_usb_power_loss(bool active);

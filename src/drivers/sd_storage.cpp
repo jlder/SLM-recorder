@@ -670,10 +670,10 @@ error_code_t sd_flush_record(void) {
  * Performs sd close record for SD storage, recording files, or SD-backed web
  * file management while preserving SD ownership rules.
  *
- * Inputs: None.
+ * Inputs: `delete_recording` - true to remove the closed .bin and matching .sha.
  * Returns: `ERR_NONE` on success; otherwise an error code that explains the failure.
  */
-error_code_t sd_close_record(void) {
+error_code_t sd_close_record(bool delete_recording) {
   if (!s_file) {
     return ERR_SD_FAULT;
   }
@@ -688,15 +688,33 @@ error_code_t sd_close_record(void) {
   mbedtls_sha256_free(&s_record_sha_ctx);
   s_record_sha_active = false;
 
-  if(sha_ok) {
-    sha_ok = sd_sha_write_metadata_(s_record_path, s_record_sha_size, digest);
+  bool result_ok = true;
+  if(delete_recording) {
+    // AUTO DELETE acts only after the .bin is safely closed. Remove both names
+    // so a nuisance session cannot leave an orphan SHA sidecar. There is no
+    // reason to create new SHA metadata for a file that is being discarded.
+    char sha_path[SD_STORAGE_PATH_MAX] = {};
+    if(!sd_sha_path_build_(s_record_path, sha_path, sizeof(sha_path))) {
+      result_ok = false;
+    } else if(SD_MMC.exists(sha_path) && !SD_MMC.remove(sha_path)) {
+      result_ok = false;
+    }
+
+    if(SD_MMC.exists(s_record_path) && !SD_MMC.remove(s_record_path)) {
+      result_ok = false;
+    }
+  } else {
+    if(sha_ok) {
+      sha_ok = sd_sha_write_metadata_(s_record_path, s_record_sha_size, digest);
+    }
+    result_ok = sha_ok;
   }
 
   s_record_path[0] = '\0';
   s_record_sha_size = 0u;
   s_cached_free_bytes = 0u;
   s_cached_free_valid = false;
-  return sha_ok ? ERR_NONE : ERR_SD_FAULT;
+  return result_ok ? ERR_NONE : ERR_SD_FAULT;
 }
 
 

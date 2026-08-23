@@ -38,6 +38,7 @@ static bool sd_error_is_maintenance_(error_code_t err){
 // Request latches written by state_task and consumed by sd_task.
 static volatile bool s_open_requested = false;
 static volatile bool s_close_requested = false;
+static volatile bool s_delete_after_close_requested = false;
 static volatile bool s_error_ack_requested = false;
 
 // SD task state-machine runtime.
@@ -133,6 +134,7 @@ static void sd_error_set(error_code_t err){
   // recovery.
   s_open_requested = false;
   s_close_requested = false;
+  s_delete_after_close_requested = false;
   s_error_ack_requested = false;
 
   s_remaining_bytes = 0u;
@@ -249,8 +251,8 @@ static bool write_calibration_block(void){
  * Inputs: None.
  * Returns: `true` when the requested condition or operation succeeds; otherwise `false`.
  */
-static bool sd_close_file(void){
-  const error_code_t rc = sd_close_record();
+static bool sd_close_file(bool delete_recording){
+  const error_code_t rc = sd_close_record(delete_recording);
 
   if(rc == ERR_NONE){
     s_sd_error = ERR_NONE;
@@ -445,7 +447,9 @@ static void sd_task_loop(void *arg){
         // close the file, then either return to IDLE or report the close reason.
 
         const error_code_t close_reason = s_sd_error;
+        const bool delete_recording = s_delete_after_close_requested;
         s_close_requested = false;
+        s_delete_after_close_requested = false;
 
         // Timeout prevents state_task from waiting indefinitely for close.
         if(sd_state_elapsed_ms() > CFG_CLOSING_TIMEOUT_MS){
@@ -461,7 +465,7 @@ static void sd_task_loop(void *arg){
           break;
         }
 
-        if(!sd_close_file()){
+        if(!sd_close_file(delete_recording)){
           sd_error_set(s_sd_error != ERR_NONE ? s_sd_error : ERR_SD_FAULT);
           break;
         }
@@ -570,10 +574,16 @@ void sd_request_open(void){
  * Performs sd request close for SD storage, recording files, or SD-backed web
  * file management while preserving SD ownership rules.
  *
- * Inputs: None.
+ * Inputs: `delete_recording` - true to discard the closed recording and sidecar.
  * Returns: None.
  */
-void sd_request_close(void){
+void sd_request_close(bool delete_recording){
+  // Requests can arrive more than once while state_task and sd_task converge on
+  // SD_CLOSING. Once discard is requested it must not be cleared by a later
+  // ordinary close request.
+  if(delete_recording){
+    s_delete_after_close_requested = true;
+  }
   s_close_requested = true;
 }
 

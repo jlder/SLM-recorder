@@ -70,9 +70,10 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | Configuration | Current value | Requirement use |
 |---|---:|---|
 | `DISPLAY_BRIGHTNESS_ACTIVE` | 255 | active display brightness |
-| `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display dim timeout |
+| `DISPLAY_BRIGHTNESS_DIMMED` | 128 | USB-powered inactive display brightness (~50%) |
+| `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display inactivity timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.49` | version text displayed on device |
+| `RECORDER_SOFTWARE_VERSION` | `1.54` | version text displayed on device |
 | `language.h` version labels | English: `sw ver` / `hw ver`; French: `ver. logic.` / `ver. mat.` | localized main-display version labels |
 
 ### 3.3 Web/WiFi
@@ -113,6 +114,22 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `FLIGHT_ANALYSIS_TO_STARTUP_IGNORE_S` | 5.0 s | startup settling period during which ground-to-flight transitions are ignored |
 | `FLIGHT_ANALYSIS_STRICT_TAKEOFF_TRANSITION_ENABLED` | 1 | requires observed-below-ON arming before accepting takeoff |
 | `FLIGHT_ANALYSIS_TRANSITION_CONFIRM_S` | 2.0 s | debounce/confirmation time before accepting state transitions |
+
+### 3.4A Automatic operation
+
+| Configuration | Current value | Requirement use |
+|---|---:|---|
+| `AUTO_RECORD_MOTION_WINDOW_S` | 2.0 s | trailing three-axis motion RMS window |
+| `AUTO_RECORD_MOTION_THRESHOLD_G` | 0.020 g | common automatic start/quiet threshold |
+| `AUTO_RECORD_START_CONFIRM_S` | 1.0 s | continuous motion confirmation before automatic start |
+| `AUTO_RECORD_STOP_QUIET_S` | 300.0 s | continuous quiet interval before automatic stop |
+| `AUTO_FLIGHT_LOWRMS_HP_HZ` | 0.25 Hz | LOWRMS causal high-pass cutoff |
+| `AUTO_FLIGHT_HIRMS_G` | 0.050 g | HIRMS evidence/crossing threshold |
+| `AUTO_FLIGHT_PRIMARY_DELTA_G` | 0.120 g | primary `LOWRMS-HIRMS` threshold |
+| `AUTO_FLIGHT_PRIMARY_CONFIRM_S` | 4.0 s | primary sustained confirmation |
+| `AUTO_FLIGHT_LATE_LOWRMS_G` | 0.050 g | late-start LOWRMS evidence threshold |
+| `AUTO_FLIGHT_LATE_CONFIRM_S` | 5.0 s | late-start LOWRMS/HIRMS-low confirmation |
+| `PMU_BATT_LOW_THRESHOLD_PCT` | 5% | unconditional controlled shutdown threshold |
 
 ### 3.5 Calibration
 
@@ -237,19 +254,19 @@ Status:
 
 - **Implemented.**
 
-#### OP-PWR-005 — Stop by USB removal while READY
+#### OP-PWR-005 — USB removal while READY
 
-When the recorder is in `ST_READY` and not blocked by a non-clearable error condition, the recorder shall stop when a fresh USB-present to USB-absent transition is detected.
+In normal automation actuation mode, AUTO RECORDING may suppress the legacy READY USB-removal shutdown and replace it with the persistent two-beep warning. The warning consists of two 100 ms beeps separated by 100 ms silence and repeats on an approximately 2 s cycle while READY remains on battery power.
 
-USB absence that occurred before entering `ST_READY` shall not be remembered and shall not trigger shutdown after a recording is stopped. During `ST_RECORDING` and `ST_STOPPING`, USB removal shall not by itself request shutdown; the recorder shall continue on battery unless another shutdown condition exists.
+The dedicated v1.54 observe-only field-validation build deliberately disables automation actuation, including this AUTO RECORDING power-policy exemption. Therefore USB removal while READY follows the normal non-automation shutdown behavior when actual WiFi is not active. A manually active recording is not stopped merely because USB is removed; the <=5% battery shutdown remains authoritative.
 
 Status:
 
-- **Implemented.**
+- **Implemented; v1.54 diagnostic override intentionally suppresses the AUTO RECORDING power-policy effect.**
 
 #### OP-PWR-006 — Stop on low-power condition
 
-When running on battery, with no USB power present, the recorder shall stop from any state when a low-power condition occurs. If the battery is at or below the low-power threshold and the current USB-power status is unknown, the recorder shall also enter the low-battery shutdown path fail-safe. Before PMU shutdown, the local display shall show a full-screen black low-battery notice with red text for 10 seconds: `BATTERY LOW` / `RECHARGE WITH USB`.
+The configured low-battery threshold (`PMU_BATT_LOW_THRESHOLD_PCT`, currently 5%) is an absolute battery-protection limit. At or below this threshold the recorder shall enter the controlled low-battery shutdown path regardless of USB state, WiFi state, automation selections, or whether recording is active. Before PMU shutdown, the local display shall show a full-screen black low-battery notice with red text for 10 seconds: `BATTERY LOW` / `RECHARGE WITH USB`.
 
 If a recording file is open or recording is in progress, the recorder shall close the recording file before shutdown. If no recording file is open, the recorder shall transition directly to shutdown.
 
@@ -330,23 +347,20 @@ Status:
 
 - **Implemented.**
 
-#### OP-UI-003 — Display standby
+#### OP-UI-003 — Display inactivity behavior
 
-The display shall start at full brightness and enter standby after `DISPLAY_DIM_TIMEOUT_MS` without local operator interaction.
+The display shall start at full brightness. After `DISPLAY_DIM_TIMEOUT_MS` without local operator interaction, behavior depends on USB power:
 
-Standby display behavior shall be page-independent for normal recorder UI pages. It shall be allowed from the main page, MENU, SETTINGS, setting-edit pages, and WiFi-support pages. The active recorder message shall not by itself prevent standby. The dedicated low-battery shutdown notice and every active recorder error are excluded. If an error becomes active while the display is in standby, the recorder shall wake the display immediately and keep it on until the error clears.
+- **USB absent:** enter full display standby exactly as before; the AMOLED output and `LCD_EN` panel supply are switched off and the display appears black.
+- **USB present:** keep the display/panel active and reduce backlight brightness to `DISPLAY_BRIGHTNESS_DIMMED` (128/255, approximately 50%).
+
+The behavior is page-independent for normal recorder UI pages. The active recorder message shall not by itself prevent dimming/standby. The dedicated low-battery shutdown notice and every active recorder error are excluded; they force the display awake at full brightness until the condition clears.
 
 During RECORDING, date/time cache refresh is allowed while the display is active so the displayed clock continues to update. Recording sample timestamps remain based on the captured recording start time plus the monotonic ESP timer and do not depend on periodic RTC refresh.
 
-When standby is active:
+While full standby is active, normal UI refresh shall stop and minimal UI/LVGL/touch processing shall continue at a reduced rate to detect wake conditions. While USB-powered dimming is active, normal UI remains displayed at reduced brightness.
 
-- the AMOLED display shall be switched off and appear black;
-- the display panel supply controlled by `LCD_EN` shall be switched off;
-- no standby text shall be displayed;
-- normal UI refresh shall stop;
-- minimal UI/LVGL/touch processing shall continue at a reduced rate to detect wake conditions, including while RECORDING.
-
-The display shall restore the previously active page at full brightness when touch activity is detected. The display shall also wake on power/clear button activity, record button activity, or USB power insertion. These wake actions shall not clear settings, stop WiFi, start/stop recording, or acknowledge errors by themselves; normal button hold processing still applies separately.
+Touch activity, power/clear button activity, record button activity, or USB insertion shall restore full brightness and restart the inactivity interval. Removing USB while the display is already dimmed and the inactivity interval has expired shall allow immediate transition to full standby on the next UI service cycle. These wake actions shall not clear settings, stop WiFi, start/stop recording, or acknowledge errors by themselves; normal button hold processing still applies separately.
 
 Status:
 
@@ -481,6 +495,7 @@ The SETTINGS page shall provide:
 - DATE;
 - TIME;
 - REGISTRATION;
+- AUTOMATION;
 - language-selection button;
 - BACK.
 
@@ -532,6 +547,75 @@ The START WIFI action shall be disabled while required settings are incomplete. 
 Status:
 
 - **Implemented.**
+
+### 4.4A Automatic Operation
+
+#### OP-AUTO-001 — Production selections and v1.54 diagnostic override
+
+The production automation design provides independent `AUTO RECORDING`, `AUTO WIFI`, and `AUTO DELETE` selections. In the dedicated v1.54 field-validation build, `AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY` and `AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON` override those selections: all three functions are logically ON from boot, SETTINGS > AUTOMATION displays them as ON with disabled controls, and stored NVS selection values are neither used as runtime gates nor rewritten by the override.
+
+The v1.54 override is observe-only. Automation decisions shall be evaluated and logged but shall not physically start/stop a recording, enable/disable WiFi, or delete files. Manual controls, recorder faults, and the <=5% battery shutdown remain authoritative.
+
+#### OP-AUTO-002 — Continuous automation acquisition
+
+While normal accelerometer acquisition is available in READY, STARTING, RECORDING, and STOPPING, the State task shall acquire corrected and installation-aligned acceleration at 20 Hz and feed the automation filters. Formation of recording blocks, ring-buffer updates, and SD recording shall remain strictly limited to `ST_RECORDING`. There is no automatic pre-trigger recording buffer.
+
+Diagnostic overlay bookkeeping shall not add variable work to the acquisition-to-ring critical path. The SD-bound sample may receive only precomputed diagnostic axis offsets before `ring_buffer_push()`; diagnostic comparisons, event queuing, virtual-policy evaluation, and selection of later offsets shall run after the current ring push.
+
+#### OP-AUTO-003 — Automatic start evidence
+
+AUTO START shall be confirmed by either of two continuously evaluated paths:
+
+- motion: 2.0 s trailing three-axis RMS `sqrt(var(Ax)+var(Ay)+var(Az)) >= 0.020 g` continuously for 1.0 s;
+- attitude change: independent first-order causal 0.10 Hz high-pass filters on installation-aligned `Nx` and `Ny`, with `max(|HP(Nx)|, |HP(Ny)|) >= 0.020 g` continuously for 1.0 s.
+
+The high-pass filters run continuously and require no stored attitude reference. In production actuation mode either path would request the normal READY -> STARTING path, with manual start winning if both requests qualify on the same State-task tick. In v1.54 observe-only mode the equivalent decision is logged and starts only a virtual AUTO session inside a manually opened physical recording.
+
+#### OP-AUTO-004 — Live flight-presence evidence
+
+HIRMS and LOWRMS shall be causal continuous filters and shall not reset at a recording boundary. HIRMS is the 4 s trailing RMS after a fourth-order 3 Hz high-pass. LOWRMS is the 10 s trailing RMS after a fourth-order 0.25 Hz high-pass followed by a fourth-order 3 Hz low-pass.
+
+For each logical AUTO session, only evidence is reset. Flight presence is latched by either of these paths:
+
+- primary: `HIRMS >= 0.050 g` latches HIRMS evidence; thereafter `LOWRMS - HIRMS >= 0.120 g` continuously for 4 s sets `flight_seen`;
+- late-start: `LOWRMS >= 0.050 g` and `HIRMS < 0.050 g` continuously for 5 s latches `possible_flight`; a later new HIRMS upward crossing from below 0.050 g to at least 0.050 g sets `flight_seen`.
+
+Before `flight_seen`, a virtual/automatic no-flight session may end after motion remains below 0.020 g continuously for 300 s. Once `flight_seen` latches, motion quiet shall no longer end that logical session.
+
+#### OP-AUTO-005 — Ordered flight-end evidence
+
+After `flight_seen`, the detector shall maintain flight-local HIRMS minimum/maximum values and normalized FlightGround `FG = max(0, (LOWRMS-HIRMS)/(Hmax-Hmin))`, with a small-range guard.
+
+A valid landing event requires this sequence:
+
+1. `HIRMS >= 0.050 g` continuously for at least 3 s;
+2. during that same HIRMS event, `FG >= 0.10` is observed at least once;
+3. HIRMS subsequently falls below 0.050 g;
+4. within the following 25 s, `FG <= 0.020` continuously for 2 s creates a GROUND candidate;
+5. `FG >= 0.10` cancels GROUND and returns the logical detector to FLIGHT;
+6. 50 s continuous GROUND sets `flight_end_confirmed`.
+
+In v1.54 the confirmation is logged as a virtual AUTO stop and never closes the manually opened physical file.
+
+#### OP-AUTO-006 — Automatic nuisance-file deletion
+
+In production actuation mode, AUTO DELETE applies only to automatically started recordings that close without `flight_seen`; both `.bin` and matching `.sha` are removed through the existing STOPPING/SD close path. Manually started recordings are never auto-deleted.
+
+In v1.54 observe-only mode the same decision is evaluated virtually and logs `WOULD_AUTO_DELETE`; no physical file is deleted.
+
+#### OP-AUTO-007 — Automatic WiFi policy
+
+The intended AUTO WIFI policy is ON in quiet READY, OFF when motion is confirmed or a virtual/real AUTO recording is active, and ON again after 5 s continuous quiet when the recorder has returned to READY conditions.
+
+In v1.54 observe-only mode this policy is simulated/logged only and shall not call the Web/AP actuator. Manual WiFi control remains real. Actual `WIFI_REQUESTED_*` and `WIFI_AP_*` transitions are logged separately so the intended virtual policy can be compared with real Web/AP behavior.
+
+#### OP-AUTO-008 — Reversible field diagnostic overlay
+
+The v1.54 field-validation build shall encode automation events only in the SD-bound acceleration copy. The physical/calibrated acceleration used by recorder logic shall remain untouched. The reversible three-axis ternary overlay uses +/-20.001 g offsets outside the normal +/-8 g sensor range; `tools/automation_diag_decode.py` shall remove the overlay, restore the original signed milli-g values/checksums, and emit an event CSV. Events normally appear at least one 20 Hz sample (50 ms) after the internal transition because event extraction occurs after the current ring push.
+
+Status:
+
+- **Implemented as v1.54 observe-only field-validation build.**
 
 ### 4.5 Calibration
 
@@ -654,7 +738,7 @@ Status:
 
 #### OP-STOP-003 — Stop by low power
 
-Recording shall stop and the SD file shall close before shutdown when a low-power condition occurs while running on battery with no USB power present, or when the battery is low and current USB-power status is unknown. After the file is closed, the recorder shall show the 10-second `BATTERY LOW` / `RECHARGE WITH USB` notice before PMU shutdown.
+Recording shall stop and the SD file shall close before shutdown whenever battery percentage is at or below `PMU_BATT_LOW_THRESHOLD_PCT` (currently 5%), regardless of USB, WiFi, or automation state. After the file is closed, the recorder shall show the 10-second `BATTERY LOW` / `RECHARGE WITH USB` notice before PMU shutdown.
 
 Status:
 
@@ -992,6 +1076,14 @@ a permanent recording block.
 | OP-SET-002 | `settings_store` | VAL-SET-001 |
 | OP-SET-003 | `ui_task`, `settings_store` | VAL-SET-001 |
 | OP-SET-004 | `ui_task`, `ui_helpers` | visual/UI check |
+| OP-AUTO-001 | `config.h`, `state_task`, `ui_task`, `settings_store` | VAL-AUTO-001 |
+| OP-AUTO-002 | `state_task`, `automation_service`, `record_format`, `ring_buffer` | VAL-AUTO-005 |
+| OP-AUTO-003 | `automation_service`, `state_task` | VAL-AUTO-002 |
+| OP-AUTO-004 | `automation_service`, `state_task` | VAL-AUTO-003 |
+| OP-AUTO-005 | `automation_service`, `state_task` | VAL-AUTO-003 |
+| OP-AUTO-006 | `state_task`, `sd_task`, `sd_storage` | VAL-AUTO-004 |
+| OP-AUTO-007 | `state_task`, `web_task` | VAL-AUTO-004 |
+| OP-AUTO-008 | `state_task`, `record_format`, `ring_buffer`, `tools/automation_diag_decode.py` | VAL-AUTO-005 |
 | OP-CAL-001 | `calibration_service`, `calibration_store`, `state_task` | VAL-CAL-001, VAL-CAL-004 |
 | OP-CAL-002 | `web_task`, `html_interface`, `calibration_service` | VAL-CAL-002 |
 | OP-CAL-003 | `calibration_service` | VAL-CAL-002 |
@@ -1104,7 +1196,7 @@ The following screens are not normal bottom message-area messages.
 | PMU fault | `ERR_PMU_FAULT` | `PMU ERROR` | PMU/power status path |
 | Touch fault | `ERR_TOUCH_FAULT` | `TOUCH ERROR` | touch driver/service path |
 | Low battery warning | none | `LOW BATT` or dedicated shutdown notice | power/battery status consumed by `state_task` |
-| USB lost while READY | none | shutdown path, no dedicated display message | USB loss edge consumed by `state_task` |
+| USB absent while READY | none | v1.54 observe-only build uses normal READY shutdown behavior when actual WiFi is OFF; production AUTO RECORDING mode may use the two-beep exemption | USB status consumed by `state_task` |
 | Shutdown requested | none | `SHUTDOWN` | state transition to OFF |
 | Persistent watchdog fault at boot | watchdog NVS latch | `FATAL WDG/CLR` | startup watchdog-fault check |
 
@@ -1341,3 +1433,8 @@ New immutable recording files are protected by a streaming SHA-256 calculated ov
 - The recording file-count limit shall count only valid root-level `.bin` files; `.sha`, `.log`, and unrelated files shall not consume the 50-file allowance.
 - Logbook discovery shall scan root first and `/processed` second, group per-recording logs by registration/date, and retain only the newest bounded set of flying days while scanning.
 - Suffix discovery and matching-file searches shall continue to scan directory entries one at a time without a complete archive array.
+
+
+#### OP-OWN-001 — Runtime settings and WiFi authority
+
+The State task shall be the sole runtime authority for recorder settings changes and WiFi enable/disable decisions. UI callbacks shall post one-shot requests to the State task and shall not call Preferences-backed settings setters or `web_task_set_enabled()` directly. Boot-time settings loading/schema migration in `settings_init()` occurs before tasks start and is not a runtime control path.

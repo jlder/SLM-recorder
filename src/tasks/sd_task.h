@@ -42,10 +42,10 @@ void sd_request_open(void);
 /**
  * @brief SD request close.
  *
- * Inputs: None.
+ * Inputs: `delete_recording` - when true, delete the closed .bin and .sha.
  * Returns: None.
  */
-void sd_request_close(void);
+void sd_request_close(bool delete_recording = false);
 /**
  * @brief SD request ack error.
  *

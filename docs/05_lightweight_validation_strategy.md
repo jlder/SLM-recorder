@@ -166,28 +166,29 @@ Expected result:
   - 76-100% green.
 - USB power shows the charging/electric indicator.
 
-### VAL-UI-002 — Display standby and wake
+### VAL-UI-002 — Display inactivity, dimming, standby and wake
 
 Purpose:
 
-Confirm standby display reduces active UI refresh and wakes correctly on normal recorder pages.
+Confirm USB-dependent display inactivity behavior and wake handling on normal recorder pages.
 
 Procedure:
 
-1. Leave the recorder idle on the main UI longer than `DISPLAY_DIM_TIMEOUT_MS`.
-2. Confirm the display switches off / becomes black with no standby text shown.
-3. Wake using touch and confirm the previous page is restored.
-4. Repeat the timeout/wake check from MENU, SETTINGS, at least one setting-edit page, and the WiFi-active MENU page.
-5. Repeat wake using power/clear button, record button, and USB insertion.
-6. Confirm the low-battery shutdown notice does not enter standby during its 10-second display period.
-7. If practical, force or simulate an unknown USB-status read while battery percentage is below the threshold and confirm the recorder enters the low-battery shutdown path fail-safe.
+1. With USB absent, leave the recorder idle on the main UI longer than `DISPLAY_DIM_TIMEOUT_MS`; confirm the display switches fully off / black.
+2. Wake using touch and confirm the previous page is restored at full brightness.
+3. With USB present, wait past the same timeout and confirm the display remains on but dims to approximately 50% brightness.
+4. Touch the display and confirm full brightness returns immediately.
+5. While the display is USB-powered and dimmed, remove USB and confirm full standby occurs on the next UI service cycle when the inactivity interval is already expired.
+6. Repeat the timeout/wake check from MENU, SETTINGS, at least one setting-edit page, and the WiFi-active MENU page.
+7. Repeat wake using power/clear button, record button, and USB insertion.
+8. Confirm the low-battery shutdown notice and active errors force full brightness and do not enter dim/standby while active.
 
 Expected result:
 
-- Before standby, confirm the active UI time continues updating during RECORDING.
-- Display-off standby appears after timeout on normal recorder UI pages, independent of the active message.
-- The page visible before standby returns at full brightness on wake.
-- Standby does not hide the dedicated low-battery shutdown notice.
+- With USB absent, timeout produces full standby.
+- With USB present, timeout produces approximately 50% dimming only.
+- Local activity restores the previous page at full brightness.
+- Recording timing is unaffected by UI dim/standby behavior.
 
 ### VAL-SET-001 — Settings persistence
 
@@ -831,3 +832,45 @@ New immutable recording files are protected by a streaming SHA-256 calculated ov
 - Verify the virtual Logbook finds per-recording logs in root and `/processed`, groups them by registration/date, retains the newest five flying days, and sorts each day by numeric suffix.
 - Confirm calibration report listing, download, and Bridge upload remain unchanged.
 - Confirm no Web endpoint or page provides complete `/processed` listing or permanent deletion.
+
+
+## VAL-AUTO-001 — v1.54 forced-ON observe-only mode
+
+1. Install v1.54 and confirm SETTINGS > AUTOMATION immediately shows AUTO RECORDING, AUTO WIFI, and AUTO DELETE all ON.
+2. Confirm all three controls are disabled/fixed and cannot be toggled OFF.
+3. Confirm the diagnostic override does not rewrite the underlying NVS selection values.
+4. Confirm automation cannot physically start/stop recording, actuate WiFi, or delete files.
+5. Confirm manual recording/WiFi controls, faults, and <=5% battery shutdown remain real.
+
+## VAL-AUTO-002 — AUTO START and virtual-session isolation
+
+1. Manually start one long recording.
+2. Confirm virtual AUTO START occurs for either motion RMS >=0.020 g for 1 s or `max(|HP0.10Hz(Nx)|, |HP0.10Hz(Ny)|) >=0.020 g` for 1 s.
+3. Confirm the physical manual recording does not change state when a virtual AUTO START occurs.
+4. Confirm a no-flight virtual session ends after 300 s continuous quiet and then returns to virtual READY while the physical recording remains open.
+5. Confirm multiple virtual AUTO sessions can occur in the same physical file.
+
+## VAL-AUTO-003 — Flight presence and ordered flight end
+
+1. Verify HIRMS/LOWRMS filter histories remain continuous while per-virtual-session evidence resets.
+2. Confirm both `flight_seen` paths are logged: primary HIRMS -> LOWRMS-dominance and late-start LOWRMS -> new HIRMS crossing.
+3. Once `flight_seen` is set, confirm motion quiet cannot end the virtual session.
+4. Verify the landing sequence events in order: sustained HIRMS >=0.050 g for >=3 s; FG >=0.10 during the same event; HIRMS below 0.050 g; FG <=0.020 for 2 s within 25 s; GROUND; 50 s confirmation.
+5. Confirm FG >=0.10 before 50 s logs GROUND cancellation and keeps the virtual flight active.
+6. Re-run the historical frozen logic: 190/190 pre-roll AUTO START coverage and 189/189 evaluable flight-end confirmations with zero premature stops and zero misses; retain `FCJAF_20260627_3.bin` as right-censored.
+
+## VAL-AUTO-004 — Virtual AUTO DELETE and AUTO WIFI
+
+1. On a no-flight virtual stop, confirm `WOULD_AUTO_DELETE` is logged and the physical `.bin`/`.sha` remain present.
+2. Confirm virtual AUTO WIFI is ON in quiet virtual READY, OFF for confirmed motion or virtual recording, and ON again after 5 s quiet.
+3. Confirm these virtual WiFi decisions do not call the real Web/AP actuator.
+4. Operate WiFi manually and confirm actual `WIFI_REQUESTED_*` / `WIFI_AP_*` events are logged separately from the virtual `WOULD_AUTO_WIFI_*` events.
+
+## VAL-AUTO-005 — Diagnostic overlay integrity and jitter boundary
+
+1. Confirm the physical/calibrated sample used by automation remains untouched.
+2. Confirm pre-push diagnostic work is limited to applying three precomputed integer axis offsets to the SD-bound copy.
+3. Confirm event comparison, virtual policy, queueing, and preparation of the next overlay occur only after the current `ring_buffer_push()`.
+4. Run `tools/automation_diag_decode.py`; confirm the clean output restores normal axis values/checksums and the CSV identifies event names/times.
+5. On a controlled round-trip test, confirm the cleaned binary is byte-for-byte identical to the original.
+6. Confirm queued simultaneous events may appear over later samples and therefore the event CSV preserves event order rather than exact same-cycle timestamp identity.

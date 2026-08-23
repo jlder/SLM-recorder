@@ -27,21 +27,23 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <Arduino.h>
+#include <string.h>
 #include "src/services/task_helpers.h"
 
 #include "src/global.h"
 #include "src/services/error_manager.h"
 #include "src/services/button_hold_helpers.h"
 #include "src/services/device_service.h"
-#include "src/services/sd_files.h"        // SD file-management authorization gate
 #include "src/services/ring_buffer.h"
 #include "src/services/timebase.h"
 #include "src/services/record_format.h"
-#include "src/services/settings_store.h" // settings cache (registration/wifi)
+#include "src/services/settings_store.h" // read-only settings snapshot
+#include "src/services/settings_store_write.h" // State-task-only settings writes
 #include "src/services/datetime_service.h"
 #include "src/services/calibration_service.h"
 #include "src/services/watchdog_service.h"
 #include "src/services/audio_alert_service.h"
+#include "src/services/automation_service.h"
 
 #include "src/services/touch_service.h"
 #include "src/tasks/sd_task.h"
@@ -75,10 +77,13 @@ static uint32_t s_state_tick = 0u;
 // Set when power-long is requested during recording.  The recorder first
 // closes the SD file through ST_STOPPING, then continues to ST_OFF.
 static bool s_shutdown_after_stop_requested = false;
+// True only for a recording whose start was requested by AUTO RECORDING.
+// AUTO DELETE is never applied to a manually started recording.
+static bool s_recording_automatic = false;
 // Persistent watchdog fault acknowledgement latch.  When set, startup
 // waits for Power/Clear before normal BOOT checks continue.
 static bool s_watchdog_ack_pending = false;
-// Settings persistence is owned by settings_store. The State task only reads.
+// State task is the sole runtime authority for recorder settings changes.
 
 // UI request latches (simple, no queues).
 // UI tasks may run on another core, therefore the two command flags are
@@ -87,6 +92,560 @@ static bool s_watchdog_ack_pending = false;
 static portMUX_TYPE s_ui_cmd_mux = portMUX_INITIALIZER_UNLOCKED;
 static bool s_ui_record_start_requested = false;
 static bool s_ui_record_stop_requested = false;
+
+typedef struct {
+  bool wifi_toggle;
+  bool auto_recording_toggle;
+  bool auto_wifi_toggle;
+  bool auto_delete_toggle;
+  bool language_toggle;
+  bool set_date;
+  uint16_t year;
+  uint8_t month;
+  uint8_t day;
+  bool set_time;
+  uint8_t hour;
+  uint8_t minute;
+  bool set_registration;
+  char registration[SETTINGS_REGISTRATION_LEN];
+} ui_control_requests_t;
+
+static ui_control_requests_t s_ui_control_requests = {};
+
+static bool automation_diag_force_all_on_(void);
+static bool effective_auto_recording_(bool settings_loaded, const settings_t &settings);
+static bool effective_auto_wifi_(bool settings_loaded, const settings_t &settings);
+static bool effective_auto_delete_(bool settings_loaded, const settings_t &settings);
+
+
+#if AUTOMATION_DIAGNOSTIC_OVERLAY_ENABLED
+static_assert(AUTOMATION_DIAGNOSTIC_AXIS_OFFSET_MG >
+                  (2 * AUTOMATION_DIAGNOSTIC_CLEAN_AXIS_LIMIT_MG),
+              "diagnostic axis bands must not overlap");
+static_assert((AUTOMATION_DIAGNOSTIC_AXIS_OFFSET_MG +
+               AUTOMATION_DIAGNOSTIC_CLEAN_AXIS_LIMIT_MG) <= 32767,
+              "diagnostic axis encoding must fit int16");
+
+// Diagnostic wire code 13 is deliberately the all-zero-offset ternary value
+// (1,1,1) and therefore leaves the recorded acceleration sample unchanged.
+enum automation_diag_event_t : uint8_t {
+  DIAG_AUTO_START_MOTION_POLICY = 0u,
+  DIAG_AUTO_START_ATTITUDE_POLICY = 1u,
+  DIAG_MOTION_START_ON = 2u,
+  DIAG_MOTION_START_OFF = 3u,
+  DIAG_ATTITUDE_START_ON = 4u,
+  DIAG_ATTITUDE_START_OFF = 5u,
+  DIAG_MOTION_STOP_ON = 6u,
+  DIAG_MOTION_STOP_OFF = 7u,
+  DIAG_HIRMS_ABOVE = 8u,
+  DIAG_HIRMS_BELOW = 9u,
+  DIAG_PRIMARY_CONFIRMING = 10u,
+  DIAG_POSSIBLE_FLIGHT = 11u,
+  DIAG_FLIGHT_SEEN_PRIMARY = 12u,
+  DIAG_NONE = 13u,
+  DIAG_FLIGHT_SEEN_SECONDARY = 14u,
+  DIAG_HIRMS_EVENT_START = 15u,
+  DIAG_HIRMS_EVENT_3S = 16u,
+  DIAG_HIRMS_EVENT_SAW_FLIGHT_FG = 17u,
+  DIAG_HIRMS_EVENT_END_VALID = 18u,
+  DIAG_HIRMS_EVENT_END_INVALID = 19u,
+  DIAG_LANDING_EVENT_EXPIRED = 20u,
+  DIAG_FG_LOW_START = 21u,
+  DIAG_FG_LOW_RESET = 22u,
+  DIAG_GROUND_CANDIDATE = 23u,
+  DIAG_GROUND_CANCELLED = 24u,
+  DIAG_FLIGHT_END_CONFIRMED = 25u,
+  DIAG_EXTENDED = 26u
+};
+
+enum automation_diag_extended_event_t : uint8_t {
+  DIAG_EXT_QUEUE_OVERFLOW = 0u,
+  DIAG_EXT_AUTO_WIFI_SELECTED_ON = 1u,
+  DIAG_EXT_AUTO_WIFI_SELECTED_OFF = 2u,
+  DIAG_EXT_WIFI_REQUESTED_ON = 3u,
+  DIAG_EXT_WIFI_REQUESTED_OFF = 4u,
+  DIAG_EXT_WIFI_AP_STARTED = 5u,
+  DIAG_EXT_WIFI_AP_STOPPED = 6u,
+  DIAG_EXT_AUTO_RECORD_SELECTED_ON = 7u,
+  DIAG_EXT_AUTO_RECORD_SELECTED_OFF = 8u,
+  DIAG_EXT_AUTO_DELETE_SELECTED_ON = 9u,
+  DIAG_EXT_AUTO_DELETE_SELECTED_OFF = 10u,
+  DIAG_EXT_USB_PRESENT = 11u,
+  DIAG_EXT_USB_ABSENT = 12u,
+  DIAG_EXT_STATE_READY = 13u,
+  DIAG_EXT_STATE_STARTING = 14u,
+  DIAG_EXT_STATE_RECORDING = 15u,
+  DIAG_EXT_STATE_STOPPING = 16u,
+  DIAG_EXT_STATE_ERROR = 17u,
+  DIAG_EXT_STATE_OFF = 18u,
+  DIAG_EXT_MANUAL_RECORD_START = 19u,
+  DIAG_EXT_GROUND_10S = 20u,
+  DIAG_EXT_GROUND_25S = 21u,
+  DIAG_EXT_GROUND_40S = 22u,
+  DIAG_EXT_VIRTUAL_AUTO_SESSION_START = 23u,
+  DIAG_EXT_VIRTUAL_AUTO_STOP_NO_FLIGHT = 24u,
+  DIAG_EXT_VIRTUAL_AUTO_STOP_FLIGHT_END = 25u,
+  DIAG_EXTENDED_2 = 26u
+};
+
+enum automation_diag_extended2_event_t : uint8_t {
+  DIAG_EXT2_OBSERVE_ONLY_ACTIVE = 0u,
+  DIAG_EXT2_WOULD_AUTO_WIFI_ON = 1u,
+  DIAG_EXT2_WOULD_AUTO_WIFI_OFF_MOTION = 2u,
+  DIAG_EXT2_WOULD_AUTO_WIFI_OFF_RECORDING = 3u,
+  DIAG_EXT2_WOULD_AUTO_WIFI_OFF_SELECTED = 4u,
+  DIAG_EXT2_WOULD_AUTO_DELETE = 5u,
+  DIAG_EXT2_VIRTUAL_READY = 6u,
+  DIAG_EXT2_VIRTUAL_RECORDING = 7u,
+  DIAG_EXT2_AUTO_WIFI_QUIET_5S = 8u
+};
+
+static uint8_t s_diag_queue[AUTOMATION_DIAGNOSTIC_QUEUE_DEPTH] = {};
+static uint32_t s_diag_queue_head = 0u;
+static uint32_t s_diag_queue_tail = 0u;
+static uint32_t s_diag_queue_count = 0u;
+static uint8_t s_diag_next_wire_code = DIAG_NONE;
+static int16_t s_diag_next_axis_offset_mg[3] = {0, 0, 0};
+static bool s_diag_prev_valid = false;
+static automation_status_t s_diag_prev_status = {};
+static automation_debug_status_t s_diag_prev_debug = {};
+static bool s_diag_start_motion_policy = false;
+static bool s_diag_start_attitude_policy = false;
+static bool s_diag_system_prev_valid = false;
+static recorder_state_t s_diag_prev_recorder_state = ST_BOOT;
+static bool s_diag_prev_auto_record = false;
+static bool s_diag_prev_auto_wifi = false;
+static bool s_diag_prev_auto_delete = false;
+static bool s_diag_prev_wifi_requested = false;
+static bool s_diag_prev_wifi_started = false;
+static bool s_diag_prev_usb_valid = false;
+static bool s_diag_prev_usb_present = false;
+static bool s_diag_ground_10s_emitted = false;
+static bool s_diag_ground_25s_emitted = false;
+static bool s_diag_ground_40s_emitted = false;
+static bool s_diag_virtual_auto_mode = false;
+static bool s_diag_virtual_session_active = false;
+static bool s_diag_observe_only_recording = false;
+static bool s_diag_virtual_wifi_on = false;
+static bool s_diag_virtual_wifi_wait_quiet = false;
+static uint32_t s_diag_virtual_wifi_quiet_count = 0u;
+
+static void diagnostic_queue_reset_(void){
+  s_diag_queue_head = 0u;
+  s_diag_queue_tail = 0u;
+  s_diag_queue_count = 0u;
+  s_diag_next_wire_code = DIAG_NONE;
+  s_diag_next_axis_offset_mg[0] = 0;
+  s_diag_next_axis_offset_mg[1] = 0;
+  s_diag_next_axis_offset_mg[2] = 0;
+  s_diag_prev_valid = false;
+  memset(&s_diag_prev_status, 0, sizeof(s_diag_prev_status));
+  memset(&s_diag_prev_debug, 0, sizeof(s_diag_prev_debug));
+  s_diag_ground_10s_emitted = false;
+  s_diag_ground_25s_emitted = false;
+  s_diag_ground_40s_emitted = false;
+}
+
+static void diagnostic_mark_queue_overflow_(void){
+  if(s_diag_queue_count >= 2u){
+    const uint32_t newest =
+        (s_diag_queue_tail + (uint32_t)AUTOMATION_DIAGNOSTIC_QUEUE_DEPTH - 1u) %
+        (uint32_t)AUTOMATION_DIAGNOSTIC_QUEUE_DEPTH;
+    const uint32_t previous =
+        (s_diag_queue_tail + (uint32_t)AUTOMATION_DIAGNOSTIC_QUEUE_DEPTH - 2u) %
+        (uint32_t)AUTOMATION_DIAGNOSTIC_QUEUE_DEPTH;
+    s_diag_queue[previous] = DIAG_EXTENDED;
+    s_diag_queue[newest] = DIAG_EXT_QUEUE_OVERFLOW;
+  }
+}
+
+static void diagnostic_enqueue_(uint8_t event_code){
+  if(event_code == DIAG_NONE){
+    return;
+  }
+  if(s_diag_queue_count >= (uint32_t)AUTOMATION_DIAGNOSTIC_QUEUE_DEPTH){
+    diagnostic_mark_queue_overflow_();
+    return;
+  }
+  s_diag_queue[s_diag_queue_tail] = event_code;
+  s_diag_queue_tail =
+      (s_diag_queue_tail + 1u) % (uint32_t)AUTOMATION_DIAGNOSTIC_QUEUE_DEPTH;
+  ++s_diag_queue_count;
+}
+
+static void diagnostic_enqueue_extended_(uint8_t event_code){
+  if(s_diag_queue_count > ((uint32_t)AUTOMATION_DIAGNOSTIC_QUEUE_DEPTH - 2u)){
+    diagnostic_mark_queue_overflow_();
+    return;
+  }
+  diagnostic_enqueue_(DIAG_EXTENDED);
+  diagnostic_enqueue_(event_code);
+}
+
+static void diagnostic_enqueue_extended2_(uint8_t event_code){
+  if(s_diag_queue_count > ((uint32_t)AUTOMATION_DIAGNOSTIC_QUEUE_DEPTH - 3u)){
+    diagnostic_mark_queue_overflow_();
+    return;
+  }
+  diagnostic_enqueue_(DIAG_EXTENDED);
+  diagnostic_enqueue_(DIAG_EXTENDED_2);
+  diagnostic_enqueue_(event_code);
+}
+
+static uint8_t diagnostic_dequeue_(void){
+  if(s_diag_queue_count == 0u){
+    return DIAG_NONE;
+  }
+  const uint8_t out = s_diag_queue[s_diag_queue_head];
+  s_diag_queue_head =
+      (s_diag_queue_head + 1u) % (uint32_t)AUTOMATION_DIAGNOSTIC_QUEUE_DEPTH;
+  --s_diag_queue_count;
+  return out;
+}
+
+static void diagnostic_prepare_overlay_(uint8_t wire_code){
+  const uint8_t tx = (uint8_t)(wire_code % 3u);
+  const uint8_t ty = (uint8_t)((wire_code / 3u) % 3u);
+  const uint8_t tz = (uint8_t)((wire_code / 9u) % 3u);
+  s_diag_next_axis_offset_mg[0] =
+      (int16_t)(((int32_t)tx - 1) * (int32_t)AUTOMATION_DIAGNOSTIC_AXIS_OFFSET_MG);
+  s_diag_next_axis_offset_mg[1] =
+      (int16_t)(((int32_t)ty - 1) * (int32_t)AUTOMATION_DIAGNOSTIC_AXIS_OFFSET_MG);
+  s_diag_next_axis_offset_mg[2] =
+      (int16_t)(((int32_t)tz - 1) * (int32_t)AUTOMATION_DIAGNOSTIC_AXIS_OFFSET_MG);
+}
+
+static void diagnostic_apply_prepared_overlay_(accel_sample_t *sample){
+  if(sample == nullptr){
+    return;
+  }
+  sample->ax = (int16_t)((int32_t)sample->ax + (int32_t)s_diag_next_axis_offset_mg[0]);
+  sample->ay = (int16_t)((int32_t)sample->ay + (int32_t)s_diag_next_axis_offset_mg[1]);
+  sample->az = (int16_t)((int32_t)sample->az + (int32_t)s_diag_next_axis_offset_mg[2]);
+}
+
+static void diagnostic_begin_recording_(void){
+  s_diag_prev_status = automation_service_status();
+  s_diag_prev_debug = automation_service_debug_status();
+  s_diag_prev_valid = true;
+  s_diag_ground_10s_emitted = false;
+  s_diag_ground_25s_emitted = false;
+  s_diag_ground_40s_emitted = false;
+  s_diag_virtual_wifi_on = false;
+  s_diag_virtual_wifi_wait_quiet = false;
+  s_diag_virtual_wifi_quiet_count = 0u;
+
+  if(s_diag_observe_only_recording){
+    diagnostic_enqueue_extended2_(DIAG_EXT2_OBSERVE_ONLY_ACTIVE);
+    diagnostic_enqueue_extended2_(DIAG_EXT2_VIRTUAL_READY);
+  }
+
+  if(s_diag_start_motion_policy){
+    diagnostic_enqueue_(DIAG_AUTO_START_MOTION_POLICY);
+  }
+  if(s_diag_start_attitude_policy){
+    diagnostic_enqueue_(DIAG_AUTO_START_ATTITUDE_POLICY);
+  }
+  s_diag_start_motion_policy = false;
+  s_diag_start_attitude_policy = false;
+
+  if(s_diag_next_wire_code == DIAG_NONE){
+    s_diag_next_wire_code = diagnostic_dequeue_();
+    diagnostic_prepare_overlay_(s_diag_next_wire_code);
+  }
+}
+
+static void diagnostic_update_after_cycle_(void){
+  // Event extraction deliberately runs at the end of the State-task cycle,
+  // after the current recording sample has already been pushed to the ring.
+  // The selected wire code is therefore carried by a later 20 Hz sample.
+
+  settings_t settings = {};
+  const bool settings_loaded = settings_get(&settings);
+  const bool auto_record = effective_auto_recording_(settings_loaded, settings);
+  const bool auto_wifi = effective_auto_wifi_(settings_loaded, settings);
+  const bool auto_delete = effective_auto_delete_(settings_loaded, settings);
+  const bool wifi_requested = web_task_is_enabled();
+  const bool wifi_started = web_task_is_started();
+
+  if(!s_diag_system_prev_valid){
+    s_diag_prev_recorder_state = s_st.state;
+    s_diag_prev_auto_record = auto_record;
+    s_diag_prev_auto_wifi = auto_wifi;
+    s_diag_prev_auto_delete = auto_delete;
+    s_diag_prev_wifi_requested = wifi_requested;
+    s_diag_prev_wifi_started = wifi_started;
+    s_diag_prev_usb_valid = s_st.usb_present_valid;
+    s_diag_prev_usb_present = s_st.usb_present;
+    s_diag_system_prev_valid = true;
+
+    if(auto_record){ diagnostic_enqueue_extended_(DIAG_EXT_AUTO_RECORD_SELECTED_ON); }
+    if(auto_wifi){ diagnostic_enqueue_extended_(DIAG_EXT_AUTO_WIFI_SELECTED_ON); }
+    if(auto_delete){ diagnostic_enqueue_extended_(DIAG_EXT_AUTO_DELETE_SELECTED_ON); }
+    if(wifi_requested){ diagnostic_enqueue_extended_(DIAG_EXT_WIFI_REQUESTED_ON); }
+    if(wifi_started){ diagnostic_enqueue_extended_(DIAG_EXT_WIFI_AP_STARTED); }
+    if(s_st.usb_present_valid){
+      diagnostic_enqueue_extended_(s_st.usb_present ? DIAG_EXT_USB_PRESENT
+                                                    : DIAG_EXT_USB_ABSENT);
+    }
+  } else {
+    if(s_st.state != s_diag_prev_recorder_state){
+      uint8_t ext = DIAG_EXT_STATE_READY;
+      switch(s_st.state){
+        case ST_READY: ext = DIAG_EXT_STATE_READY; break;
+        case ST_STARTING: ext = DIAG_EXT_STATE_STARTING; break;
+        case ST_RECORDING: ext = DIAG_EXT_STATE_RECORDING; break;
+        case ST_STOPPING: ext = DIAG_EXT_STATE_STOPPING; break;
+        case ST_ERROR: ext = DIAG_EXT_STATE_ERROR; break;
+        case ST_OFF: ext = DIAG_EXT_STATE_OFF; break;
+        default: break;
+      }
+      diagnostic_enqueue_extended_(ext);
+      s_diag_prev_recorder_state = s_st.state;
+    }
+    if(auto_record != s_diag_prev_auto_record){
+      diagnostic_enqueue_extended_(auto_record ? DIAG_EXT_AUTO_RECORD_SELECTED_ON
+                                               : DIAG_EXT_AUTO_RECORD_SELECTED_OFF);
+      s_diag_prev_auto_record = auto_record;
+    }
+    if(auto_wifi != s_diag_prev_auto_wifi){
+      diagnostic_enqueue_extended_(auto_wifi ? DIAG_EXT_AUTO_WIFI_SELECTED_ON
+                                             : DIAG_EXT_AUTO_WIFI_SELECTED_OFF);
+      s_diag_prev_auto_wifi = auto_wifi;
+    }
+    if(auto_delete != s_diag_prev_auto_delete){
+      diagnostic_enqueue_extended_(auto_delete ? DIAG_EXT_AUTO_DELETE_SELECTED_ON
+                                               : DIAG_EXT_AUTO_DELETE_SELECTED_OFF);
+      s_diag_prev_auto_delete = auto_delete;
+    }
+    if(wifi_requested != s_diag_prev_wifi_requested){
+      diagnostic_enqueue_extended_(wifi_requested ? DIAG_EXT_WIFI_REQUESTED_ON
+                                                  : DIAG_EXT_WIFI_REQUESTED_OFF);
+      s_diag_prev_wifi_requested = wifi_requested;
+    }
+    if(wifi_started != s_diag_prev_wifi_started){
+      diagnostic_enqueue_extended_(wifi_started ? DIAG_EXT_WIFI_AP_STARTED
+                                                : DIAG_EXT_WIFI_AP_STOPPED);
+      s_diag_prev_wifi_started = wifi_started;
+    }
+    if(s_st.usb_present_valid &&
+       ((!s_diag_prev_usb_valid) || (s_st.usb_present != s_diag_prev_usb_present))){
+      diagnostic_enqueue_extended_(s_st.usb_present ? DIAG_EXT_USB_PRESENT
+                                                    : DIAG_EXT_USB_ABSENT);
+      s_diag_prev_usb_present = s_st.usb_present;
+    }
+    s_diag_prev_usb_valid = s_st.usb_present_valid;
+  }
+
+  if(s_st.state != ST_RECORDING){
+    if(s_diag_next_wire_code == DIAG_NONE){
+      s_diag_next_wire_code = diagnostic_dequeue_();
+      diagnostic_prepare_overlay_(s_diag_next_wire_code);
+    }
+    return;
+  }
+
+  const automation_status_t status = automation_service_status();
+  const automation_debug_status_t debug = automation_service_debug_status();
+
+  if(!s_diag_prev_valid){
+    s_diag_prev_status = status;
+    s_diag_prev_debug = debug;
+    s_diag_prev_valid = true;
+  } else {
+    if(status.motion_start_confirmed != s_diag_prev_status.motion_start_confirmed){
+      diagnostic_enqueue_(status.motion_start_confirmed ? DIAG_MOTION_START_ON
+                                                        : DIAG_MOTION_START_OFF);
+    }
+    if(status.attitude_start_confirmed != s_diag_prev_status.attitude_start_confirmed){
+      diagnostic_enqueue_(status.attitude_start_confirmed ? DIAG_ATTITUDE_START_ON
+                                                          : DIAG_ATTITUDE_START_OFF);
+    }
+    if(status.motion_stop_confirmed != s_diag_prev_status.motion_stop_confirmed){
+      diagnostic_enqueue_(status.motion_stop_confirmed ? DIAG_MOTION_STOP_ON
+                                                       : DIAG_MOTION_STOP_OFF);
+    }
+    if(debug.hirms_above != s_diag_prev_debug.hirms_above){
+      diagnostic_enqueue_(debug.hirms_above ? DIAG_HIRMS_ABOVE : DIAG_HIRMS_BELOW);
+    }
+    if(debug.primary_confirming && !s_diag_prev_debug.primary_confirming){
+      diagnostic_enqueue_(DIAG_PRIMARY_CONFIRMING);
+    }
+    if(debug.possible_flight && !s_diag_prev_debug.possible_flight){
+      diagnostic_enqueue_(DIAG_POSSIBLE_FLIGHT);
+    }
+    if(status.flight_seen && !s_diag_prev_status.flight_seen){
+      diagnostic_enqueue_(debug.primary_confirmed ? DIAG_FLIGHT_SEEN_PRIMARY
+                                                   : DIAG_FLIGHT_SEEN_SECONDARY);
+    }
+    if(debug.hirms_event_active && !s_diag_prev_debug.hirms_event_active){
+      diagnostic_enqueue_(DIAG_HIRMS_EVENT_START);
+    }
+    if(debug.hirms_event_duration_ok && !s_diag_prev_debug.hirms_event_duration_ok){
+      diagnostic_enqueue_(DIAG_HIRMS_EVENT_3S);
+    }
+    if(debug.hirms_event_saw_flight_fg && !s_diag_prev_debug.hirms_event_saw_flight_fg){
+      diagnostic_enqueue_(DIAG_HIRMS_EVENT_SAW_FLIGHT_FG);
+    }
+    if(s_diag_prev_debug.hirms_event_active && !debug.hirms_event_active){
+      const bool valid_event_started =
+          debug.valid_landing_event && !s_diag_prev_debug.valid_landing_event;
+      diagnostic_enqueue_(valid_event_started ? DIAG_HIRMS_EVENT_END_VALID
+                                              : DIAG_HIRMS_EVENT_END_INVALID);
+    }
+    if(s_diag_prev_debug.valid_landing_event && !debug.valid_landing_event &&
+       !debug.ground_candidate){
+      diagnostic_enqueue_(DIAG_LANDING_EVENT_EXPIRED);
+    }
+    if(debug.fg_low_confirming && !s_diag_prev_debug.fg_low_confirming){
+      diagnostic_enqueue_(DIAG_FG_LOW_START);
+    }
+    if(s_diag_prev_debug.fg_low_confirming && !debug.fg_low_confirming &&
+       !debug.ground_candidate){
+      diagnostic_enqueue_(DIAG_FG_LOW_RESET);
+    }
+    if(debug.ground_candidate && !s_diag_prev_debug.ground_candidate){
+      diagnostic_enqueue_(DIAG_GROUND_CANDIDATE);
+    }
+    if(s_diag_prev_debug.ground_candidate && !debug.ground_candidate &&
+       !status.flight_end_confirmed){
+      diagnostic_enqueue_(DIAG_GROUND_CANCELLED);
+    }
+    if(status.flight_end_confirmed && !s_diag_prev_status.flight_end_confirmed){
+      diagnostic_enqueue_(DIAG_FLIGHT_END_CONFIRMED);
+    }
+
+    if(debug.ground_candidate){
+      const uint32_t n10 = (uint32_t)(10.0f * 20.0f + 0.5f);
+      const uint32_t n25 = (uint32_t)(25.0f * 20.0f + 0.5f);
+      const uint32_t n40 = (uint32_t)(40.0f * 20.0f + 0.5f);
+      if(!s_diag_ground_10s_emitted && debug.ground_count_samples >= n10){
+        diagnostic_enqueue_extended_(DIAG_EXT_GROUND_10S);
+        s_diag_ground_10s_emitted = true;
+      }
+      if(!s_diag_ground_25s_emitted && debug.ground_count_samples >= n25){
+        diagnostic_enqueue_extended_(DIAG_EXT_GROUND_25S);
+        s_diag_ground_25s_emitted = true;
+      }
+      if(!s_diag_ground_40s_emitted && debug.ground_count_samples >= n40){
+        diagnostic_enqueue_extended_(DIAG_EXT_GROUND_40S);
+        s_diag_ground_40s_emitted = true;
+      }
+    } else {
+      s_diag_ground_10s_emitted = false;
+      s_diag_ground_25s_emitted = false;
+      s_diag_ground_40s_emitted = false;
+    }
+
+    bool virtual_detector_reset = false;
+    if(s_diag_virtual_auto_mode){
+      if(!s_diag_virtual_session_active){
+        const bool virtual_start =
+            status.motion_start_confirmed || status.attitude_start_confirmed;
+        if(virtual_start){
+          if(status.motion_start_confirmed){
+            diagnostic_enqueue_(DIAG_AUTO_START_MOTION_POLICY);
+          }
+          if(status.attitude_start_confirmed){
+            diagnostic_enqueue_(DIAG_AUTO_START_ATTITUDE_POLICY);
+          }
+          diagnostic_enqueue_extended_(DIAG_EXT_VIRTUAL_AUTO_SESSION_START);
+          diagnostic_enqueue_extended2_(DIAG_EXT2_VIRTUAL_RECORDING);
+          s_diag_virtual_session_active = true;
+          automation_service_begin_recording();
+          automation_service_reset_start_confirmation();
+          virtual_detector_reset = true;
+        }
+      } else if(!status.flight_seen && status.motion_stop_confirmed){
+        diagnostic_enqueue_extended_(DIAG_EXT_VIRTUAL_AUTO_STOP_NO_FLIGHT);
+        if(auto_delete){
+          diagnostic_enqueue_extended2_(DIAG_EXT2_WOULD_AUTO_DELETE);
+        }
+        diagnostic_enqueue_extended2_(DIAG_EXT2_VIRTUAL_READY);
+        s_diag_virtual_session_active = false;
+        automation_service_begin_recording();
+        automation_service_reset_start_confirmation();
+        virtual_detector_reset = true;
+      } else if(status.flight_seen && status.flight_end_confirmed){
+        diagnostic_enqueue_extended_(DIAG_EXT_VIRTUAL_AUTO_STOP_FLIGHT_END);
+        diagnostic_enqueue_extended2_(DIAG_EXT2_VIRTUAL_READY);
+        s_diag_virtual_session_active = false;
+        automation_service_begin_recording();
+        automation_service_reset_start_confirmation();
+        virtual_detector_reset = true;
+      }
+    }
+
+    // Observe-only AUTO WIFI policy trace. This simulates the intended virtual
+    // READY/RECORDING behavior without touching the actual Web/AP state. AUTO
+    // WIFI is initially ON in a quiet virtual READY state, turns OFF for motion
+    // or a virtual recording, and returns ON after 5 s of quiet.
+    if(s_diag_observe_only_recording){
+      const uint32_t quiet_needed =
+          (uint32_t)(AUTOMATION_DIAGNOSTIC_AUTO_WIFI_QUIET_S * 20.0f + 0.5f);
+
+      if(!auto_wifi){
+        if(s_diag_virtual_wifi_on){
+          diagnostic_enqueue_extended2_(DIAG_EXT2_WOULD_AUTO_WIFI_OFF_SELECTED);
+        }
+        s_diag_virtual_wifi_on = false;
+        s_diag_virtual_wifi_wait_quiet = false;
+        s_diag_virtual_wifi_quiet_count = 0u;
+      } else if(s_diag_virtual_session_active){
+        if(s_diag_virtual_wifi_on){
+          diagnostic_enqueue_extended2_(DIAG_EXT2_WOULD_AUTO_WIFI_OFF_RECORDING);
+        }
+        s_diag_virtual_wifi_on = false;
+        s_diag_virtual_wifi_wait_quiet = true;
+        s_diag_virtual_wifi_quiet_count = 0u;
+      } else if(status.motion_start_confirmed){
+        if(s_diag_virtual_wifi_on){
+          diagnostic_enqueue_extended2_(DIAG_EXT2_WOULD_AUTO_WIFI_OFF_MOTION);
+        }
+        s_diag_virtual_wifi_on = false;
+        s_diag_virtual_wifi_wait_quiet = true;
+        s_diag_virtual_wifi_quiet_count = 0u;
+      } else if(s_diag_virtual_wifi_wait_quiet){
+        if(status.motion_rms_g < (float)AUTO_RECORD_MOTION_THRESHOLD_G){
+          if(s_diag_virtual_wifi_quiet_count < quiet_needed){
+            ++s_diag_virtual_wifi_quiet_count;
+          }
+          if(s_diag_virtual_wifi_quiet_count >= quiet_needed){
+            diagnostic_enqueue_extended2_(DIAG_EXT2_AUTO_WIFI_QUIET_5S);
+            diagnostic_enqueue_extended2_(DIAG_EXT2_WOULD_AUTO_WIFI_ON);
+            s_diag_virtual_wifi_on = true;
+            s_diag_virtual_wifi_wait_quiet = false;
+          }
+        } else {
+          s_diag_virtual_wifi_quiet_count = 0u;
+        }
+      } else if(!s_diag_virtual_wifi_on){
+        diagnostic_enqueue_extended2_(DIAG_EXT2_WOULD_AUTO_WIFI_ON);
+        s_diag_virtual_wifi_on = true;
+      }
+    }
+
+    if(virtual_detector_reset){
+      s_diag_prev_status = automation_service_status();
+      s_diag_prev_debug = automation_service_debug_status();
+      s_diag_ground_10s_emitted = false;
+      s_diag_ground_25s_emitted = false;
+      s_diag_ground_40s_emitted = false;
+    } else {
+      s_diag_prev_status = status;
+      s_diag_prev_debug = debug;
+    }
+  }
+
+  // A wire code stays pending until a recording sample actually consumes it.
+  // If the previous code was consumed in acceleration_service_(), load the next
+  // queued event now for the following sample.
+  if(s_diag_next_wire_code == DIAG_NONE){
+    s_diag_next_wire_code = diagnostic_dequeue_();
+    diagnostic_prepare_overlay_(s_diag_next_wire_code);
+  }
+}
+#endif
 
 // =============================================================================
 // Published status snapshot helpers
@@ -177,6 +736,99 @@ static void ui_clear_record_requests_(void){
   s_ui_record_start_requested = false;
   s_ui_record_stop_requested = false;
   portEXIT_CRITICAL(&s_ui_cmd_mux);
+}
+
+/** Apply pending UI configuration/control requests from the State task. */
+static void ui_apply_control_requests_(void){
+  ui_control_requests_t req = {};
+
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  req = s_ui_control_requests;
+  s_ui_control_requests = {};
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
+
+  if(req.language_toggle){
+    settings_t settings = {};
+    if(settings_get(&settings)){
+      const language_t next = (settings.language == LANGUAGE_FRENCH)
+                                ? LANGUAGE_ENGLISH : LANGUAGE_FRENCH;
+      (void)settings_set_language(next);
+    }
+  }
+
+  if(req.set_date){
+    rtc_datetime_t dt = {};
+    if(datetime_service_get(&dt)){
+      dt.year = req.year;
+      dt.month = req.month;
+      dt.day = req.day;
+      if(datetime_service_set(&dt)){
+        (void)settings_set_date_set(true);
+      }
+    }
+  }
+
+  if(req.set_time){
+    rtc_datetime_t dt = {};
+    if(datetime_service_get(&dt)){
+      dt.hour = req.hour;
+      dt.min = req.minute;
+      dt.sec = 0u;
+      if(datetime_service_set(&dt)){
+        (void)settings_set_time_set(true);
+      }
+    }
+  }
+
+  if(req.set_registration){
+    (void)settings_set_registration(req.registration);
+  }
+
+  if(req.auto_recording_toggle){
+#if !(AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY && AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON)
+    settings_t settings = {};
+    if(settings_get(&settings)){
+      (void)settings_set_auto_recording(!settings.auto_recording);
+    }
+#endif
+  }
+
+  if(req.auto_wifi_toggle){
+#if !(AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY && AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON)
+    settings_t settings = {};
+    if(settings_get(&settings)){
+      const bool enable = !settings.auto_wifi;
+      if(settings_set_auto_wifi(enable) && enable &&
+         (s_st.state == ST_READY) && settings_is_complete(&settings)){
+#if !AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY
+        // Apply an AUTO WIFI enable immediately when selected in READY.
+        // READY exit still disables WiFi before STARTING.
+        web_task_set_enabled(true);
+#endif
+      }
+    }
+#endif
+  }
+
+  if(req.auto_delete_toggle){
+#if !(AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY && AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON)
+    settings_t settings = {};
+    if(settings_get(&settings)){
+      (void)settings_set_auto_delete(!settings.auto_delete);
+    }
+#endif
+  }
+
+  if(req.wifi_toggle && (s_st.state == ST_READY)){
+    if(web_task_is_enabled()){
+      web_task_set_enabled(false);
+    }else{
+      settings_t settings = {};
+      if(settings_get(&settings) && settings_is_complete(&settings)){
+        web_task_set_enabled(true);
+      }
+    }
+  }
 }
 
 // =============================================================================
@@ -400,39 +1052,88 @@ static void update_battery_snapshot(void){
 
 
 // =============================================================================
-// Recording recurring action
+// Continuous acceleration acquisition
 // =============================================================================
 
 /**
- * Recording service samples the acceleration sensor, builds the recording
- * block, feeds the ring buffer, and latches sensor or ring-buffer errors for
- * the state machine.
+ * Acquire one normal 20 Hz acceleration sample from the State-task context.
  *
- * Inputs: None.
- * Returns: None.
+ * Signal processing runs continuously through READY/STARTING/RECORDING/STOPPING.
+ * Recording block formation and ring-buffer updates remain strictly conditional
+ * on ST_RECORDING, preserving the existing recorder data path. Calibration keeps
+ * its existing direct accelerometer ownership and temporarily suspends this path.
  */
-static void recording_service(void){
-  // In RECORDING, acquire samples and push to ring buffer.
-  // Note: SD task drains the ring buffer by polling; no notification required.
-  // (This keeps communication simple and avoids extra queues.)
+static void acceleration_service_(bool recording_enabled, bool suspended){
+  static bool was_suspended = true;
 
-  accel_sample_t sample;
-  int32_t ts_ms = 0;
-  if(!accel_read_xyz_bounded(&sample, &ts_ms)){
-    // Sampling failure is latched here; ST_RECORDING transitions to ST_ERROR
-    // after recording_service() returns.
-    error_manager_raise(ERR_ACCEL_NO_RESPONSE);
+  if(suspended){
+    if(!was_suspended){
+      automation_service_reset_signal_history();
+    }
+    was_suspended = true;
     return;
   }
 
-  record_block_t blk;
-  record_format_build_block(&blk, ts_ms, &sample);
-  if(!ring_buffer_push(&blk)){
-    // Buffer overflow is latched here; ST_RECORDING transitions to ST_ERROR
-    // after recording_service() returns.
+  if(was_suspended){
+    // Samples separated by BOOT/ERROR/calibration are not contiguous. Start a
+    // fresh causal history when normal 20 Hz acquisition resumes.
+    automation_service_reset_signal_history();
+    was_suspended = false;
+  }
+
+  if(!accel_ok){
+    return;
+  }
+
+  accel_sample_t sample = {};
+  int32_t ts_ms = 0;
+  if(!accel_read_xyz_bounded(&sample, &ts_ms)){
+    // READY automation can tolerate an occasional failed sample. During an
+    // actual recording, preserve the existing fatal acquisition semantics.
+    if(recording_enabled){
+      error_manager_raise(ERR_ACCEL_NO_RESPONSE);
+    }
+    return;
+  }
+
+  bool automation_logic_recording = recording_enabled;
+#if AUTOMATION_DIAGNOSTIC_OVERLAY_ENABLED
+  if(recording_enabled && s_diag_observe_only_recording){
+    // In the all-day observe-only file, per-record flight logic is active only
+    // inside a virtual AUTO RECORD session. The physical manual recording
+    // remains open and is never controlled by automation.
+    automation_logic_recording =
+        s_diag_virtual_auto_mode && s_diag_virtual_session_active;
+  }
+#endif
+  automation_service_update(&sample, automation_logic_recording);
+
+  if(!recording_enabled){
+    return;
+  }
+
+#if AUTOMATION_DIAGNOSTIC_OVERLAY_ENABLED
+  // Recorder-side consumers are finished with this sample. Only three
+  // precomputed integer offsets are applied before the ring push; all event
+  // detection/queuing is deferred until after the push.
+  diagnostic_apply_prepared_overlay_(&sample);
+#endif
+
+  record_block_t block = {};
+  record_format_build_block(&block, ts_ms, &sample);
+  if(!ring_buffer_push(&block)){
     error_manager_raise(ERR_RINGBUFFER_OVERFLOW);
     return;
   }
+
+#if AUTOMATION_DIAGNOSTIC_OVERLAY_ENABLED
+  // The pending code has now been committed to the recording stream. The next
+  // code will be selected later in diagnostic_update_after_cycle_().
+  s_diag_next_wire_code = DIAG_NONE;
+  s_diag_next_axis_offset_mg[0] = 0;
+  s_diag_next_axis_offset_mg[1] = 0;
+  s_diag_next_axis_offset_mg[2] = 0;
+#endif
 
   watchdog_kick(WD_RECORD);
 }
@@ -450,10 +1151,11 @@ static void recording_service(void){
  * Returns: None.
  */
 static inline void ready_exit_cleanup(void){
+  // USB-loss warning is a READY-only automation alert.
+  audio_alert_service_set_usb_power_loss(false);
   // On exit from READY, WiFi/Web shall be OFF.
   web_task_set_enabled(false);
   // SD file-management shall be disabled outside READY.
-  sd_files_set_authorized(false);
   // Disable touch when leaving READY. RECORDING re-enables touch on entry so
   // display standby can wake from touch while recording.
   touch_enable(false);
@@ -487,29 +1189,61 @@ static msg_id_t sd_maintenance_msg_(error_code_t err){
 /**
  * Reports whether the recorder shall shut down for low battery.
  *
- * Low-battery protection is independent of Web/WiFi activity. USB presence
- * is used only as evidence that external power is available. If the battery
- * is already below the threshold and the current USB status is unavailable,
- * the recorder shuts down fail-safe instead of continuing on an uncertain
- * power source.
+ * The configured 5% threshold is absolute. When reached, the recorder closes
+ * any active recording and shuts down regardless of USB, WiFi, or automation.
  *
  * Inputs: None.
  * Returns: `true` when the low-battery shutdown path shall be entered.
  */
-static bool low_power_on_battery_(void){
-  if(!s_battery_low_cached){
+static bool automation_diag_force_all_on_(void){
+#if AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY && AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON
+  return true;
+#else
+  return false;
+#endif
+}
+
+static bool effective_auto_recording_(bool settings_loaded, const settings_t &settings){
+  return automation_diag_force_all_on_() || (settings_loaded && settings.auto_recording);
+}
+
+static bool effective_auto_wifi_(bool settings_loaded, const settings_t &settings){
+  return automation_diag_force_all_on_() || (settings_loaded && settings.auto_wifi);
+}
+
+static bool effective_auto_delete_(bool settings_loaded, const settings_t &settings){
+  return automation_diag_force_all_on_() || (settings_loaded && settings.auto_delete);
+}
+
+static bool low_battery_shutdown_required_(void){
+  // The 5% threshold is an absolute battery-protection limit. It is not
+  // cancelled by USB presence, WiFi state, automation, or active recording.
+  return s_battery_low_cached;
+}
+
+/**
+ * Return whether the current recording shall be discarded after a clean close.
+ * Only automatically started recordings are eligible; manual recordings are
+ * always retained. The live detector has already accumulated the evidence, so
+ * no post-close analysis state is required.
+ */
+static bool auto_delete_current_recording_(void){
+#if AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY
+  // Field diagnostic build is strictly observe-only: AUTO DELETE decisions
+  // are logged by the virtual policy trace but never remove a physical file.
+  return false;
+#endif
+  if(!s_recording_automatic){
     return false;
   }
 
-  // Low-battery protection is independent of WiFi/Web activity. USB presence
-  // only confirms that external power is available. If USB status is unknown
-  // while the battery is already low, shut down fail-safe instead of keeping
-  // the recorder alive on an uncertain power source.
-  if(!s_st.usb_present_valid){
-    return true;
+  settings_t settings = {};
+  const bool settings_loaded = settings_get(&settings);
+  if(!effective_auto_delete_(settings_loaded, settings)){
+    return false;
   }
 
-  return !s_st.usb_present;
+  return !automation_service_status().flight_seen;
 }
 
 /**
@@ -522,21 +1256,20 @@ static void request_low_battery_shutdown_(void){
   s_low_battery_shutdown_requested = true;
   s_low_battery_notice_active = true;
   web_task_set_enabled(false);
-  sd_files_set_authorized(false);
   touch_enable(false);
   state_set(ST_OFF);
   set_msg(MSG_LOW_BATT);
 }
 
 /**
- * Low-power shutdown service enforces battery protection from any state when
- * the recorder is running on battery without USB power.
+ * Low-power shutdown service enforces the absolute battery-protection threshold
+ * from every recorder state.
  *
  * Inputs: None.
  * Returns: None.
  */
 static void low_power_shutdown_service_(void){
-  if(!low_power_on_battery_()){
+  if(!low_battery_shutdown_required_()){
     return;
   }
 
@@ -551,7 +1284,7 @@ static void low_power_shutdown_service_(void){
     case ST_STARTING:
       s_shutdown_after_stop_requested = true;
       s_low_battery_shutdown_requested = true;
-      sd_request_close();
+      sd_request_close(auto_delete_current_recording_());
       state_set(ST_STOPPING);
       return;
 
@@ -612,6 +1345,7 @@ static void state_task_main(void *arg){
   timebase_init();
   datetime_service_init();
   (void)calibration_service_init();
+  automation_service_init();
 
   s_watchdog_ack_pending = watchdog_persistent_fault_present();
   if(s_watchdog_ack_pending){
@@ -660,8 +1394,23 @@ static void state_task_main(void *arg){
 
     calibration_session_service(now);
 
+    // Calibration keeps its established direct accelerometer ownership. In all
+    // normal operational states the State task performs one 20 Hz acquisition;
+    // only ST_RECORDING formats/pushes the resulting recording block.
+    const bool calibration_acquisition_active =
+        calibration_session_active() || calibration_installation_session_active();
+    const bool normal_acquisition_state =
+        (s_st.state == ST_READY) || (s_st.state == ST_STARTING) ||
+        (s_st.state == ST_RECORDING) || (s_st.state == ST_STOPPING);
+    acceleration_service_(s_st.state == ST_RECORDING,
+                          calibration_acquisition_active || !normal_acquisition_state);
+
     // Tick counter since last transition; used for simple periodic actions.
     s_state_tick++;
+
+    // UI only posts requests. Runtime settings persistence and WiFi enable
+    // decisions are applied here so State remains the single authority.
+    ui_apply_control_requests_();
 
     switch(s_st.state){
 
@@ -766,17 +1515,29 @@ static void state_task_main(void *arg){
           // Touch shall be enabled in READY.
           touch_enable(true);
 
-          // On entry to READY, WiFi shall be OFF by default.
-          web_task_set_enabled(false);
-          // SD file management is only allowed in READY when WiFi/Web is enabled.
-          // Default is OFF because WiFi is forced OFF on READY entry.
-          sd_files_set_authorized(false);
+          // AUTO WIFI is a READY-entry action only. It uses the same existing
+          // Web/WiFi enable path as manual control; leaving READY turns WiFi OFF
+          // through ready_exit_cleanup(), including READY -> STARTING.
+          settings_t ready_settings = {};
+          const bool ready_settings_loaded = settings_storage_ok && settings_get(&ready_settings);
+          const bool auto_wifi_on = ready_settings_loaded &&
+                                    settings_is_complete(&ready_settings) &&
+                                    effective_auto_wifi_(ready_settings_loaded, ready_settings);
+#if AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY
+          // Field diagnostic build: AUTO WIFI is forced logically ON for the
+          // virtual policy trace, but it cannot actuate the real Web/AP.
+          (void)auto_wifi_on;
+#else
+          web_task_set_enabled(auto_wifi_on);
+#endif
 
           // READY entry resets state-task-owned stop/error latches only. It
           // shall not directly clear SD-task internal state.
           s_shutdown_after_stop_requested = false;
           s_low_battery_shutdown_requested = false;
           s_low_battery_notice_active = false;
+          s_recording_automatic = false;
+          automation_service_reset_start_confirmation();
           error_manager_clear_active();
 
           // READY is the normal state where the UI can edit date/time settings.
@@ -808,10 +1569,11 @@ static void state_task_main(void *arg){
           touch_service_update_from_hw();
         }
 
-        // Settings are persisted by settings_store directly (UI/Web call it).
+        // Settings are changed only by this State task through latched UI requests.
         // Incomplete settings keep READY active but prevent recording start.
         settings_t settings = {};
-        const bool settings_ready = settings_storage_ok && settings_get(&settings) && settings_is_complete(&settings);
+        const bool settings_loaded = settings_storage_ok && settings_get(&settings);
+        const bool settings_ready = settings_loaded && settings_is_complete(&settings);
         calibration_service_refresh_status();
         calibration_service_publish_driver_state();
         const calibration_status_t cal_status = calibration_service_status();
@@ -840,9 +1602,20 @@ static void state_task_main(void *arg){
         // disabled by the UI.  The physical RECORD button intentionally keeps
         // authority so recording can always be started independently of the
         // UI/Web layer.  Leaving READY for STARTING forces WiFi/Web OFF.
-        const bool start_record_requested =
+        const bool manual_start_requested =
             (record_requested && (!power_pressed)) ||
             ((!wifi_active) && ui_start_requested);
+        const bool automation_selected = effective_auto_recording_(settings_loaded, settings);
+        const bool automation_policy_enabled =
+            automation_selected && (AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY == 0);
+        const bool automation_armed =
+            settings_ready && calibration_ready && (!sd_maintenance_needed) &&
+            (!calibration_acquisition_active) && automation_policy_enabled;
+        const automation_status_t automation_status = automation_service_status();
+        const bool automatic_start_requested =
+            automation_armed &&
+            (automation_status.motion_start_confirmed ||
+             automation_status.attitude_start_confirmed);
 
         // Keep setup-lock messages visible until all required setup is complete.
         // Settings are checked first, then calibration status.
@@ -864,10 +1637,6 @@ static void state_task_main(void *arg){
                   (s_st.message_id == MSG_SD_FULL_FILES)){
           set_msg(MSG_READY);
         }
-
-        // SD file-management access is only allowed in READY when WiFi/Web is enabled.
-        // Keep the authorization gate synchronized with the Web task enable.
-        sd_files_set_authorized(wifi_active);
 
         // State change actions
         // READY still monitors SD errors because SD task may detect an SD fault
@@ -903,7 +1672,7 @@ static void state_task_main(void *arg){
             (!s_st.usb_present);
         const bool recorder_calibration_active = calibration_session_active();
 
-        if(wifi_on_battery && (!recorder_calibration_active)){
+        if((!automation_policy_enabled) && wifi_on_battery && (!recorder_calibration_active)){
           if(!s_wifi_battery_idle_timer_active){
             s_wifi_battery_idle_timer_active = true;
             s_wifi_battery_idle_since_ms = now;
@@ -921,10 +1690,19 @@ static void state_task_main(void *arg){
           s_wifi_battery_idle_since_ms = 0u;
         }
 
-        // USB removal powers the recorder down immediately only from normal
-        // READY. When WiFi/Web is active, the battery-WiFi rule above owns the
-        // shutdown timing so recorder calibration can continue on battery.
-        const bool trig_usb_shutdown = trig_usb && (!wifi_active);
+        // AUTO RECORDING deliberately allows READY to remain powered from the
+        // internal battery. While USB is absent in READY, give a persistent
+        // double-beep warning so the ground operator is prompted to restore
+        // external power. Leaving READY stops the warning; therefore recording
+        // itself is never accompanied by this alert. The independent <=5%
+        // battery shutdown remains authoritative.
+        const bool usb_power_loss_alert =
+            automation_policy_enabled &&
+            s_st.usb_present_valid &&
+            (!s_st.usb_present);
+        audio_alert_service_set_usb_power_loss(usb_power_loss_alert);
+
+        const bool trig_usb_shutdown = trig_usb && (!wifi_active) && (!automation_policy_enabled);
 
         if(trig_usb_shutdown || trig_pwr){
           ready_exit_cleanup();
@@ -950,7 +1728,28 @@ static void state_task_main(void *arg){
           break;
         }
 
-        if(settings_ready && calibration_ready && (!sd_maintenance_needed) && start_record_requested){
+        if(settings_ready && calibration_ready && (!sd_maintenance_needed) &&
+           (manual_start_requested || automatic_start_requested)){
+          // Manual start wins if both requests qualify on the same tick. Reset
+          // only the per-record flight evidence; causal filter/RMS history stays
+          // continuous across the recording boundary.
+          s_recording_automatic = (!manual_start_requested) && automatic_start_requested;
+#if AUTOMATION_DIAGNOSTIC_OVERLAY_ENABLED
+          s_diag_observe_only_recording =
+              manual_start_requested && (AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY != 0);
+          s_diag_virtual_auto_mode =
+              s_diag_observe_only_recording && automation_selected;
+          s_diag_virtual_session_active = false;
+          if(manual_start_requested){
+            diagnostic_enqueue_extended_(DIAG_EXT_MANUAL_RECORD_START);
+          }
+          s_diag_start_motion_policy =
+              s_recording_automatic && automation_status.motion_start_confirmed;
+          s_diag_start_attitude_policy =
+              s_recording_automatic && automation_status.attitude_start_confirmed;
+#endif
+          automation_service_begin_recording();
+          automation_service_reset_start_confirmation();
           ready_exit_cleanup();
           state_set(ST_STARTING);
           break;
@@ -992,6 +1791,9 @@ static void state_task_main(void *arg){
         // SD_OPEN is owned by sd_task. When sd_task reports the file open,
         // recording can begin unless an SD open error is reported below.
         if(sd_is_open()){
+#if AUTOMATION_DIAGNOSTIC_OVERLAY_ENABLED
+          diagnostic_begin_recording_();
+#endif
           state_set(ST_RECORDING);
           break;
         }
@@ -1034,14 +1836,14 @@ static void state_task_main(void *arg){
           touch_service_update_from_hw();
         }
 
-        // recording_service() performs acquisition, formatting, and ring-buffer
-        // push. It may raise non-SD recorder-core errors.
-        recording_service();
+        // The common 20 Hz acceleration service already acquired this tick's
+        // sample before the state switch and, because state is RECORDING, built
+        // the 0x70 block and pushed it to the existing ring buffer.
 
         // State change actions
         // Faults are evaluated before operator stop requests so the recorded
         // error cause is not hidden by a simultaneous button action.
-        // 1) Non-SD recording faults raised by recording_service() stop
+        // 1) Non-SD recording faults raised by the acceleration service stop
         // recording immediately. SD errors are handled below through sd_task.
         const error_code_t active_err = error_manager_get_active();
         if((active_err != ERR_NONE) && !error_manager_is_sd_error(active_err)){
@@ -1084,17 +1886,54 @@ static void state_task_main(void *arg){
 
         // Low battery uses the same close-then-shutdown path as power-long:
         // close the file through ST_STOPPING before entering ST_OFF.
-        if(low_power_on_battery_() == true){
+        if(low_battery_shutdown_required_() == true){
           s_shutdown_after_stop_requested = true;
           s_low_battery_shutdown_requested = true;
           state_set(ST_STOPPING);
           break;
+        }
+
+        // Automatic stop applies only to an automatically started session. In the
+        // v1.54 diagnostic build this physical policy is suppressed. Before flight_seen, the
+        // existing 300 s quiet timeout closes nuisance/pre-flight recordings.
+        // Once flight_seen latches, motion quiet can no longer stop the file;
+        // only the dedicated ordered flight-end detector may do so.
+        settings_t recording_settings = {};
+        const bool recording_settings_loaded = settings_get(&recording_settings);
+        const bool auto_recording_enabled =
+            effective_auto_recording_(recording_settings_loaded, recording_settings);
+        if(s_recording_automatic && auto_recording_enabled &&
+           (AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY == 0)){
+          const automation_status_t automation_status = automation_service_status();
+          const bool automatic_stop_requested =
+              automation_status.flight_seen
+                  ? automation_status.flight_end_confirmed
+                  : automation_status.motion_stop_confirmed;
+          if(automatic_stop_requested){
+            state_set(ST_STOPPING);
+            break;
+          }
         }
         break;
       }
 
 
       case ST_STOPPING: {
+
+#if AUTOMATION_DIAGNOSTIC_OVERLAY_ENABLED
+        if(s_first_pass){
+          // No further 0x70 samples will be written in STOPPING. Drop any
+          // un-emitted events from the completed recording so they cannot leak
+          // into the next file; READY events accumulated afterward remain fresh.
+          diagnostic_queue_reset_();
+          s_diag_virtual_auto_mode = false;
+          s_diag_virtual_session_active = false;
+          s_diag_observe_only_recording = false;
+          s_diag_virtual_wifi_on = false;
+          s_diag_virtual_wifi_wait_quiet = false;
+          s_diag_virtual_wifi_quiet_count = 0u;
+        }
+#endif
 
         // Record start/stop UI commands are not applicable in this state.
         ui_clear_record_requests_();
@@ -1108,7 +1947,10 @@ static void state_task_main(void *arg){
         // Entry actions
         if(s_first_pass){
           touch_enable(false);
-          sd_request_close();
+          // The live detector already knows whether an automatically started
+          // session contained flight evidence. If AUTO DELETE is selected, the
+          // SD task closes the file normally then removes both .bin and .sha.
+          sd_request_close(auto_delete_current_recording_());
           s_first_pass = false;
         }
 
@@ -1177,7 +2019,7 @@ static void state_task_main(void *arg){
           state_set(ST_OFF);
           break;
         }
-        if(low_power_on_battery_() == true){
+        if(low_battery_shutdown_required_() == true){
           // Low-battery shutdown from ERROR still shows the recharge notice.
           request_low_battery_shutdown_();
           break;
@@ -1271,6 +2113,10 @@ static void state_task_main(void *arg){
       update_battery_snapshot();
       low_power_shutdown_service_();
     }
+
+#if AUTOMATION_DIAGNOSTIC_OVERLAY_ENABLED
+    diagnostic_update_after_cycle_();
+#endif
 
     publish_status_snapshot_();
   }
@@ -1371,5 +2217,73 @@ void state_task_request_record_start(void){
 void state_task_request_record_stop(void){
   portENTER_CRITICAL(&s_ui_cmd_mux);
   s_ui_record_stop_requested = true;
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
+}
+
+
+/** Post a one-shot manual WiFi toggle request to the State task. */
+void state_task_request_wifi_toggle(void){
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  s_ui_control_requests.wifi_toggle = true;
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
+}
+
+/** Post a one-shot AUTO RECORDING selection toggle to the State task. */
+void state_task_request_auto_recording_toggle(void){
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  s_ui_control_requests.auto_recording_toggle = true;
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
+}
+
+/** Post a one-shot AUTO WIFI selection toggle to the State task. */
+void state_task_request_auto_wifi_toggle(void){
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  s_ui_control_requests.auto_wifi_toggle = true;
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
+}
+
+/** Post a one-shot AUTO DELETE selection toggle to the State task. */
+void state_task_request_auto_delete_toggle(void){
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  s_ui_control_requests.auto_delete_toggle = true;
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
+}
+
+/** Post a one-shot language selection toggle to the State task. */
+void state_task_request_language_toggle(void){
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  s_ui_control_requests.language_toggle = true;
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
+}
+
+/** Post a requested calendar date; State owns cache/NVS update. */
+void state_task_request_set_date(uint16_t year, uint8_t month, uint8_t day){
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  s_ui_control_requests.set_date = true;
+  s_ui_control_requests.year = year;
+  s_ui_control_requests.month = month;
+  s_ui_control_requests.day = day;
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
+}
+
+/** Post a requested clock time; State owns cache/NVS update. */
+void state_task_request_set_time(uint8_t hour, uint8_t minute){
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  s_ui_control_requests.set_time = true;
+  s_ui_control_requests.hour = hour;
+  s_ui_control_requests.minute = minute;
+  portEXIT_CRITICAL(&s_ui_cmd_mux);
+}
+
+/** Post a requested registration; State owns normalization/NVS update. */
+void state_task_request_set_registration(const char *registration){
+  if(registration == nullptr){
+    return;
+  }
+
+  portENTER_CRITICAL(&s_ui_cmd_mux);
+  s_ui_control_requests.set_registration = true;
+  strncpy(s_ui_control_requests.registration, registration, SETTINGS_REGISTRATION_LEN - 1u);
+  s_ui_control_requests.registration[SETTINGS_REGISTRATION_LEN - 1u] = '\0';
   portEXIT_CRITICAL(&s_ui_cmd_mux);
 }
