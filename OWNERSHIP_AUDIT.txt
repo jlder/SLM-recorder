@@ -1,4 +1,4 @@
-SLM Recorder v1.54 - observe-only automation field-validation build
+SLM Recorder v1.55 - observe-only automation field-validation build
 Based on the State-ownership-corrected v1.53 source.
 
 Ownership remains unchanged:
@@ -9,7 +9,7 @@ Ownership remains unchanged:
 - SD task/storage ownership is unchanged.
 - Web task remains sole owner of AP/HTTP driver lifecycle after State requests enable/disable.
 
-v1.54 diagnostic override:
+v1.55 diagnostic override:
 - AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY=1 suppresses AUTO RECORD, AUTO WIFI, and AUTO DELETE physical actuation.
 - AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON=1 makes all three automation functions effective ON from boot for virtual-policy logging only.
 - SETTINGS > AUTOMATION displays all three ON with disabled controls; stored NVS selections are not rewritten by the override.
@@ -25,3 +25,10 @@ Static checks:
 - Source audit confirms observe-only guards block automatic physical recording start/stop, AUTO WIFI actuation, and AUTO DELETE.
 
 Full ESP32/Arduino target build was not available in this environment.
+
+
+v1.55 diagnostic file-analysis boundary:
+- src/tasks/web_ui/12_script_flight_decode.inc owns transparent restoration of diagnostic axis offsets for recorder Web analysis.
+- Stored 0x70 checksum validation occurs before restoration.
+- HIRMS/LOWRMS and downstream flight analysis consume only restored acceleration.
+- tools/automation_diag_decode.py remains the external diagnostic event decoder/clean-file generator.

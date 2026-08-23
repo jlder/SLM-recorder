@@ -1,6 +1,4 @@
-# v1.54 automation field-diagnostic overlay
-
-The automation derivation and field-validation methodology are documented in `../docs/06_automation_methodology.md`. This file owns only the diagnostic wire encoding and observe-only trace behavior.
+# v1.54/v1.55 automation field-diagnostic overlay
 
 This diagnostic build instruments AUTO RECORD logic without feeding diagnostic
 values back into recorder signal processing.
@@ -63,8 +61,8 @@ the 0x70 checksum, producing a normal clean SLM binary plus a diagnostic CSV.
 | 25 | FLIGHT_END_CONFIRMED |
 | 26 | EXTENDED prefix |
 
-The intended field test is a manually started long recording. This dedicated
-v1.54 build is observe-only and forces AUTO RECORD, AUTO WIFI and AUTO DELETE
+The intended field test is a manually started long recording. These dedicated
+v1.54/v1.55 field-validation builds are observe-only and force AUTO RECORD, AUTO WIFI and AUTO DELETE
 logically ON from boot. SETTINGS > AUTOMATION displays all three as ON with
 disabled controls. Stored NVS selections are not rewritten and are ignored as
 runtime gates while this build is installed. None of the automation decisions
@@ -141,3 +139,10 @@ state.
 
 All virtual policy evaluation, detector resets and diagnostic event queuing run
 after the current ring push.
+
+
+## Recorder Web analysis restoration (v1.55)
+
+v1.55 keeps the wire encoding unchanged and corrects the recorder-side file-analysis boundary. `src/tasks/web_ui/12_script_flight_decode.inc` validates each stored 0x70 checksum first, then restores each diagnostic axis using the same clean-band rule as this decoder before converting milli-g to g. HIRMS/LOWRMS and all downstream browser flight analysis therefore receive clean acceleration.
+
+The physical `.bin` remains diagnostic and retains all event codes; only the in-memory analysis representation is restored. See `../docs/07_automation_diagnostic_encoding.md` for the normative encoding/decoding specification.

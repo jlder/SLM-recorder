@@ -35,6 +35,8 @@ R"rawliteral(        // Browser analysis constants. Values are generated from co
         const SLM_RECORD_START = 0x55;
         const SLM_RECORD_TYPE_ACCEL = 0x70;
         const SLM_RECORD_LENGTH = 13;
+        const SLM_DIAGNOSTIC_CLEAN_AXIS_LIMIT_MG = )rawliteral" SLM_HTML_STRINGIFY(AUTOMATION_DIAGNOSTIC_CLEAN_AXIS_LIMIT_MG) R"rawliteral(;
+        const SLM_DIAGNOSTIC_AXIS_OFFSET_MG = )rawliteral" SLM_HTML_STRINGIFY(AUTOMATION_DIAGNOSTIC_AXIS_OFFSET_MG) R"rawliteral(;
 
         const WIT_PACKET_START = 0x55;
         const WIT_TYPE_TIME = 0x50;
@@ -88,7 +90,20 @@ R"rawliteral(        // Browser analysis constants. Values are generated from co
             return (slm.records.length >= wit.records.length) ? slm : wit;
         }
 
-        // Decode native SLM 0x70 acceleration records with checksum and midnight rollover handling.
+        // Remove the reversible automation diagnostic offset before normal file analysis.
+        // Checksum validation is deliberately performed on the stored bytes first.
+        function restoreSlmDiagnosticAxisMg(storedMg) {
+            if (storedMg < -SLM_DIAGNOSTIC_CLEAN_AXIS_LIMIT_MG) {
+                return storedMg + SLM_DIAGNOSTIC_AXIS_OFFSET_MG;
+            }
+            if (storedMg > SLM_DIAGNOSTIC_CLEAN_AXIS_LIMIT_MG) {
+                return storedMg - SLM_DIAGNOSTIC_AXIS_OFFSET_MG;
+            }
+            return storedMg;
+        }
+
+        // Decode native SLM 0x70 acceleration records with checksum, diagnostic-overlay
+        // restoration, and midnight rollover handling.
         function decodeSlmTimeline(buffer) {
             const bytes = new Uint8Array(buffer);
             const view = new DataView(buffer);
@@ -113,9 +128,13 @@ R"rawliteral(        // Browser analysis constants. Values are generated from co
                 }
 
                 const timeMs = view.getUint32(i + 2, true);
-                const axMg = view.getInt16(i + 6, true);
-                const ayMg = view.getInt16(i + 8, true);
-                const azMg = view.getInt16(i + 10, true);
+                const storedAxMg = view.getInt16(i + 6, true);
+                const storedAyMg = view.getInt16(i + 8, true);
+                const storedAzMg = view.getInt16(i + 10, true);
+                const axMg = restoreSlmDiagnosticAxisMg(storedAxMg);
+                const ayMg = restoreSlmDiagnosticAxisMg(storedAyMg);
+                const azMg = restoreSlmDiagnosticAxisMg(storedAzMg);
+
 
                 if (previousAbs !== null && timeMs + dayOffset < previousAbs - 1000) {
                     dayOffset += 24 * 3600 * 1000;

@@ -375,7 +375,7 @@ The date/time cache continues to be refreshed during RECORDING while the display
 
 ## 18. WiFi Support Power Rule
 
-Manual WiFi/AP support remains user-selected from MENU. The intended AUTO WIFI policy is described in Section 30; in the v1.54 observe-only field-validation build it is simulated/logged only and does not actuate the actual AP. The AP is stopped when the operator selects STOP WIFI or when normal recorder transitions explicitly disable Web support. While actual WiFi is active, the screen START RECORD button is disabled/gray; the physical RECORD button retains manual authority.
+Manual WiFi/AP support remains user-selected from MENU. The intended AUTO WIFI policy is described in Section 30; in the v1.55 observe-only field-validation build it is simulated/logged only and does not actuate the actual AP. The AP is stopped when the operator selects STOP WIFI or when normal recorder transitions explicitly disable Web support. While actual WiFi is active, the screen START RECORD button is disabled/gray; the physical RECORD button retains manual authority.
 
 The HTTP listener is not stopped in normal operation. It remains allocated and started once because the tested AsyncWebServer/AsyncTCP stack does not reliably recover port-80 dispatch after `AsyncWebServer::end()` has been called following real HTTP traffic. When Web support is OFF, the listener is not exposed to the operator because the AP is down and SD file-management authorization is disabled.
 
@@ -600,9 +600,7 @@ Daily grouping is implemented only in browser JavaScript. The recorder storage A
 `/processed` is an immutable SD archive and is not exposed as a complete Web list. Highest-suffix discovery and exact matching-file searches iterate directory entries one at a time and retain only the required suffix or match. Root File Management remains bounded by `SD_MAX_RECORD_FILES` and includes only root-level `.bin` recordings. Calibration reports retain their separate bounded list because they remain downloadable and uploadable through the Bridge report workflow. The virtual Logbook scans root first and `/processed` second, groups matching per-recording `.log` names by registration/date, and retains only the newest bounded set of days while scanning, so archive size does not determine RAM use.
 
 
-## 30. Automatic Operation Architecture (v1.54 field-validation build)
-
-The development methodology and historical evidence used to derive/freeze this architecture are documented in `06_automation_methodology.md`. This section owns the software allocation and data/control-flow consequences of that logic.
+## 30. Automatic Operation Architecture (v1.55 field-validation build)
 
 Automation remains a thin service layer under the existing recorder state machine. No `ST_*` automation states are added. `state_task` remains the sole owner of READY/STARTING/RECORDING/STOPPING transitions, while `automation_service` owns continuous signal processing and semantic detector outputs.
 
@@ -618,7 +616,13 @@ The State task acquires one corrected, installation-aligned accelerometer sample
 
 Only `ST_RECORDING` formats a 0x70 sample and pushes it into the recording ring. READY/STARTING samples remain detector-only data.
 
-### v1.54 forced-ON observe-only override
+### Diagnostic file-analysis boundary
+
+The diagnostic overlay belongs only to the stored SD representation. File-based analysis is therefore required to reverse the overlay at the SLM decode boundary before acceleration is exposed to normal analysis. The Web decoder first validates the checksum of the stored 0x70 block, restores each axis using the reserved +/-10 g clean-band threshold and +/-20.001 g offset rule, and then converts milli-g to g. No checksum-valid 0x70 sample is discarded by the restoration step. HIRMS/LOWRMS and the rest of the browser flight-analysis chain remain unaware of the diagnostic transport encoding.
+
+This restoration is intentionally downstream of SD storage and upstream of signal processing: the diagnostic event trace remains present in the physical file, while analysis receives the same acceleration history as the live automation detector. `07_automation_diagnostic_encoding.md` owns the exact encoding and restoration specification.
+
+### v1.55 forced-ON observe-only override
 
 The field-validation build compiles both `AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY` and `AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON`. The effective AUTO RECORDING, AUTO WIFI, and AUTO DELETE values are therefore always ON from boot regardless of stored NVS values. SETTINGS > AUTOMATION shows the three functions as ON with disabled controls. The override does not rewrite NVS.
 

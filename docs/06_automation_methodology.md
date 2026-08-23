@@ -13,7 +13,7 @@ This document records the methodology used to develop and freeze the recorder au
 - AUTO WIFI;
 - AUTO DELETE.
 
-It explains how the algorithms were derived from recorded SLM data, how offline flight-analysis behavior was separated from behavior that can be implemented causally in the recorder, how nuisance sessions were treated, and how the final logic is being field-validated in recorder v1.54.
+It explains how the algorithms were derived from recorded SLM data, how offline flight-analysis behavior was separated from behavior that can be implemented causally in the recorder, how nuisance sessions were treated, and how the final logic is being field-validated in recorder v1.55.
 
 This document owns the **derivation rationale and development evidence** for the automation logic. The normative operational requirements remain in `01_recorder_requirements.md`; architecture ownership remains in `02_recorder_architecture.md`; implemented state behavior remains in `03_state_machine_behavior_review.md`; and validation procedures remain in `05_lightweight_validation_strategy.md` and `VALIDATION.md`.
 
@@ -29,7 +29,7 @@ The automation was not developed as a replacement for the existing post-processi
 
 The development deliberately accepts that short nuisance AUTO sessions may occur. Once AUTO DELETE can reliably identify a session in which no flight was seen, minimizing the number of nuisance files is secondary to maintaining reliable flight coverage.
 
-The original 300 s / five-minute no-flight quiet delay was introduced partly to avoid creating many short files when intermittent vibration occurred. During development this rationale was re-examined: if the flight/no-flight classification is correct, additional short pseudo-sessions are not by themselves a failure. The 300 s value is retained in the frozen v1.54 logic, but it is treated as a nuisance-session management parameter rather than as part of flight detection.
+The original 300 s / five-minute no-flight quiet delay was introduced partly to avoid creating many short files when intermittent vibration occurred. During development this rationale was re-examined: if the flight/no-flight classification is correct, additional short pseudo-sessions are not by themselves a failure. The 300 s value is retained in the frozen v1.55 logic, but it is treated as a nuisance-session management parameter rather than as part of flight detection.
 
 ## 3. Data basis
 
@@ -43,7 +43,7 @@ Development and historical replay used real recorder data rather than synthetic 
 
 The frozen historical replay currently contains 190 cases with evaluable pre-roll AUTO START evidence. Flight end is evaluable in 189 of those cases. `FCJAF_20260627_3.bin` is retained as a right-censored case because the historical recording ends at landing and does not contain the post-landing interval required to confirm 50 s of GROUND.
 
-The historical data were used both to understand failure modes and to select/freeze the logic. They are therefore **development/replay evidence**, not an independent prospective validation population. Recorder v1.54 provides the subsequent observe-only field-validation stage on new recordings.
+The historical data were used both to understand failure modes and to select/freeze the logic. They are therefore **development/replay evidence**, not an independent prospective validation population. Recorder v1.55 continues the observe-only field-validation stage on new recordings.
 
 ## 4. Starting point: offline flight analysis is not directly portable
 
@@ -183,7 +183,7 @@ When eligible, both the `.bin` file and its matching `.sha` are removed through 
 
 This policy is what allows AUTO START to favor coverage over aggressive suppression of short nuisance sessions. A false AUTO START can produce an extra temporary session; it should not lose a real flight. If no flight evidence appears, AUTO DELETE can remove the nuisance recording afterward.
 
-In v1.54 observe-only validation, the same decision is evaluated and logged as `WOULD_AUTO_DELETE`, but no physical file is deleted.
+In v1.55 observe-only validation, the same decision is evaluated and logged as `WOULD_AUTO_DELETE`, but no physical file is deleted.
 
 ## 9. AUTO WIFI methodology
 
@@ -195,9 +195,9 @@ AUTO WIFI does not introduce another independent flight classifier. Its intended
 
 The short 5 s quiet period is a WiFi availability delay, not the 300 s no-flight recording timeout. The two timers serve different purposes.
 
-In v1.54, AUTO WIFI is simulated only. `WOULD_AUTO_WIFI_*` events are logged while actual manual WiFi request and AP transitions are logged separately. This permits the intended automatic policy to be compared with real Web/AP behavior without automation changing the recorder during the test.
+In v1.55, AUTO WIFI is simulated only. `WOULD_AUTO_WIFI_*` events are logged while actual manual WiFi request and AP transitions are logged separately. This permits the intended automatic policy to be compared with real Web/AP behavior without automation changing the recorder during the test.
 
-## 10. v1.54 prospective field-validation method
+## 10. v1.55 prospective field-validation method
 
 ### 10.1 Why all automations are forced ON
 
@@ -205,9 +205,9 @@ For the field-validation build, AUTO RECORDING, AUTO WIFI, and AUTO DELETE are f
 
 This ensures every field recording exercises all three automatic policies and avoids an invalid test caused by one automation inadvertently being left disabled.
 
-### 10.2 Why v1.54 is observe-only
+### 10.2 Why v1.55 is observe-only
 
-The purpose of v1.54 is to observe the frozen automation on real new operating days before allowing it to control the recorder.
+The purpose of v1.55 is to observe the frozen automation on real new operating days before allowing it to control the recorder.
 
 The operator manually starts one long morning-to-evening physical recording and manually stops it at the end of the desired test period. Inside that physical file:
 
@@ -230,6 +230,8 @@ The QMI8658 operates within +/-8 g. The diagnostic overlay uses independent tern
 
 A controlled round-trip test has verified that removing the overlay can restore the original binary byte-for-byte.
 
+The first prospective v1.54 field file (`FCJAF_20260823_3.bin`) also exposed an integration issue: the recorder Web post-processing path initially analyzed the encoded SD values directly. The diagnostic offsets therefore appeared as approximately +/-20 g acceleration steps and corrupted HIRMS/LOWRMS segmentation even though the live automation detector itself remained correct. v1.55 fixes only this analysis boundary: the Web SLM decoder now restores the diagnostic overlay after stored checksum validation and before any flight-analysis filtering. The automation algorithm and overlay encoding remain frozen and unchanged.
+
 ### 10.4 Timing/jitter boundary
 
 The diagnostic instrumentation was arranged so it cannot add variable automation work to the acquisition-to-recording critical path.
@@ -244,9 +246,9 @@ The automation evidence is intentionally separated into three levels:
 
 1. **Algorithm-development evidence** — detailed review of known difficult flights and nuisance cases used to identify failure modes and select the logic.
 2. **Frozen historical replay** — the selected logic is rerun without per-file changes over the accumulated historical set, currently giving 190/190 pre-roll AUTO START coverage and 189/189 evaluable flight ends with zero premature and zero missed confirmations.
-3. **Prospective field validation** — v1.54 records new operating days with the logic forced ON but observe-only, so the frozen decisions can be compared with real pilot/aircraft operation without automation affecting the recorder.
+3. **Prospective field validation** — v1.55 records new operating days with the logic forced ON but observe-only, so the frozen decisions can be compared with real pilot/aircraft operation without automation affecting the recorder.
 
-The v1.54 field campaign is therefore not intended to retune the detector continuously. New failures should first be preserved and explained from the diagnostic trace. Any later threshold or sequence change creates a new algorithm revision and requires the relevant historical replay and field-validation evidence to be reconsidered.
+The v1.55 field campaign is therefore not intended to retune the detector continuously. New failures should first be preserved and explained from the diagnostic trace. Any later threshold or sequence change creates a new algorithm revision and requires the relevant historical replay and field-validation evidence to be reconsidered.
 
 ## 12. Relationship between the three automations
 

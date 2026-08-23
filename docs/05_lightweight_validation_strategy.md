@@ -834,11 +834,9 @@ New immutable recording files are protected by a streaming SHA-256 calculated ov
 - Confirm no Web endpoint or page provides complete `/processed` listing or permanent deletion.
 
 
-The derivation and historical replay used to freeze the automation algorithm are documented separately in `06_automation_methodology.md`. The `VAL-AUTO-*` cases below define validation of the frozen implementation and field-diagnostic behavior rather than re-deriving the thresholds.
+## VAL-AUTO-001 — v1.55 forced-ON observe-only mode
 
-## VAL-AUTO-001 — v1.54 forced-ON observe-only mode
-
-1. Install v1.54 and confirm SETTINGS > AUTOMATION immediately shows AUTO RECORDING, AUTO WIFI, and AUTO DELETE all ON.
+1. Install v1.55 and confirm SETTINGS > AUTOMATION immediately shows AUTO RECORDING, AUTO WIFI, and AUTO DELETE all ON.
 2. Confirm all three controls are disabled/fixed and cannot be toggled OFF.
 3. Confirm the diagnostic override does not rewrite the underlying NVS selection values.
 4. Confirm automation cannot physically start/stop recording, actuate WiFi, or delete files.
@@ -876,3 +874,19 @@ The derivation and historical replay used to freeze the automation algorithm are
 4. Run `tools/automation_diag_decode.py`; confirm the clean output restores normal axis values/checksums and the CSV identifies event names/times.
 5. On a controlled round-trip test, confirm the cleaned binary is byte-for-byte identical to the original.
 6. Confirm queued simultaneous events may appear over later samples and therefore the event CSV preserves event order rather than exact same-cycle timestamp identity.
+
+
+## VAL-AUTO-009 — Diagnostic overlay transparency in recorder file analysis
+
+Purpose: verify that the v1.55 Web analysis correction makes the diagnostic transport encoding invisible to normal flight analysis.
+
+1. Use a v1.54/v1.55 diagnostic `.bin` containing known overlay events.
+2. Confirm every stored 0x70 checksum is validated before any axis restoration.
+3. Decode the file through the recorder Web SLM decoder and independently through `tools/automation_diag_decode.py`.
+4. Confirm the Web decoder's restored `Nx/Ny/Nz` sequence is sample-for-sample identical to the clean binary produced by the Python decoder.
+5. Run normal flight analysis through the recorder Web path and through the approved Python post-processor on the clean stream.
+6. Confirm the same number of flights and equivalent takeoff/landing segmentation within the expected algorithm-specific timing conventions.
+7. Confirm an ordinary non-diagnostic SLM recording remains unchanged by the decoder.
+8. Confirm restoration is deterministic and does not discard any checksum-valid 0x70 sample: values below -10,000 mg receive +20,001 mg, values above +10,000 mg receive -20,001 mg, and values inside the clean band are unchanged.
+
+Initial regression case: `FCJAF_20260823_3.bin` from recorder v1.54. Raw encoded acceleration previously produced false flight segmentation when analyzed without restoration; after overlay removal the approved Python processor finds the expected two flights. The v1.55 recorder Web decoder shall analyze the encoded file from the restored acceleration stream.

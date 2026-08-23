@@ -155,7 +155,7 @@
 // RECORD / AUTO WIFI / AUTO DELETE are not allowed to actuate recorder state,
 // WiFi, or file deletion.
 #define AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY                 1
-// v1.54 field-validation build: all three automation functions are forced
+// v1.55 field-validation build: all three automation functions are forced
 // logically ON from boot. Their decisions are evaluated/logged only; the
 // observe-only guard still prevents recorder/WiFi/file actuation. Stored NVS
 // selections are not rewritten and are ignored while this diagnostic mode is on.
@@ -237,7 +237,7 @@
 // Hardware version identifies the recorder hardware configuration.
 // Software version identifies the firmware build.
 #define RECORDER_HARDWARE_VERSION      "1.00"
-#define RECORDER_SOFTWARE_VERSION      "1.54"
+#define RECORDER_SOFTWARE_VERSION      "1.55"
 
 // Storage / SD
 #define PREFS_NAMESPACE              "slm-data"

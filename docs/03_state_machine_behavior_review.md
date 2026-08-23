@@ -148,8 +148,8 @@ Transitions:
 | Condition | Transition |
 |---|---|
 | SD error active | `ST_ERROR` |
-| USB loss edge while READY and actual WiFi OFF | `ST_OFF` in the v1.54 observe-only diagnostic build |
-| Production AUTO RECORDING power exemption | not actuated in v1.54; only virtual automation is logged |
+| USB loss edge while READY and actual WiFi OFF | `ST_OFF` in the v1.55 observe-only diagnostic build |
+| Production AUTO RECORDING power exemption | not actuated in v1.55; only virtual automation is logged |
 | low battery on battery power | `ST_OFF` or `ST_STOPPING` before `ST_OFF` |
 | power button held for shutdown threshold | `ST_OFF` |
 | settings clear gesture succeeds | `ST_OFF` |
@@ -529,9 +529,9 @@ New immutable recording files are protected by a streaming SHA-256 calculated ov
 The visible daily row is a presentation state, not a recorder state-machine state. Physical files retain the existing `ready`, `downloading`, `analyzing`, `queued`, `uploading`, and `finalizing` states. A daily row reports the highest-priority active member state; it becomes processable whenever at least one matching root member is ready and no local download/analysis is active.
 
 
-## 28. Automatic Operation Behavior (v1.54 field-validation build)
+## 28. Automatic Operation Behavior (v1.55 field-validation build)
 
-Automation still does not add recorder states. The v1.54 field-validation build forces AUTO RECORDING, AUTO WIFI, and AUTO DELETE logically ON from boot, but all three are observe-only: they generate virtual policy/events and cannot change physical recorder state, Web/AP state, or file deletion. SETTINGS > AUTOMATION shows all three ON with disabled controls.
+Automation still does not add recorder states. The v1.55 field-validation build forces AUTO RECORDING, AUTO WIFI, and AUTO DELETE logically ON from boot, but all three are observe-only: they generate virtual policy/events and cannot change physical recorder state, Web/AP state, or file deletion. SETTINGS > AUTOMATION shows all three ON with disabled controls.
 
 The normal 20 Hz corrected acceleration stream is processed continuously by `automation_service`. AUTO START evidence is either the existing 2 s motion RMS >=0.020 g for 1 s or a first-order 0.10 Hz high-pass on Nx/Ny with either absolute axis >=0.020 g for 1 s. HIRMS/LOWRMS filter histories remain continuous.
 

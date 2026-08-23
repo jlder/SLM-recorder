@@ -1,6 +1,6 @@
-# Validation — Recorder v1.54 automation field-validation candidate
+# Validation — Recorder v1.55 automation field-validation candidate
 
-1. Compile and install Recorder v1.54.
+1. Compile and install Recorder v1.55.
 2. Connect with SLM Bridge v0.3.48.
 3. With USB power connected, confirm the recorder home page shows File Management, Logbook, and Maintenance active.
 4. Remove USB power and confirm File Management and Logbook become grey while Maintenance remains reachable. Confirm the Main Menu displays `USB power required.` and `Connect USB power to use all recorder functions except Recorder Calibration.` Reconnect USB and confirm both the message disappears and the buttons become active after status refresh.
@@ -18,7 +18,7 @@
 16. Confirm Report Management, recording SHA verification, and existing calibration functions remain unchanged.
 17. On a recorder with no stored language key, confirm French is selected by default and the SETTINGS language button shows `ENGLISH`.
 18. Press `ENGLISH` and confirm the AMOLED interface immediately changes to English and the button changes to `FRANÇAIS`; power-cycle and confirm the selection persists.
-19. Select French again and confirm the AMOLED version lines show `ver. logic. 1.54` and `ver. mat. 1.00`, and the agreed abbreviated French labels fit without clipping.
+19. Select French again and confirm the AMOLED version lines show `ver. logic. 1.55` and `ver. mat. 1.00`, and the agreed abbreviated French labels fit without clipping.
 20. On the main page, confirm `ENREGIST.` and all other status messages fit fully inside the bottom status area without clipping.
 21. In REGLAGES/SETTINGS, confirm both `FRANÇAIS` and `ENGLISH` fit comfortably in the language button using the reduced font.
 22. With WiFi active, reload the recorder Web interface and confirm all normal pages, calibration workflows, support messages, file-processing messages, and firmware-update messages follow the recorder-selected language.
@@ -44,9 +44,7 @@
 39. With calibration valid and the recorder in READY, confirm no accelerometer driver write occurs while Web calibration status is polled, and that a driver update does occur after a calibration is saved, accepted, cleared, or restored.
 40. Confirm recorded acceleration remains correctly calibrated after a calibration change followed by a recording, and that a recording started immediately after boot uses the stored calibration.
 
-## v1.54 automation field-validation additions
-
-Algorithm derivation, historical replay rationale, and the distinction between development evidence and prospective field validation are documented in `docs/06_automation_methodology.md`. The checks below validate the frozen v1.54 implementation.
+## v1.55 automation field-validation additions
 
 41. Confirm SETTINGS > AUTOMATION shows AUTO RECORDING, AUTO WIFI, and AUTO DELETE all `ON` immediately after boot. Confirm the three controls are disabled/fixed in this diagnostic build and cannot be toggled OFF.
 42. Confirm the forced-ON diagnostic override does not rewrite the stored NVS automation selections; it is an effective runtime override only.
@@ -58,16 +56,20 @@ Algorithm derivation, historical replay rationale, and the distinction between d
 48. Confirm virtual AUTO WIFI logs ON in virtual READY, OFF for confirmed motion or virtual recording, and ON again after 5 s quiet, while actual manual WiFi requested/AP transitions remain separately visible in the diagnostic event CSV.
 49. Confirm diagnostic overlay events are added only to the SD-bound sample copy and appear with the expected >=50 ms telemetry delay; recorder-side HIRMS/LOWRMS/motion results remain based on untouched acceleration.
 50. Run `tools/automation_diag_decode.py` on a diagnostic recording. Confirm it writes both a clean `.bin` and an event CSV and that a known round-trip test restores the original binary byte-for-byte, including valid 0x70 checksums.
-51. With USB absent, leave the UI inactive past `DISPLAY_DIM_TIMEOUT_MS` and confirm full display standby. With USB present, confirm the same timeout dims the display to approximately 50% rather than switching it off; local activity restores full brightness.
-52. At battery <=5%, confirm an active manual recording closes and the recorder shuts down regardless of the observe-only automation mode.
+51. Analyze a diagnostic `.bin` directly through the recorder Web File Management/Flight Analysis path. Confirm the SLM decoder validates the stored checksum, removes diagnostic axis offsets, and supplies only restored acceleration to HIRMS/LOWRMS analysis.
+52. Regression-test `FCJAF_20260823_3.bin`: confirm recorder-side analysis of the encoded file returns the same two real flights as analysis of the cleaned stream, rather than the false multi-segment result produced by v1.54 before restoration was added.
+53. With USB absent, leave the UI inactive past `DISPLAY_DIM_TIMEOUT_MS` and confirm full display standby. With USB present, confirm the same timeout dims the display to approximately 50% rather than switching it off; local activity restores full brightness.
+54. At battery <=5%, confirm an active manual recording closes and the recorder shuts down regardless of the observe-only automation mode.
 
-Static checks for the v1.54 field-validation source candidate:
+Static checks for the v1.55 field-validation source candidate:
 
 - `automation_service.cpp` and `state_task.cpp` pass host C++17 syntax compilation with warnings treated as errors using the project stubs.
 - Historical replay of the frozen detector gives 190/190 pre-roll AUTO START coverage and 189/189 evaluable flight-end confirmations with zero premature stops and zero misses; `FCJAF_20260627_3.bin` is right-censored at landing.
 - Source-path inspection confirms diagnostic event evaluation/queueing occurs after the current recording sample has been pushed; pre-push diagnostic overhead is limited to three precomputed integer additions.
 - A real SLM binary instrumented with primary/extended diagnostic events decodes back to the original binary byte-for-byte.
 - Observe-only guards suppress automatic physical recording start/stop, AUTO WIFI actuation, and AUTO DELETE while retaining virtual policy/event evaluation.
+- The v1.55 Web SLM decoder restores diagnostic axis offsets only after stored-block checksum validation and before conversion to g/HIRMS/LOWRMS analysis.
+- Host regression on `FCJAF_20260823_3.bin` confirms the v1.55 restoration rule reconstructs the same 288156 acceleration samples as the Python-cleaned diagnostic stream.
 
 Static checks performed for the v1.51 source delta:
 

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 # Copyright (c) 2026 AgingGliders
 
-"""Decode the v1.53 AUTO RECORD field-diagnostic acceleration overlay.
+"""Decode the v1.54/v1.55 automation field-diagnostic acceleration overlay.
 
 Diagnostic firmware modifies only the SD-bound copy of selected 0x70 samples.
 Recorder-side automation always consumes the original corrected acceleration.

@@ -73,7 +73,7 @@ The current configured shutdown hold time of 2000 ms and record-start hold time 
 | `DISPLAY_BRIGHTNESS_DIMMED` | 128 | USB-powered inactive display brightness (~50%) |
 | `DISPLAY_DIM_TIMEOUT_MS` | 10000 ms | display inactivity timeout |
 | `RECORDER_HARDWARE_VERSION` | `1.00` | version text displayed on device |
-| `RECORDER_SOFTWARE_VERSION` | `1.54` | version text displayed on device |
+| `RECORDER_SOFTWARE_VERSION` | `1.55` | version text displayed on device |
 | `language.h` version labels | English: `sw ver` / `hw ver`; French: `ver. logic.` / `ver. mat.` | localized main-display version labels |
 
 ### 3.3 Web/WiFi
@@ -258,11 +258,11 @@ Status:
 
 In normal automation actuation mode, AUTO RECORDING may suppress the legacy READY USB-removal shutdown and replace it with the persistent two-beep warning. The warning consists of two 100 ms beeps separated by 100 ms silence and repeats on an approximately 2 s cycle while READY remains on battery power.
 
-The dedicated v1.54 observe-only field-validation build deliberately disables automation actuation, including this AUTO RECORDING power-policy exemption. Therefore USB removal while READY follows the normal non-automation shutdown behavior when actual WiFi is not active. A manually active recording is not stopped merely because USB is removed; the <=5% battery shutdown remains authoritative.
+The dedicated v1.55 observe-only field-validation build deliberately disables automation actuation, including this AUTO RECORDING power-policy exemption. Therefore USB removal while READY follows the normal non-automation shutdown behavior when actual WiFi is not active. A manually active recording is not stopped merely because USB is removed; the <=5% battery shutdown remains authoritative.
 
 Status:
 
-- **Implemented; v1.54 diagnostic override intentionally suppresses the AUTO RECORDING power-policy effect.**
+- **Implemented; v1.55 diagnostic override intentionally suppresses the AUTO RECORDING power-policy effect.**
 
 #### OP-PWR-006 — Stop on low-power condition
 
@@ -550,13 +550,11 @@ Status:
 
 ### 4.4A Automatic Operation
 
-The development rationale, historical-data basis, causal/offline comparison, and algorithm-freeze methodology for the three automation functions are documented in `06_automation_methodology.md`. This section remains the normative owner of the resulting operational requirements.
+#### OP-AUTO-001 — Production selections and v1.55 diagnostic override
 
-#### OP-AUTO-001 — Production selections and v1.54 diagnostic override
+The production automation design provides independent `AUTO RECORDING`, `AUTO WIFI`, and `AUTO DELETE` selections. In the dedicated v1.55 field-validation build, `AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY` and `AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON` override those selections: all three functions are logically ON from boot, SETTINGS > AUTOMATION displays them as ON with disabled controls, and stored NVS selection values are neither used as runtime gates nor rewritten by the override.
 
-The production automation design provides independent `AUTO RECORDING`, `AUTO WIFI`, and `AUTO DELETE` selections. In the dedicated v1.54 field-validation build, `AUTOMATION_DIAGNOSTIC_OBSERVE_ONLY` and `AUTOMATION_DIAGNOSTIC_FORCE_ALL_ON` override those selections: all three functions are logically ON from boot, SETTINGS > AUTOMATION displays them as ON with disabled controls, and stored NVS selection values are neither used as runtime gates nor rewritten by the override.
-
-The v1.54 override is observe-only. Automation decisions shall be evaluated and logged but shall not physically start/stop a recording, enable/disable WiFi, or delete files. Manual controls, recorder faults, and the <=5% battery shutdown remain authoritative.
+The v1.55 override is observe-only. Automation decisions shall be evaluated and logged but shall not physically start/stop a recording, enable/disable WiFi, or delete files. Manual controls, recorder faults, and the <=5% battery shutdown remain authoritative.
 
 #### OP-AUTO-002 — Continuous automation acquisition
 
@@ -571,7 +569,7 @@ AUTO START shall be confirmed by either of two continuously evaluated paths:
 - motion: 2.0 s trailing three-axis RMS `sqrt(var(Ax)+var(Ay)+var(Az)) >= 0.020 g` continuously for 1.0 s;
 - attitude change: independent first-order causal 0.10 Hz high-pass filters on installation-aligned `Nx` and `Ny`, with `max(|HP(Nx)|, |HP(Ny)|) >= 0.020 g` continuously for 1.0 s.
 
-The high-pass filters run continuously and require no stored attitude reference. In production actuation mode either path would request the normal READY -> STARTING path, with manual start winning if both requests qualify on the same State-task tick. In v1.54 observe-only mode the equivalent decision is logged and starts only a virtual AUTO session inside a manually opened physical recording.
+The high-pass filters run continuously and require no stored attitude reference. In production actuation mode either path would request the normal READY -> STARTING path, with manual start winning if both requests qualify on the same State-task tick. In v1.55 observe-only mode the equivalent decision is logged and starts only a virtual AUTO session inside a manually opened physical recording.
 
 #### OP-AUTO-004 — Live flight-presence evidence
 
@@ -597,27 +595,29 @@ A valid landing event requires this sequence:
 5. `FG >= 0.10` cancels GROUND and returns the logical detector to FLIGHT;
 6. 50 s continuous GROUND sets `flight_end_confirmed`.
 
-In v1.54 the confirmation is logged as a virtual AUTO stop and never closes the manually opened physical file.
+In v1.55 the confirmation is logged as a virtual AUTO stop and never closes the manually opened physical file.
 
 #### OP-AUTO-006 — Automatic nuisance-file deletion
 
 In production actuation mode, AUTO DELETE applies only to automatically started recordings that close without `flight_seen`; both `.bin` and matching `.sha` are removed through the existing STOPPING/SD close path. Manually started recordings are never auto-deleted.
 
-In v1.54 observe-only mode the same decision is evaluated virtually and logs `WOULD_AUTO_DELETE`; no physical file is deleted.
+In v1.55 observe-only mode the same decision is evaluated virtually and logs `WOULD_AUTO_DELETE`; no physical file is deleted.
 
 #### OP-AUTO-007 — Automatic WiFi policy
 
 The intended AUTO WIFI policy is ON in quiet READY, OFF when motion is confirmed or a virtual/real AUTO recording is active, and ON again after 5 s continuous quiet when the recorder has returned to READY conditions.
 
-In v1.54 observe-only mode this policy is simulated/logged only and shall not call the Web/AP actuator. Manual WiFi control remains real. Actual `WIFI_REQUESTED_*` and `WIFI_AP_*` transitions are logged separately so the intended virtual policy can be compared with real Web/AP behavior.
+In v1.55 observe-only mode this policy is simulated/logged only and shall not call the Web/AP actuator. Manual WiFi control remains real. Actual `WIFI_REQUESTED_*` and `WIFI_AP_*` transitions are logged separately so the intended virtual policy can be compared with real Web/AP behavior.
 
 #### OP-AUTO-008 — Reversible field diagnostic overlay
 
-The v1.54 field-validation build shall encode automation events only in the SD-bound acceleration copy. The physical/calibrated acceleration used by recorder logic shall remain untouched. The reversible three-axis ternary overlay uses +/-20.001 g offsets outside the normal +/-8 g sensor range; `tools/automation_diag_decode.py` shall remove the overlay, restore the original signed milli-g values/checksums, and emit an event CSV. Events normally appear at least one 20 Hz sample (50 ms) after the internal transition because event extraction occurs after the current ring push.
+The v1.55 field-validation build shall encode automation events only in the SD-bound acceleration copy. The physical/calibrated acceleration used by recorder logic shall remain untouched. The reversible three-axis ternary overlay uses +/-20.001 g offsets outside the normal +/-8 g sensor range; `tools/automation_diag_decode.py` shall remove the overlay, restore the original signed milli-g values/checksums, and emit an event CSV. Events normally appear at least one 20 Hz sample (50 ms) after the internal transition because event extraction occurs after the current ring push.
+
+Any recorder-side or external file-analysis path that consumes diagnostic SLM 0x70 samples shall restore each encoded axis to the reserved +/-10 g clean band before converting acceleration to g or applying flight-analysis filters. Stored-block checksum validation shall occur before restoration. The recorder Web decoder shall therefore provide the same clean acceleration values to HIRMS/LOWRMS analysis as `tools/automation_diag_decode.py`. The complete encoding and restoration rules are owned by `07_automation_diagnostic_encoding.md`.
 
 Status:
 
-- **Implemented as v1.54 observe-only field-validation build.**
+- **Implemented as v1.55 observe-only field-validation build.**
 
 ### 4.5 Calibration
 
@@ -1198,7 +1198,7 @@ The following screens are not normal bottom message-area messages.
 | PMU fault | `ERR_PMU_FAULT` | `PMU ERROR` | PMU/power status path |
 | Touch fault | `ERR_TOUCH_FAULT` | `TOUCH ERROR` | touch driver/service path |
 | Low battery warning | none | `LOW BATT` or dedicated shutdown notice | power/battery status consumed by `state_task` |
-| USB absent while READY | none | v1.54 observe-only build uses normal READY shutdown behavior when actual WiFi is OFF; production AUTO RECORDING mode may use the two-beep exemption | USB status consumed by `state_task` |
+| USB absent while READY | none | v1.55 observe-only build uses normal READY shutdown behavior when actual WiFi is OFF; production AUTO RECORDING mode may use the two-beep exemption | USB status consumed by `state_task` |
 | Shutdown requested | none | `SHUTDOWN` | state transition to OFF |
 | Persistent watchdog fault at boot | watchdog NVS latch | `FATAL WDG/CLR` | startup watchdog-fault check |
 

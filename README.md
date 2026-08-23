@@ -273,9 +273,9 @@ Each new immutable recording is hashed while its bytes are written. On close, th
 
 File Management presents one logical entry per registration/date while immutable recording files remain separate on SD and on the server. Pressing **Process** sequentially downloads, verifies, analyses, queues, uploads, verifies, and archives every pending suffixed `.bin` file for that day. The visible progress is calculated from aggregate pending `.bin` bytes; physical suffixes and file counts are not exposed to the user.
 
-## Current development baseline (v1.54 field-validation candidate)
+## Current development baseline (v1.55 field-validation candidate)
 
-Recorder v1.54 is a dedicated automation field-validation build based on the v1.53 State-ownership/automation architecture and remains intended to interoperate with the existing SLM Bridge protocol. It is deliberately **observe-only**: automation detectors and virtual policy run continuously, but AUTO RECORDING, AUTO WIFI, and AUTO DELETE are not allowed to actuate recorder state, WiFi, or file deletion. Manual controls, faults, and the <=5% battery shutdown remain real.
+Recorder v1.55 is a dedicated automation field-validation build based on the v1.53 State-ownership/automation architecture and remains intended to interoperate with the existing SLM Bridge protocol. It is deliberately **observe-only**: automation detectors and virtual policy run continuously, but AUTO RECORDING, AUTO WIFI, and AUTO DELETE are not allowed to actuate recorder state, WiFi, or file deletion. Manual controls, faults, and the <=5% battery shutdown remain real.
 
 For this field-validation build:
 
@@ -284,15 +284,14 @@ For this field-validation build:
 - AUTO START is confirmed by either the existing 2 s three-axis motion RMS >=0.020 g for 1 s or a first-order 0.10 Hz high-pass on installation-aligned Nx/Ny with `max(|HP(Nx)|, |HP(Ny)|) >= 0.020 g` for 1 s.
 - Before `flight_seen`, the virtual AUTO session retains the 300 s continuous quiet nuisance timeout. Once `flight_seen` latches, motion quiet cannot end the virtual flight session.
 - Flight end reuses the continuous causal HIRMS/LOWRMS signals. A valid landing event requires HIRMS >=0.050 g for >=3 s, with normalized FlightGround >=0.10 during that same HIRMS event; after HIRMS falls below 0.050 g, FlightGround <=0.020 for 2 s within 25 s creates GROUND. FlightGround >=0.10 cancels GROUND; 50 s continuous GROUND confirms the virtual flight end.
-- AUTO DELETE is evaluated virtually only. A virtual automatic no-flight session logs `WOULD_AUTO_DELETE`; the physical `.bin` and `.sha` are never deleted by automation in v1.54.
+- AUTO DELETE is evaluated virtually only. A virtual automatic no-flight session logs `WOULD_AUTO_DELETE`; the physical `.bin` and `.sha` are never deleted by automation in v1.55.
 - AUTO WIFI is evaluated virtually only. The trace logs the intended policy: ON in virtual READY, OFF for confirmed motion or virtual recording, and ON again after 5 s quiet. Actual manual WiFi request/AP transitions are logged separately.
 - The diagnostic event stream is embedded reversibly in the SD-bound Nx/Ny/Nz copy only. The current sample is pushed first; diagnostic transitions are evaluated afterward and therefore normally appear one 50 ms sample later. `tools/automation_diag_decode.py` restores the original acceleration stream exactly and writes a separate event CSV.
+- **v1.55 file-analysis correction:** the recorder Web SLM decoder now removes the same reversible +/-20.001 g diagnostic axis offsets immediately after validating each stored 0x70 checksum and before converting acceleration to g or running HIRMS/LOWRMS flight analysis. This keeps diagnostic files analyzable directly on the recorder while leaving the stored diagnostic trace unchanged.
 - With USB absent, the display enters full standby after the normal inactivity delay. With USB present, the display remains on and dims to about 50% (`128/255`) after the same delay. Local activity restores full brightness.
 - Battery <=5% remains an unconditional controlled stop-and-shutdown threshold.
 
 Historical replay of the frozen AUTO logic on the current official/recovered data gives 190/190 pre-roll AUTO START coverage and 189/189 evaluable flight-end confirmations with zero premature stops and zero misses; `FCJAF_20260627_3.bin` is right-censored because its historical file ends at landing and contains no post-landing confirmation interval.
-
-The derivation of this logic, including the causal/offline comparison, historical data basis, nuisance-session treatment, AUTO DELETE rationale, AUTO WIFI policy, and the distinction between historical replay and prospective v1.54 field validation, is documented in `docs/06_automation_methodology.md`.
 
 The inherited v1.52 baseline also includes:
 
@@ -321,7 +320,7 @@ Measurements taken with a diagnostic endpoint that streamed a RAM pattern with n
 
 `calibration_service_refresh_status()` previously published the accelerometer calibration to `accel_driver` on every path, so `state_task` rewrote the driver coefficients twenty times a second and Web status polling wrote them as well. v1.51 separates the two concerns. Status recalculation stays where it was; publication moves to `calibration_service_publish_driver_state()`, which is called only by `state_task` and writes to the driver only when the effective calibration has actually changed. In steady state no driver write occurs. `calibration_service_refresh_status()` now takes the calibration-service mutex, because Web operator calibration actions call it from the asynchronous HTTP task.
 
-The repository firmware manifest identifies the v1.52 release image `SLM_recorder_20260822_v1_52.merged.bin`.
+The repository firmware manifest remains on the last compiled/hosted field image, v1.54 (`SLM_recorder_20260823_v1_54.merged.bin`). It shall be advanced to v1.55 only after a real ESP32-S3 v1.55 merged binary is compiled and hosted.
 
 
 ### Runtime settings ownership
